@@ -1,5 +1,5 @@
 {
-  "name": "hackj-plugins",
+  "name": "blumenkohlbinary-plugins",
   "description": "Personal Claude Code Plugin Marketplace by HackJ — Document Fusion, Text Compression, Multi-Agent Pipelines",
   "version": "1.0.0",
   "owner": {
@@ -7,8 +7,8 @@
     "url": "https://github.com/blumenkohlbinary"
   },
   "metadata": {
-    "homepage": "https://github.com/blumenkohlbinary/hackj-plugins",
-    "repository": "https://github.com/blumenkohlbinary/hackj-plugins",
+    "homepage": "https://github.com/blumenkohlbinary/blumenkohlbinary-plugins",
+    "repository": "https://github.com/blumenkohlbinary/blumenkohlbinary-plugins",
     "license": "MIT",
     "keywords": ["compression", "fusion", "document", "pipeline", "multi-agent"]
   },
@@ -20,7 +20,7 @@
       "author": { "name": "HackJ" },
       "category": "utilities",
       "source": "./plugins/tdo",
-      "homepage": "https://github.com/blumenkohlbinary/hackj-plugins"
+      "homepage": "https://github.com/blumenkohlbinary/blumenkohlbinary-plugins"
     }
   ]
 }

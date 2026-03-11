@@ -1,4 +1,4 @@
-# hackj-plugins — Claude Code Plugin Marketplace
+# blumenkohlbinary-plugins — Claude Code Plugin Marketplace
 
 Personal plugin marketplace for Claude Code.
 
@@ -31,10 +31,10 @@ Verlustfreie Dokumentkompression und Multi-Dokument-Fusion.
 
 ```bash
 # 1. Marketplace registrieren
-/plugin marketplace add https://github.com/blumenkohlbinary/hackj-plugins.git
+/plugin marketplace add https://github.com/blumenkohlbinary/blumenkohlbinary-plugins.git
 
 # 2. TDO Plugin installieren
-/plugin install tdo@hackj-plugins
+/plugin install tdo@blumenkohlbinary-plugins
 ```
 
 Danach in **Anpassen** > **Plugins** aktivieren/deaktivieren.
