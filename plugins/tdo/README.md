@@ -1,31 +1,32 @@
-# TDO v11.2 — Text Density Optimizer Plugin
+# TDO v11.2.2 — Text Density Optimizer Plugin
 
 ## Uebersicht
 
 | Feature | Beschreibung |
 |---------|-------------|
-| Kompression | 45-55% verlustfrei, 6-Stufen Engine |
-| Fusion | 8-Stufen Multi-Agent Pipeline |
+| Kompression | Dynamisch verlustfrei, waste-basiert |
+| Fusion | 8-Stufen Multi-Agent Pipeline (9 Stages) |
 | Verifikation | 5 Gates + CoVe + Self-Consistency |
-| Modelle | 2x Opus, 4x Sonnet, 2x Haiku |
+| Modelle | 2x Opus, 7x Sonnet |
 
 ## Commands
 
 | Command | Beschreibung |
 |---------|-------------|
-| `/tdo:compress` | Einzeldokument-Kompression (45-55%, verlustfrei) |
+| `/tdo:compress` | Einzeldokument-Kompression (dynamisch, verlustfrei) |
 | `/tdo:fuse-docs` | Multi-Dokument-Fusion (8-Stufen-Pipeline) |
 
 ## Pipeline-Stufen
 
-1. **Parser** (haiku) — Strukturextraktion aus Dokumenten in JSON
+1. **Parser** (sonnet) — Strukturextraktion aus Dokumenten in JSON
 2. **Dedup** (sonnet) — Woertliche + semantische Deduplizierung, UNIQUE-Tagging
 3. **Contradiction** (opus) — 6-Typ NLI-Widerspruchserkennung
 4. **Merger** (sonnet) — Graph-of-Thoughts + DARE-Text + TDO-Kompression
-5. **Architect** (sonnet) — Blueprint-Erstellung, Order Type Detection
-6. **Coherence** (sonnet) — Patchwork-Eliminierung, Ton-Harmonisierung
+5. **Architect** (sonnet) — Blueprint-Erstellung, Order Type Detection, Abschnitts-Autonomie
+6. **Coherence** (sonnet) — Patchwork-Eliminierung, Ton-Harmonisierung, Blog-Formatierung
 7. **Verification** (opus) — 5 Gates + CoVe + Self-Consistency
-8. **Finalizer** (haiku) — Reines Dokument + Pipeline-Report
+8a. **Cleaner** (sonnet) — Reines Dokument mit Kontexttitel, Executive Summary, TOC
+8b. **Reporter** (sonnet) — Metriken, Source Coverage, Checkliste, Pipeline-Report
 
 ## Skills (5)
 
@@ -37,7 +38,7 @@
 | dare-text-merger | Intern | DARE-Text Fusion (BASE + DELTAS + Reskalierung) |
 | cove-verifier | Intern | Chain-of-Verification Fact-Check |
 
-## Agents (9)
+## Agents (10)
 
 Alle Agents haben:
 - `permissionMode: acceptEdits` — Keine Permission-Prompts
@@ -46,21 +47,23 @@ Alle Agents haben:
 
 | Agent | Model | Color | Stufe |
 |-------|-------|-------|-------|
-| doc-parser-agent | haiku | cyan | 1 |
+| doc-parser-agent | sonnet | cyan | 1 |
 | semantic-dedup-agent | sonnet | blue | 2 |
 | contradiction-detector-agent | opus | red | 3 |
 | graph-merger-agent | sonnet | green | 4 |
 | doc-architect-agent | sonnet | magenta | 5 |
 | coherence-agent | sonnet | blue | 6 |
 | verification-agent | opus | yellow | 7 |
-| doc-finalizer-agent | haiku | green | 8 |
+| doc-cleaner-agent | sonnet | green | 8a |
+| doc-reporter-agent | sonnet | green | 8b |
 | doc-fusion-orchestrator | opus | cyan | Protokoll |
 
 ## Output
 
-- `stage-8-final.md` — Reines Enddokument (ohne Tags, ohne Metriken)
-- `stage-8-report.md` — Pipeline-Report (Source Coverage, Widerspruchsindex, Metriken)
+- `[kontexttitel].md` — Reines Enddokument (Blog-Stil, ohne Tags, ohne Metriken)
+- `stage-8-final.md` — Enddokument mit Kompressionsmetriken
+- `stage-8-report.md` — Pipeline-Report (Source Coverage, Widerspruchsindex, Metriken, Checkliste)
 
 ## Version
 
-v11.2.0 (2026-03-11)
+v11.2.2 (2026-03-12)
