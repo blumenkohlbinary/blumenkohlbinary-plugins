@@ -15,8 +15,8 @@
   "plugins": [
     {
       "name": "tdo",
-      "description": "TDO v11.2.1 — Dynamische verlustfreie Dokumentkompression und Multi-Dokument-Fusion mit 8-Stufen Multi-Agent Pipeline. 5 Skills, 9 Agents, Blog-Formatierung, CoVe-Verifikation, DARE-Text Merging.",
-      "version": "11.2.1",
+      "description": "TDO v11.2.2 — Dynamische verlustfreie Dokumentkompression und Multi-Dokument-Fusion mit 8-Stufen Multi-Agent Pipeline. 5 Skills, 10 Agents, Blog-Formatierung, CoVe-Verifikation, DARE-Text Merging.",
+      "version": "11.2.2",
       "author": { "name": "HackJ" },
       "category": "utilities",
       "source": "./plugins/tdo",

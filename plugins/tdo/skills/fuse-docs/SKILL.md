@@ -76,9 +76,14 @@ Dispatche `verification-agent` via Agent-Tool:
 - Prompt: "Lies das kohaerente Dokument (.tdo-pipeline/stage-6-coherent.md) und verifiziere es gegen alle Originale (.tdo-pipeline/stage-1-parsed/*.json) und die Protected Registry (.tdo-pipeline/protected-registry.json). Fuehre alle 5 Gates, CoVe-Check und Self-Consistency-Check durch. Schreibe nach .tdo-pipeline/stage-7-verification.md. Wende notwendige Patches direkt an. Befolge dein Agent-Protokoll vollstaendig. Gib nur eine kurze Statusmeldung zurueck."
 - Pruefe pipeline-state.json
 
-### Stage 8 — Finalisierung
-Dispatche `doc-finalizer-agent` via Agent-Tool:
-- Prompt: "Lies das verifizierte Dokument und den Verifikationsbericht (.tdo-pipeline/stage-7-verification.md). Erstelle ZWEI Dateien: stage-8-final.md (reines Dokument OHNE Tags) und stage-8-report.md (Pipeline-Report). Befolge dein Agent-Protokoll vollstaendig. Gib nur eine kurze Statusmeldung zurueck."
+### Stage 8a — Document Cleaning
+Dispatche `doc-cleaner-agent` via Agent-Tool:
+- Prompt: "Lies das verifizierte Dokument (.tdo-pipeline/stage-6-coherent.md) und den Verifikationsbericht (.tdo-pipeline/stage-7-verification.md). Erstelle ein reines, professionelles Dokument mit Kontexttitel, Executive Summary und TOC in .tdo-pipeline/[kontexttitel].md. Bereinige alle Pipeline-Tags. Schreibe den Kontexttitel in pipeline-state.json. Befolge dein Agent-Protokoll vollstaendig. Gib nur eine kurze Statusmeldung zurueck."
+- Pruefe pipeline-state.json
+
+### Stage 8b — Report & Metrics
+Dispatche `doc-reporter-agent` via Agent-Tool:
+- Prompt: "Lies das reine Dokument (Pfad aus pipeline-state.json → kontexttitel), den Verifikationsbericht und alle Pipeline-Artefakte. Erstelle stage-8-final.md (Dokument + Metriken) und stage-8-report.md (Pipeline-Report mit Source Coverage, Widerspruchsindex, Checkliste). Befolge dein Agent-Protokoll vollstaendig. Gib nur eine kurze Statusmeldung zurueck."
 - Pruefe pipeline-state.json
 
 ## Error Recovery (nach jeder Stage)
@@ -92,11 +97,14 @@ ELIF status == "FAIL": → Error Recovery anwenden (max 3 Retries)
 
 ## Finales Ergebnis ausgeben
 
-Nach Stage 8 (status: COMPLETE):
+Nach Stage 8b (status: COMPLETE):
 
-1. Lies `.tdo-pipeline/stage-8-final.md` — das REINE Dokument (ohne Pipeline-Tags, ohne Metriken)
-2. Gib den vollstaendigen Inhalt an den User zurueck
-3. Erwaehne: "Pipeline-Report mit allen Metriken, Source Coverage und Widerspruchsindex verfuegbar unter `.tdo-pipeline/stage-8-report.md`"
+1. Lies `kontexttitel` aus `.tdo-pipeline/pipeline-state.json`
+2. Teile dem User mit:
+   - Reines Dokument: `.tdo-pipeline/[kontexttitel].md`
+   - Pipeline-Output mit Metriken: `.tdo-pipeline/stage-8-final.md`
+   - Pipeline-Report: `.tdo-pipeline/stage-8-report.md`
+3. Gib NICHT den Dokumentinhalt im Chat aus — nur die Dateipfade
 4. Frage: "Pipeline-Artefakte in .tdo-pipeline/ beibehalten oder loeschen?"
 
 ## Monitoring-Output
@@ -104,12 +112,14 @@ Nach Stage 8 (status: COMPLETE):
 Gib nach jeder Stage ein Status-Update aus:
 
 ```
-=== TDO v11.2 Document Fusion Pipeline ===
+=== TDO v11.2.2 Document Fusion Pipeline ===
 Dokumente: [N]
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✅] Stage 1: Parsing         — [Status]
-[✅] Stage 2: Dedup           — [Status]
-[🔄] Stage 3: Contradictions  — in progress...
-[⏳] Stage 4-8                — pending
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[✅] Stage 1:  Parsing         — [Status]
+[✅] Stage 2:  Dedup           — [Status]
+[🔄] Stage 3:  Contradictions  — in progress...
+[⏳] Stage 4-7                 — pending
+[⏳] Stage 8a: Cleaning        — pending
+[⏳] Stage 8b: Report          — pending
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```

@@ -23,14 +23,15 @@ Dieses Dokument enthaelt das vollstaendige 8-Stufen-Orchestrierungs-Protokoll fu
 Hauptkonversation (Tiefe 0)
   │ Orchestrierungsprotokoll (dieses Dokument)
   │
-  ├→ Stage 1: doc-parser-agent        (Tiefe 1, haiku)
-  ├→ Stage 2: semantic-dedup-agent     (Tiefe 1, sonnet)
-  ├→ Stage 3: contradiction-detector   (Tiefe 1, opus)
-  ├→ Stage 4: graph-merger-agent       (Tiefe 1, sonnet)
-  ├→ Stage 5: doc-architect-agent      (Tiefe 1, sonnet)
-  ├→ Stage 6: coherence-agent          (Tiefe 1, sonnet)
-  ├→ Stage 7: verification-agent       (Tiefe 1, opus)
-  └→ Stage 8: doc-finalizer-agent      (Tiefe 1, haiku)
+  ├→ Stage 1:  doc-parser-agent        (Tiefe 1, sonnet)
+  ├→ Stage 2:  semantic-dedup-agent     (Tiefe 1, sonnet)
+  ├→ Stage 3:  contradiction-detector   (Tiefe 1, opus)
+  ├→ Stage 4:  graph-merger-agent       (Tiefe 1, sonnet)
+  ├→ Stage 5:  doc-architect-agent      (Tiefe 1, sonnet)
+  ├→ Stage 6:  coherence-agent          (Tiefe 1, sonnet)
+  ├→ Stage 7:  verification-agent       (Tiefe 1, opus)
+  ├→ Stage 8a: doc-cleaner-agent        (Tiefe 1, sonnet)
+  └→ Stage 8b: doc-reporter-agent       (Tiefe 1, sonnet)
 ```
 
 ## Pipeline-Verzeichnis initialisieren
@@ -68,7 +69,7 @@ Vor Stage 1, erstelle die Pipeline-Struktur:
 ---
 
 ### Stage 1 — Document Parser
-**Agent:** `doc-parser-agent` (haiku, maxTurns: 10)
+**Agent:** `doc-parser-agent` (sonnet, maxTurns: 10)
 **Prompt:** "Lies alle Dokumente aus .tdo-pipeline/input/ und erstelle strukturierte JSON-Parses in .tdo-pipeline/stage-1-parsed/. Befolge dein Agent-Protokoll vollstaendig. Gib nur eine kurze Statusmeldung zurueck."
 **Output:** `.tdo-pipeline/stage-1-parsed/doc-N.json`
 
@@ -102,9 +103,14 @@ Vor Stage 1, erstelle die Pipeline-Struktur:
 **Prompt:** "Lies das kohaerente Dokument (.tdo-pipeline/stage-6-coherent.md) und verifiziere es gegen alle Originale (.tdo-pipeline/stage-1-parsed/*.json) und die Protected Registry (.tdo-pipeline/protected-registry.json). Fuehre alle 5 Gates, CoVe-Check und Self-Consistency-Check durch. Schreibe nach .tdo-pipeline/stage-7-verification.md. Wende notwendige Patches direkt an. Befolge dein Agent-Protokoll vollstaendig. Gib nur eine kurze Statusmeldung zurueck."
 **Output:** `.tdo-pipeline/stage-7-verification.md`
 
-### Stage 8 — Finalization
-**Agent:** `doc-finalizer-agent` (haiku, maxTurns: 10)
-**Prompt:** "Lies das verifizierte Dokument und den Verifikationsbericht (.tdo-pipeline/stage-7-verification.md). Erstelle ZWEI Dateien: stage-8-final.md (reines Dokument OHNE Tags) und stage-8-report.md (Pipeline-Report). Befolge dein Agent-Protokoll vollstaendig. Gib nur eine kurze Statusmeldung zurueck."
+### Stage 8a — Document Cleaning
+**Agent:** `doc-cleaner-agent` (sonnet, maxTurns: 10)
+**Prompt:** "Lies das verifizierte Dokument (.tdo-pipeline/stage-6-coherent.md) und den Verifikationsbericht (.tdo-pipeline/stage-7-verification.md). Erstelle ein reines, professionelles Dokument mit Kontexttitel, Executive Summary und TOC in .tdo-pipeline/[kontexttitel].md. Bereinige alle Pipeline-Tags. Schreibe den Kontexttitel in pipeline-state.json. Befolge dein Agent-Protokoll vollstaendig. Gib nur eine kurze Statusmeldung zurueck."
+**Output:** `.tdo-pipeline/[kontexttitel].md`
+
+### Stage 8b — Report & Metrics
+**Agent:** `doc-reporter-agent` (sonnet, maxTurns: 10)
+**Prompt:** "Lies das reine Dokument (Pfad aus pipeline-state.json → kontexttitel), den Verifikationsbericht und alle Pipeline-Artefakte. Erstelle stage-8-final.md (Dokument + Metriken) und stage-8-report.md (Pipeline-Report mit Source Coverage, Widerspruchsindex, Checkliste). Befolge dein Agent-Protokoll vollstaendig. Gib nur eine kurze Statusmeldung zurueck."
 **Output:** `stage-8-final.md` + `stage-8-report.md`
 
 ---
@@ -124,13 +130,15 @@ Dieser Agent kann auch standalone aufgerufen werden (ohne /tdo:fuse-docs Skill).
 ## Monitoring-Output
 
 ```
-=== TDO v11.2 Document Fusion Pipeline ===
+=== TDO v11.2.2 Document Fusion Pipeline ===
 Dokumente: [N]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[✅] Stage 1: Parsing         — [N] docs, [N] sections
-[✅] Stage 2: Dedup           — [N] duplicates, [N] unique
-[✅] Stage 3: Contradictions  — B1:[N] B2:[N] B3:[N]
-[🔄] Stage 4: Merging         — in progress...
-[⏳] Stage 5-8                — pending
+[✅] Stage 1:  Parsing         — [N] docs, [N] sections
+[✅] Stage 2:  Dedup           — [N] duplicates, [N] unique
+[✅] Stage 3:  Contradictions  — B1:[N] B2:[N] B3:[N]
+[🔄] Stage 4:  Merging         — in progress...
+[⏳] Stage 5-7                 — pending
+[⏳] Stage 8a: Cleaning        — pending
+[⏳] Stage 8b: Report          — pending
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```

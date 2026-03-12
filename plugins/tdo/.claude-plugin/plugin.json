@@ -1,6 +1,6 @@
 {
   "name": "tdo",
-  "version": "11.2.1",
+  "version": "11.2.2",
   "description": "Text Density Optimizer — Dynamische verlustfreie Dokumentkompression und Multi-Dokument-Fusion mit 8-Stufen-Pipeline",
   "author": {
     "name": "HackJ"
