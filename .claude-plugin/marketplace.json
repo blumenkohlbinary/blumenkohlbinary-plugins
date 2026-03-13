@@ -10,7 +10,7 @@
     "homepage": "https://github.com/blumenkohlbinary/kohlosseum",
     "repository": "https://github.com/blumenkohlbinary/kohlosseum",
     "license": "MIT",
-    "keywords": ["plugins", "multi-agent", "compression", "fusion", "document", "pipeline", "tooling"]
+    "keywords": ["plugins", "multi-agent", "compression", "fusion", "document", "pipeline", "tooling", "refactoring", "clean-code"]
   },
   "plugins": [
     {
@@ -20,6 +20,15 @@
       "author": { "name": "HackJ" },
       "category": "utilities",
       "source": "./plugins/tdo",
+      "homepage": "https://github.com/blumenkohlbinary/kohlosseum"
+    },
+    {
+      "name": "refactoring",
+      "description": "Universal Code Refactoring v1.0.0 — Diszipliniertes Refactoring fuer alle Programmiersprachen. Fowler Catalog, SOLID, Clean Code, DRY/KISS/YAGNI. 2 Skills, 2 Opus Agents, Verification Gates, Structured CoT.",
+      "version": "1.0.0",
+      "author": { "name": "HackJ" },
+      "category": "development",
+      "source": "./plugins/refactoring",
       "homepage": "https://github.com/blumenkohlbinary/kohlosseum"
     }
   ]
