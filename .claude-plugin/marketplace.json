@@ -3,7 +3,7 @@
   "description": "Kohlosseum — Claude Code Plugin Arena by HackJ. Multi-Agent Pipelines, Document Fusion, AI-Powered Tooling.",
   "version": "1.0.0",
   "owner": {
-    "name": "HackJ",
+    "name": "blumenkohlbinary",
     "url": "https://github.com/blumenkohlbinary"
   },
   "metadata": {
@@ -17,7 +17,7 @@
       "name": "tdo",
       "description": "TDO v11.2.2 — Dynamische verlustfreie Dokumentkompression und Multi-Dokument-Fusion mit 8-Stufen Multi-Agent Pipeline. 5 Skills, 10 Agents, Blog-Formatierung, CoVe-Verifikation, DARE-Text Merging.",
       "version": "11.2.2",
-      "author": { "name": "HackJ" },
+      "author": { "name": "blumenkohlbinary" },
       "category": "utilities",
       "source": "./plugins/tdo",
       "homepage": "https://github.com/blumenkohlbinary/kohlosseum"
@@ -26,7 +26,7 @@
       "name": "refactoring",
       "description": "Universal Code Refactoring v1.0.0 — Diszipliniertes Refactoring fuer alle Programmiersprachen. Fowler Catalog, SOLID, Clean Code, DRY/KISS/YAGNI. 2 Skills, 2 Opus Agents, Verification Gates, Structured CoT.",
       "version": "1.0.0",
-      "author": { "name": "HackJ" },
+      "author": { "name": "blumenkohlbinary" },
       "category": "development",
       "source": "./plugins/refactoring",
       "homepage": "https://github.com/blumenkohlbinary/kohlosseum"

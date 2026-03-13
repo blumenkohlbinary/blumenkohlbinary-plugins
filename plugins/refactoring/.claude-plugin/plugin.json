@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Universal code refactoring for all programming languages — code smell detection, SOLID, Clean Code, DRY/KISS/YAGNI, safe transformations with structured verification",
   "author": {
-    "name": "HackJ"
+    "name": "blumenkohlbinary"
   },
   "keywords": ["refactoring", "clean-code", "code-smells", "solid", "dry", "kiss", "yagni"]
 }
