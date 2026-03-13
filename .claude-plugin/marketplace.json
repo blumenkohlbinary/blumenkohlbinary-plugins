@@ -1,7 +1,7 @@
 {
   "name": "kohlosseum",
   "description": "Kohlosseum — Claude Code Plugin Arena by blumenkohlbinary. Multi-Agent Pipelines, Document Fusion, Code Refactoring, AI-Powered Tooling.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "owner": {
     "name": "blumenkohlbinary",
     "url": "https://github.com/blumenkohlbinary"
@@ -10,14 +10,34 @@
     "homepage": "https://github.com/blumenkohlbinary/kohlosseum",
     "repository": "https://github.com/blumenkohlbinary/kohlosseum",
     "license": "MIT",
-    "keywords": ["plugins", "multi-agent", "compression", "fusion", "document", "pipeline", "tooling", "refactoring", "clean-code", "performance", "concurrency", "confidence-scoring"]
+    "keywords": [
+      "plugins",
+      "multi-agent",
+      "compression",
+      "fusion",
+      "document",
+      "pipeline",
+      "tooling",
+      "refactoring",
+      "clean-code",
+      "performance",
+      "concurrency",
+      "confidence-scoring",
+      "code-review",
+      "security",
+      "owasp",
+      "cwe",
+      "deep-review"
+    ]
   },
   "plugins": [
     {
       "name": "tdo",
       "description": "TDO v11.2.2 — Dynamische verlustfreie Dokumentkompression und Multi-Dokument-Fusion mit 8-Stufen Multi-Agent Pipeline. 5 Skills, 10 Agents, Blog-Formatierung, CoVe-Verifikation, DARE-Text Merging.",
       "version": "11.2.2",
-      "author": { "name": "blumenkohlbinary" },
+      "author": {
+        "name": "blumenkohlbinary"
+      },
       "category": "utilities",
       "source": "./plugins/tdo",
       "homepage": "https://github.com/blumenkohlbinary/kohlosseum"
@@ -26,9 +46,22 @@
       "name": "refactoring",
       "description": "Universal Code Refactoring v2.0.0 — Diszipliniertes Refactoring fuer alle Programmiersprachen. Fowler Catalog, SOLID, Clean Code, DRY/KISS/YAGNI, Performance Anti-Patterns, Concurrency, Error Handling, Testing Quality, Architecture. 2 Skills, 2 Opus Agents, Confidence Scoring (0-100), NASA/CERT/MISRA Standards, 8-Point Verification Gate.",
       "version": "2.0.0",
-      "author": { "name": "blumenkohlbinary" },
+      "author": {
+        "name": "blumenkohlbinary"
+      },
       "category": "development",
       "source": "./plugins/refactoring",
+      "homepage": "https://github.com/blumenkohlbinary/kohlosseum"
+    },
+    {
+      "name": "deep-review",
+      "description": "Deep Code Review v1.0.0 — 31 checks across 8 categories for all programming languages. OWASP Top 10, CWE taint analysis, performance anti-patterns (N+1, O(n2), Blocking I/O), concurrency issues (TOCTOU, Deadlock), resilience defects (Resource Leak, Swallowed Exception), API design, testing quality, architecture analysis. 8 parallel Sonnet specialist agents synthesized by an Opus Critic-Agent with confidence scoring (0-100) and false-positive filtering.",
+      "version": "1.0.0",
+      "author": {
+        "name": "blumenkohlbinary"
+      },
+      "category": "development",
+      "source": "./plugins/deep-review",
       "homepage": "https://github.com/blumenkohlbinary/kohlosseum"
     }
   ]

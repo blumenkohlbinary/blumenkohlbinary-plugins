@@ -1,0 +1,9 @@
+{
+  "name": "deep-review",
+  "version": "1.0.0",
+  "description": "Deep Code Review for all programming languages — OWASP/CWE security analysis, performance anti-patterns, concurrency issues, resilience/error-handling, API design, testing quality, maintainability, and architecture. 8 specialized Sonnet agents running in parallel, synthesized by an Opus Critic-Agent with confidence scoring (0-100) and false-positive filtering.",
+  "author": {
+    "name": "blumenkohlbinary"
+  },
+  "keywords": ["code-review", "security", "owasp", "cwe", "performance", "concurrency", "resilience", "api-design", "testing", "architecture", "confidence-scoring"]
+}
