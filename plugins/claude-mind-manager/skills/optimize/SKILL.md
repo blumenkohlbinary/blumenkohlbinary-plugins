@@ -51,7 +51,7 @@ Categorize findings:
 ### Step 5: Check Pending Suggestions
 
 Read `.claude-mind/suggestions.md` if it exists — these are CLAUDE.md update suggestions
-collected automatically by the SessionEnd hook. Include them in the optimization plan.
+collected automatically by the Stop hook. Include them in the optimization plan.
 
 ### Step 6: Add Inline Checks
 

@@ -1,8 +1,9 @@
 #!/bin/bash
-# Claude Mind Manager — Stop Hook (Auto-Save + Learnings)
+# Claude Mind Manager — Stop Hook (Auto-Save + Learnings + Session Summary)
 # Periodically saves active context during conversation (every N messages).
 # Writes to .claude/rules/active-context.md (auto-loaded in project scope).
-# Also extracts learnings (corrections, errors, decisions) to .claude-mind/learnings/.
+# Extracts learnings (corrections, errors, decisions) to .claude-mind/learnings/.
+# Creates session summaries every 2x save interval to .claude-mind/sessions/.
 # Cost: zero API calls — pure file operations.
 
 INPUT=$(cat)
@@ -102,8 +103,57 @@ Apply these to avoid repeating past mistakes.
 ${RECENT_LEARNINGS:-No learnings recorded yet.}
 CTXEOF
 
-# --- Extract learnings (corrections, errors, decisions) ---
+# --- Session summary (every 2x save interval) ---
 MIND_DIR="$PROJECT_DIR/.claude-mind"
+SUMMARY_INTERVAL=$((SAVE_INTERVAL * 2))
+if [ $((COUNT % SUMMARY_INTERVAL)) -eq 0 ]; then
+  SESSIONS_DIR="$MIND_DIR/sessions"
+  mkdir -p "$SESSIONS_DIR"
+  SESSION_TS=$(date '+%Y-%m-%d-%H%M')
+  SESSION_FILE="$SESSIONS_DIR/session-${SESSION_TS}.md"
+
+  S_DECISIONS=$(echo "$RAW_CONTEXT" | grep -iE '(decided|chose|using|switched to|went with|selected)' 2>/dev/null | head -5)
+  S_ERRORS=$(echo "$RAW_CONTEXT" | grep -iE '(error|failed|exception|fix|bug)' 2>/dev/null | head -5)
+  S_FILE_CHANGES=$(tail -"$CONTEXT_TAIL_LINES" "$TRANSCRIPT_PATH" 2>/dev/null | \
+    jq -r 'select(.type == "tool_use") | select(.name == "Write" or .name == "Edit") |
+      "\(.name): \(.input.file_path // "unknown" | tostring | .[0:80])"' 2>/dev/null | sort -u | head -10)
+  S_COMMANDS=$(tail -"$CONTEXT_TAIL_LINES" "$TRANSCRIPT_PATH" 2>/dev/null | \
+    jq -r 'select(.type == "tool_use") | select(.name == "Bash") |
+      .input.command // empty | .[0:80]' 2>/dev/null | head -8)
+
+  cat > "$SESSION_FILE" <<SESSEOF
+# Session Summary — ${SESSION_TS}
+
+- **Messages:** ${COUNT}
+- **Project:** ${PROJECT_DIR}
+
+## Decisions
+${S_DECISIONS:-_No explicit decisions detected._}
+
+## Errors Encountered
+${S_ERRORS:-_No errors detected._}
+
+## File Changes
+${S_FILE_CHANGES:-_No file changes detected._}
+
+## Key Commands
+${S_COMMANDS:-_No commands detected._}
+SESSEOF
+
+  # Detect new dependencies
+  NEW_DEPS=$(tail -"$CONTEXT_TAIL_LINES" "$TRANSCRIPT_PATH" 2>/dev/null | \
+    jq -r 'select(.type == "tool_use") | select(.name == "Bash") |
+      .input.command // empty' 2>/dev/null | \
+    grep -oE '(npm install|pip install|cargo add) [^ ]+' 2>/dev/null | sort -u)
+  if [ -n "$NEW_DEPS" ]; then
+    mkdir -p "$MIND_DIR"
+    echo "" >> "$MIND_DIR/suggestions.md"
+    echo "## Session ${SESSION_TS}" >> "$MIND_DIR/suggestions.md"
+    echo "- New dependencies: ${NEW_DEPS}" >> "$MIND_DIR/suggestions.md"
+  fi
+fi
+
+# --- Extract learnings (corrections, errors, decisions) ---
 LEARNINGS_DIR="$MIND_DIR/learnings"
 mkdir -p "$LEARNINGS_DIR"
 

@@ -22,6 +22,5 @@
     "cross-project",
     "compliance-rate",
     "templates"
-  ],
-  "hooks": "hooks/hooks.json"
+  ]
 }
