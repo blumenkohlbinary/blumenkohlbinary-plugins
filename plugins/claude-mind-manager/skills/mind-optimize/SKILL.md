@@ -1,15 +1,15 @@
 ---
-name: optimize
+name: mind-optimize
 description: |
-  Optimize context budget and resolve contradictions. Shortens verbose entries, modularizes
+  [Mind Manager] Optimize context budget and resolve contradictions. Shortens verbose entries, modularizes
   CLAUDE.md into rules, deduplicates across files, suggests @imports, resolves conflicts
   between CLAUDE.md/MEMORY.md/rules, migrates CLAUDE.local.md. Uses SFEIR compliance data.
   Also reads .claude-mind/suggestions.md for pending CLAUDE.md update suggestions.
 
   Use when the user says "optimize context", "reduce tokens", "mind optimize",
   "CLAUDE.md too long", "budget optimization", "token budget", "fix contradictions",
-  "resolve conflicts", "sync context", or "/mind:optimize".
-argument-hint: "[--dry-run]"
+  "resolve conflicts", "sync context", or "/mind-optimize".
+argument-hint: "[claude-md|memory|rules|all] [--dry-run]"
 context: inherit
 allowed-tools: Read Glob Grep Edit Write Bash Agent
 ---
@@ -26,20 +26,33 @@ Analyze context files, generate optimization plan with token savings estimates, 
 
 ### Step 1: Parse Arguments
 
-Check `$ARGUMENTS` for `--dry-run` flag. Dry-run shows plan without applying changes.
+Check `$ARGUMENTS` for flags and scope:
+- **Scope filter** (positional argument):
+  - `claude-md` — only optimize CLAUDE.md files (all scopes: shortening, modularization, @imports)
+  - `memory` — only optimize MEMORY.md and topic files (deduplication, offloading)
+  - `rules` — only optimize rule files (consolidation, globs fixes, dead rules)
+  - `all` (default if no scope given) — optimize everything
+- **--dry-run flag** — show plan without applying changes
+
+Examples: `/mind-optimize claude-md`, `/mind-optimize memory --dry-run`, `/mind-optimize --dry-run`
 
 ### Step 2: Dispatch Optimizer Agent
 
-Launch **context-optimizer** agent:
-"Analyze all context files and generate optimization suggestions: shortening, modularization into rules, progressive disclosure via @imports, deduplication, MEMORY.md offloading, missing .claudeignore. Estimate token savings for each suggestion. Order by impact."
+Launch **context-optimizer** agent with scope-aware prompt:
+- **claude-md**: "Analyze CLAUDE.md files (global, project, local) and suggest: shortening verbose entries, modularizing sections into rules, progressive disclosure via @imports. Estimate token savings per suggestion."
+- **memory**: "Analyze MEMORY.md and .claude-mind/ topic files. Suggest: deduplication, offloading large sections to topic files, removing stale entries. Estimate token savings."
+- **rules**: "Analyze .claude/rules/*.md files. Suggest: consolidation of overlapping rules, globs: fixes, removal of dead/unused rules. Estimate token savings."
+- **all**: "Analyze all context files and generate optimization suggestions: shortening, modularization into rules, progressive disclosure via @imports, deduplication, MEMORY.md offloading, missing .claudeignore. Estimate token savings for each suggestion. Order by impact."
 
 ### Step 3: Load Reference Data
 
 Read [references/quality-criteria.md](references/quality-criteria.md) for optimization patterns and anti-patterns.
 
-### Step 4: Detect Contradictions
+### Step 4: Detect Contradictions (only when scope is `all`)
 
-Launch **claude-md-analyzer** agent with focus on cross-file contradictions:
+Skip this step if scope is `claude-md`, `memory`, or `rules` — contradictions only make sense across file types.
+
+When scope is `all`, launch **claude-md-analyzer** agent with focus on cross-file contradictions:
 "Read all CLAUDE.md files (global, project, local), MEMORY.md, and rule files. Find contradictions: instructions that conflict, version mismatches, and redundant entries expressed differently. Report each with exact file:line references."
 
 Categorize findings:

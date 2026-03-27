@@ -1,14 +1,14 @@
 ---
-name: audit
+name: mind-audit
 description: |
-  Deep analysis of context health: detect duplicates between CLAUDE.md and MEMORY.md,
+  [Mind Manager] Deep analysis of context health: detect duplicates between CLAUDE.md and MEMORY.md,
   find contradictions, check for stale paths and versions, estimate compliance rate
   using SFEIR data, validate rules syntax (paths: vs globs: migration), find orphaned
   @imports, flag CLAUDE.local.md deprecation. Dispatches 4 specialized agents in parallel.
 
   Use when the user says "audit my context", "check context health", "mind audit",
   "find contradictions", "check for duplicates", "context problems", "compliance check",
-  or "/mind:audit".
+  or "/mind-audit".
 argument-hint: "[--focus memory|claude-md|rules|paths]"
 context: inherit
 allowed-tools: Read Glob Grep Bash Agent
@@ -101,15 +101,15 @@ Compliance Prognosis: ~XX% (SFEIR: N total instruction lines)
 | ~/.claude/CLAUDE.md | 62 | C | 55 | ~550 |
 
 ### Critical (action required)
-- MEMORY.md: 195/200 lines — overflow imminent → /mind:cleanup
-- CLAUDE.md:45 contradicts MEMORY.md:23 (test runner) → /mind:optimize
+- MEMORY.md: 195/200 lines — overflow imminent → /mind-cleanup
+- CLAUDE.md:45 contradicts MEMORY.md:23 (test runner) → /mind-optimize
 - @import @docs/api.md MISSING — silently ignored → fix path or remove
 
 ### Warnings
-- 2 rule files use paths: (known bug) → /mind:rules migrate
-- CLAUDE.local.md detected (deprecated) → /mind:optimize
-- CLAUDE.md:12-18 verbose (could save ~40 tokens) → /mind:optimize
-- MEMORY.md:34 stale path "src/old-module/" → /mind:cleanup
+- 2 rule files use paths: (known bug) → /mind-rules migrate
+- CLAUDE.local.md detected (deprecated) → /mind-optimize
+- CLAUDE.md:12-18 verbose (could save ~40 tokens) → /mind-optimize
+- MEMORY.md:34 stale path "src/old-module/" → /mind-cleanup
 
 ### Pain Points Detected
 - [1/8] Rules paths: bug — 2 files affected
@@ -117,14 +117,14 @@ Compliance Prognosis: ~XX% (SFEIR: N total instruction lines)
 - [7/8] CLAUDE.md at 180 lines — approaching degradation threshold
 
 ### Info
-- 3 duplicate entries across files → /mind:cleanup
-- .claudeignore missing → /mind:optimize
-- 2 optimization opportunities identified → /mind:optimize --dry-run
+- 3 duplicate entries across files → /mind-cleanup
+- .claudeignore missing → /mind-optimize
+- 2 optimization opportunities identified → /mind-optimize --dry-run
 
 ### Recommended Actions (priority order)
-1. /mind:cleanup — resolve overflow and stale entries
-2. /mind:rules migrate — fix paths: syntax
-3. /mind:optimize — resolve contradictions + compress
+1. /mind-cleanup — resolve overflow and stale entries
+2. /mind-rules migrate — fix paths: syntax
+3. /mind-optimize — resolve contradictions + compress
 ```
 
 ## Hard Constraints
@@ -133,4 +133,4 @@ Compliance Prognosis: ~XX% (SFEIR: N total instruction lines)
 - ALWAYS dispatch agents in parallel (not sequentially)
 - ALWAYS include specific file:line references for every finding
 - ALWAYS calculate health score using budget-thresholds.md rubric
-- ALWAYS recommend specific /mind: commands for each finding
+- ALWAYS recommend specific /mind-* commands for each finding

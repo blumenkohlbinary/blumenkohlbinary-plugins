@@ -1,14 +1,14 @@
 ---
-name: rules
+name: mind-rules
 description: |
-  Manage project rules (.claude/rules/*.md). List, validate syntax, create new rules,
+  [Mind Manager] Manage project rules (.claude/rules/*.md). List, validate syntax, create new rules,
   migrate from paths: to globs: (fixing the known bug where paths: silently fails).
   Supports alwaysApply workaround (rule without globs: = always loaded). Offers
   InstructionsLoaded debug mode to verify which files load.
 
   Use when the user says "manage rules", "check rules", "mind rules", "create a rule",
   "fix my rules", "rules not working", "paths to globs", "rules syntax check",
-  or "/mind:rules [list|check|create|migrate]".
+  or "/mind-rules [list|check|create|migrate]".
 argument-hint: "[list|check|create|migrate]"
 context: inherit
 allowed-tools: Read Glob Grep Edit Write Bash
@@ -80,7 +80,7 @@ Output:
 .claude/rules/testing.md   — WARNING: uses paths: instead of globs:
 ~/.claude/rules/global.md  — ERROR: paths: in user-level rules (never works)
 
-Fixable: 2 issues (run /mind:rules migrate)
+Fixable: 2 issues (run /mind-rules migrate)
 ```
 
 **With `--debug` flag:** Explain InstructionsLoaded hook:

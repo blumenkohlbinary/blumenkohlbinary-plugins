@@ -71,8 +71,8 @@
     },
     {
       "name": "claude-mind-manager",
-      "description": "Claude Mind Manager v2.0.2 — Comprehensive context management for Claude Code with quality scoring (0-100 + A-F grading), CLAUDE.md generation from templates, natural language search, auto-learnings via Korrektur-Flywheel, and session summaries. 11 skills, 5 agents, 5 lifecycle hooks. Solves 8 community pain points: MEMORY.md overflow, rules silently ignored (paths: bug), no context overview, contradictions, cross-project knowledge loss. SFEIR compliance prognosis, token budget optimization. Zero external dependencies.",
-      "version": "2.0.2",
+      "description": "Claude Mind Manager v2.1.0 — Comprehensive context management for Claude Code with quality scoring (0-100 + A-F grading), CLAUDE.md generation from templates, natural language search, auto-learnings via Korrektur-Flywheel, periodic backups (incl. transcript), and session summaries. 12 skills (/mind-* prefix), 5 agents, 5 lifecycle hooks with shared library. Solves 8 community pain points: MEMORY.md overflow, rules silently ignored (paths: bug), no context overview, contradictions, cross-project knowledge loss. SFEIR compliance prognosis, token budget optimization. Zero external dependencies.",
+      "version": "2.1.0",
       "author": {
         "name": "blumenkohlbinary"
       },

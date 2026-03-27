@@ -1,13 +1,13 @@
 ---
-name: cleanup
+name: mind-cleanup
 description: |
-  Interactive cleanup of context files with confirmation before each change. Removes
+  [Mind Manager] Interactive cleanup of context files with confirmation before each change. Removes
   stale entries, deduplicates, compacts overflowing MEMORY.md, migrates entries to
   topic files. Semi-automatic: exact duplicates and trailing whitespace auto-fixed,
   everything else requires confirmation.
 
   Use when the user says "clean up my context", "tidy memory", "mind cleanup",
-  "memory is full", "compact memory", "deduplicate", or "/mind:cleanup".
+  "memory is full", "compact memory", "deduplicate", or "/mind-cleanup".
 argument-hint: "[memory|claude-md|rules|all]"
 context: inherit
 allowed-tools: Read Glob Grep Edit Bash

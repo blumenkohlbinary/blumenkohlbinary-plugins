@@ -1,24 +1,13 @@
 #!/bin/bash
-# Claude Mind Manager — Stop Hook (Auto-Save + Learnings + Session Summary)
+# Claude Mind Manager — Stop Hook (Auto-Save + Learnings + Summary + Periodic Backup)
 # Saves active context on EVERY response (overwrite, no growth).
 # Extracts learnings every N messages, session summaries every 2N messages.
+# Creates periodic backups (incl. transcript) every BACKUP_INTERVAL messages.
 # Counter is per session_id (not per project) to handle Desktop chat switching.
 # Cost: zero API calls — pure file operations (~50ms).
 
-# --- Error logging ---
-LOG_FILE="/tmp/mind-manager-errors.log"
-exec 2>>"$LOG_FILE"
-
-# --- jq check ---
-if ! command -v jq &>/dev/null; then
-  echo "[$(date '+%H:%M:%S')] auto-save-context.sh: jq not found in PATH" >>"$LOG_FILE"
-  exit 0
-fi
-
-INPUT=$(cat)
-TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
-PROJECT_DIR=$(echo "$INPUT" | jq -r '.cwd // empty')
-SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
+source "$(dirname "$0")/lib.sh"
+mind_init "auto-save-context"
 
 if [ -z "$PROJECT_DIR" ] || [ -z "$TRANSCRIPT_PATH" ]; then
   exit 0
@@ -28,42 +17,13 @@ fi
 LEARNINGS_INTERVAL="${MIND_LEARNINGS_INTERVAL:-10}"
 CONTEXT_MAX_BYTES="${MIND_CONTEXT_MAX_BYTES:-8000}"
 CONTEXT_TAIL_LINES="${MIND_CONTEXT_TAIL_LINES:-150}"
+BACKUP_INTERVAL="${MIND_BACKUP_INTERVAL:-20}"
 
-# --- Message counter (per-session, in /tmp) ---
-# Use session_id if available, fall back to project hash
-if [ -n "$SESSION_ID" ]; then
-  COUNTER_KEY="$SESSION_ID"
-else
-  COUNTER_KEY=$(echo "$PROJECT_DIR" | tr '/\\: ' '----' | sed 's/^-*//')
-fi
-COUNTER_FILE="/tmp/mind-msg-count-${COUNTER_KEY}"
-
-# Read counter (incremented by session-tracker.sh on UserPromptSubmit)
-COUNT=0
-if [ -f "$COUNTER_FILE" ]; then
-  COUNT=$(cat "$COUNTER_FILE" 2>/dev/null || echo "0")
-fi
+# --- Read message counter ---
+COUNT=$(read_counter)
 
 # --- Extract context from transcript (ALWAYS) ---
-RAW_CONTEXT=""
-if [ -f "$TRANSCRIPT_PATH" ]; then
-  RAW_CONTEXT=$(tail -"$CONTEXT_TAIL_LINES" "$TRANSCRIPT_PATH" 2>/dev/null | \
-    jq -r '
-      select(.type == "assistant" or .role == "assistant") |
-      if .message then
-        (.message.content // empty) | if type == "array" then
-          map(select(.type == "text") | .text) | join("\n")
-        elif type == "string" then .
-        else empty end
-      elif .content then
-        if (.content | type) == "array" then
-          .content | map(select(.type == "text") | .text) | join("\n")
-        elif (.content | type) == "string" then .content
-        else empty end
-      else empty end
-    ' 2>/dev/null | \
-    tail -c "$CONTEXT_MAX_BYTES" 2>/dev/null)
-fi
+RAW_CONTEXT=$(extract_assistant_text "$TRANSCRIPT_PATH" "$CONTEXT_TAIL_LINES" "$CONTEXT_MAX_BYTES")
 
 if [ -z "$RAW_CONTEXT" ]; then
   exit 0
@@ -105,53 +65,18 @@ fi
 
 MIND_DIR="$PROJECT_DIR/.claude-mind"
 
+# --- Periodic backup (every BACKUP_INTERVAL messages) ---
+if [ $((COUNT % BACKUP_INTERVAL)) -eq 0 ]; then
+  BACKED_UP=$(create_backup "$PROJECT_DIR" "$TRANSCRIPT_PATH")
+  if [ "$BACKED_UP" -gt 0 ]; then
+    echo "[Mind Manager] Periodic backup: ${BACKED_UP} file(s) saved (message ${COUNT})"
+  fi
+fi
+
 # --- Session summary (every 2x learnings interval) ---
 SUMMARY_INTERVAL=$((LEARNINGS_INTERVAL * 2))
 if [ $((COUNT % SUMMARY_INTERVAL)) -eq 0 ]; then
-  SESSIONS_DIR="$MIND_DIR/sessions"
-  mkdir -p "$SESSIONS_DIR"
-  SESSION_TS=$(date '+%Y-%m-%d-%H%M')
-  SESSION_FILE="$SESSIONS_DIR/session-${SESSION_TS}.md"
-
-  S_DECISIONS=$(echo "$RAW_CONTEXT" | grep -iE '(decided|chose|using|switched to|went with|selected)' 2>/dev/null | head -5)
-  S_ERRORS=$(echo "$RAW_CONTEXT" | grep -iE '(error|failed|exception|fix|bug)' 2>/dev/null | head -5)
-  S_FILE_CHANGES=$(tail -"$CONTEXT_TAIL_LINES" "$TRANSCRIPT_PATH" 2>/dev/null | \
-    jq -r 'select(.type == "tool_use") | select(.name == "Write" or .name == "Edit") |
-      "\(.name): \(.input.file_path // "unknown" | tostring | .[0:80])"' 2>/dev/null | sort -u | head -10)
-  S_COMMANDS=$(tail -"$CONTEXT_TAIL_LINES" "$TRANSCRIPT_PATH" 2>/dev/null | \
-    jq -r 'select(.type == "tool_use") | select(.name == "Bash") |
-      .input.command // empty | .[0:80]' 2>/dev/null | head -8)
-
-  cat > "$SESSION_FILE" <<SESSEOF
-# Session Summary — ${SESSION_TS}
-
-- **Messages:** ${COUNT}
-- **Project:** ${PROJECT_DIR}
-
-## Decisions
-${S_DECISIONS:-_No explicit decisions detected._}
-
-## Errors Encountered
-${S_ERRORS:-_No errors detected._}
-
-## File Changes
-${S_FILE_CHANGES:-_No file changes detected._}
-
-## Key Commands
-${S_COMMANDS:-_No commands detected._}
-SESSEOF
-
-  # Detect new dependencies
-  NEW_DEPS=$(tail -"$CONTEXT_TAIL_LINES" "$TRANSCRIPT_PATH" 2>/dev/null | \
-    jq -r 'select(.type == "tool_use") | select(.name == "Bash") |
-      .input.command // empty' 2>/dev/null | \
-    grep -oE '(npm install|pip install|cargo add) [^ ]+' 2>/dev/null | sort -u)
-  if [ -n "$NEW_DEPS" ]; then
-    mkdir -p "$MIND_DIR"
-    echo "" >> "$MIND_DIR/suggestions.md"
-    echo "## Session ${SESSION_TS}" >> "$MIND_DIR/suggestions.md"
-    echo "- New dependencies: ${NEW_DEPS}" >> "$MIND_DIR/suggestions.md"
-  fi
+  write_session_summary "$PROJECT_DIR" "$TRANSCRIPT_PATH" "$COUNT" "$CONTEXT_TAIL_LINES" >/dev/null
 fi
 
 # --- Extract learnings (every N messages) ---
@@ -162,27 +87,7 @@ if [ $((COUNT % LEARNINGS_INTERVAL)) -eq 0 ]; then
   TODAY=$(date '+%Y-%m-%d')
   LEARNINGS_FILE="$LEARNINGS_DIR/session-${TODAY}.md"
 
-  LEARNINGS=""
-  if [ -f "$TRANSCRIPT_PATH" ]; then
-    LEARNINGS=$(tail -"$CONTEXT_TAIL_LINES" "$TRANSCRIPT_PATH" 2>/dev/null | \
-      jq -r '
-        select(.type == "assistant" or .role == "assistant") |
-        if .message then
-          (.message.content // empty) | if type == "array" then
-            map(select(.type == "text") | .text) | join("\n")
-          elif type == "string" then .
-          else empty end
-        elif .content then
-          if (.content | type) == "array" then
-            .content | map(select(.type == "text") | .text) | join("\n")
-          elif (.content | type) == "string" then .content
-          else empty end
-        else empty end
-      ' 2>/dev/null | \
-      grep -iE '(instead of|should have|fix(ed)?:|error:|mistake|correction|NEVER |MUST |ALWAYS |decided to|chose |switched from|changed .* to |the issue was|root cause|workaround)' 2>/dev/null | \
-      head -30 | \
-      sed 's/^[[:space:]]*/- /' 2>/dev/null)
-  fi
+  LEARNINGS=$(extract_learnings "$TRANSCRIPT_PATH" "$CONTEXT_TAIL_LINES")
 
   if [ -n "$LEARNINGS" ]; then
     if [ ! -f "$LEARNINGS_FILE" ]; then
@@ -194,12 +99,10 @@ if [ $((COUNT % LEARNINGS_INTERVAL)) -eq 0 ]; then
 LEOF
     fi
 
-    cat >> "$LEARNINGS_FILE" <<LEOF
-## Extract at $(date '+%H:%M:%S') (message ${COUNT})
+    atomic_append "$LEARNINGS_FILE" "## Extract at $(date '+%H:%M:%S') (message ${COUNT})
 
 ${LEARNINGS}
-
-LEOF
+"
   fi
 fi
 

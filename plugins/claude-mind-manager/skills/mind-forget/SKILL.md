@@ -1,12 +1,12 @@
 ---
-name: forget
+name: mind-forget
 description: |
-  Search for and remove specific entries from context files. Searches across CLAUDE.md
+  [Mind Manager] Search for and remove specific entries from context files. Searches across CLAUDE.md
   (all scopes), MEMORY.md, rules, and topic files with case-insensitive matching.
   Shows surrounding context before removal to prevent accidental deletions.
 
   Use when the user says "forget this", "remove from memory", "mind forget",
-  "delete that rule", "remove the preference about...", or "/mind:forget [search term]".
+  "delete that rule", "remove the preference about...", or "/mind-forget [search term]".
 argument-hint: "<search term>"
 context: inherit
 allowed-tools: Read Glob Grep Edit

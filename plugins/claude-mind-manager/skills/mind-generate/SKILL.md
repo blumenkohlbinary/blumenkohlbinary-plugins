@@ -1,14 +1,14 @@
 ---
-name: generate
+name: mind-generate
 description: |
-  Generate or rewrite a project-level CLAUDE.md from scratch. Scans the repo for tech stack,
+  [Mind Manager] Generate or rewrite a project-level CLAUDE.md from scratch. Scans the repo for tech stack,
   project type, build commands, and directory structure using the project-scanner agent.
   Selects a matching template, applies best-practices rules, and produces a concise,
   high-compliance CLAUDE.md (target: 40-80 lines).
 
   Use when the user says "generate claude.md", "create claude.md", "mind generate",
   "init context", "bootstrap claude.md", "scaffold context", "write a claude.md",
-  "set up context", "make me a claude.md", or "/mind:generate".
+  "set up context", "make me a claude.md", or "/mind-generate".
 argument-hint: "[--rewrite]"
 context: inherit
 allowed-tools: Read Glob Grep Write Bash Agent
@@ -37,7 +37,7 @@ Glob for `./CLAUDE.md` and `./.claude/CLAUDE.md` in the project root.
 - **If found AND `--rewrite` NOT specified**: Stop immediately. Print:
   ```
   CLAUDE.md already exists at <path> (<N> lines).
-  Use --rewrite to overwrite: /mind:generate --rewrite
+  Use --rewrite to overwrite: /mind-generate --rewrite
   ```
 - **If found AND `--rewrite` specified**: Continue. The existing file will be replaced.
 - **If not found**: Continue with fresh generation.

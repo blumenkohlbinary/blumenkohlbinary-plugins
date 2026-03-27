@@ -1,7 +1,7 @@
 ---
-name: search
+name: mind-search
 description: |
-  Natural language search across all context files, session learnings, and session
+  [Mind Manager] Natural language search across all context files, session learnings, and session
   summaries. Searches CLAUDE.md (all scopes), MEMORY.md, .claude/rules/, .claude-mind/
   topic files, learnings, and session summaries. Results sorted by relevance with
   progressive disclosure.
@@ -9,7 +9,7 @@ description: |
   Use when the user says "search context", "find in memory", "mind search",
   "search for", "what do I know about", "do I have a rule for", "look up",
   "where did I save", "find in claude.md", "search rules", "grep context",
-  "what did I remember about", or "/mind:search".
+  "what did I remember about", or "/mind-search".
 argument-hint: "<query> [--deep]"
 context: inherit
 allowed-tools: Read Glob Grep
@@ -31,7 +31,7 @@ Extract from `$ARGUMENTS`:
 - **query**: everything before `--deep` (trim whitespace)
 - **deep mode**: true if `--deep` flag is present
 
-If query is empty, respond: "Usage: /mind:search <query> [--deep]" and stop.
+If query is empty, respond: "Usage: /mind-search <query> [--deep]" and stop.
 
 ### Step 2: Define Search Locations
 
@@ -96,7 +96,7 @@ Always end with:
 --- Mind Search: X matches in Y files (query: "...") ---
 ```
 
-If zero matches: "No matches found. Try broader terms or check /mind:status for indexed files."
+If zero matches: "No matches found. Try broader terms or check /mind-status for indexed files."
 
 ## Hard Constraints
 

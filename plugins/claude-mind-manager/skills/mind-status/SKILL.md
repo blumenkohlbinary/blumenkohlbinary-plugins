@@ -1,14 +1,14 @@
 ---
-name: status
+name: mind-status
 description: |
-  Show a complete dashboard of all Claude Code context files: CLAUDE.md (all scopes
+  [Mind Manager] Show a complete dashboard of all Claude Code context files: CLAUDE.md (all scopes
   including Enterprise), MEMORY.md, topic files, rules, @imports, .claudeignore, MCP
   servers, skills, agents, and active plugins. Displays line counts, estimated token
   usage, and a health score (0-100) with compliance rate prognosis.
 
   Use when the user says "mind status", "context status", "show my context",
   "how much context am I using", "memory status", "context overview",
-  "what context files do I have", or "/mind:status".
+  "what context files do I have", or "/mind-status".
 argument-hint: "[--verbose]"
 context: inherit
 allowed-tools: Read Glob Grep Bash
@@ -103,8 +103,8 @@ Skills/Agents loaded: N skills, N agents (~2% context per skill)
 Compaction threshold: ~167,000 tokens
 
 Recommendations:
-- MEMORY.md near limit (185/200) → run /mind:cleanup
-- 1 rule uses paths: instead of globs: → run /mind:rules migrate
+- MEMORY.md near limit (185/200) → run /mind-cleanup
+- 1 rule uses paths: instead of globs: → run /mind-rules migrate
 ```
 
 If `--verbose`: show first 5 lines of each file as preview.

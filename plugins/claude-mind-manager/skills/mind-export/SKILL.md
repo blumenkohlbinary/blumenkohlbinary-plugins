@@ -1,13 +1,13 @@
 ---
-name: export
+name: mind-export
 description: |
-  Export all project context as a portable markdown bundle. Creates a single file
+  [Mind Manager] Export all project context as a portable markdown bundle. Creates a single file
   containing CLAUDE.md content, MEMORY.md, rules, topic files, and metadata.
   Useful for sharing context between machines, archiving before major changes,
   or preparing for cross-project import.
 
   Use when the user says "export context", "backup context", "mind export",
-  "save my context", "archive context", or "/mind:export [output-path]".
+  "save my context", "archive context", or "/mind-export [output-path]".
 argument-hint: "[output-path]"
 context: inherit
 allowed-tools: Read Glob Grep Write Bash
@@ -29,7 +29,7 @@ From `$ARGUMENTS` or default: `./mind-export-YYYY-MM-DD.md` (use Bash `date` for
 
 ### Step 2: Collect All Context Files
 
-Same discovery logic as /mind:status:
+Same discovery logic as /mind-status:
 - Global CLAUDE.md, Project CLAUDE.md, CLAUDE.local.md
 - MEMORY.md and all topic files
 - All rule files (.claude/rules/ and ~/.claude/rules/)

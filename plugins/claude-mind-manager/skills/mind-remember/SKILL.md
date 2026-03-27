@@ -1,7 +1,7 @@
 ---
-name: remember
+name: mind-remember
 description: |
-  Guided "remember this" — automatically classifies and sorts new knowledge into the
+  [Mind Manager] Guided "remember this" — automatically classifies and sorts new knowledge into the
   correct context file: CLAUDE.md for project conventions, MEMORY.md for learned
   patterns, .claude/rules/ for file-scoped rules, or ~/.claude/CLAUDE.md for global
   preferences. Supports --error mode for Korrektur-Flywheel (auto-formats as MUST/NEVER
@@ -9,7 +9,7 @@ description: |
 
   Use when the user says "remember this", "save this", "mind remember", "add to memory",
   "note this down", "store this", "keep this in mind", "don't forget",
-  or "/mind:remember [fact]". Use with --error when Claude made a mistake that
+  or "/mind-remember [fact]". Use with --error when Claude made a mistake that
   should become a rule.
 argument-hint: "[--error] <what to remember>"
 context: inherit
@@ -62,9 +62,9 @@ Your new entry: "Always use vitest instead of jest"
 ### Step 4: Check Budget
 
 - If target is MEMORY.md: check if adding will exceed 200-line limit
-  - If yes: "MEMORY.md is at 195/200 lines. Run /mind:cleanup first, or I'll add to a topic file instead."
+  - If yes: "MEMORY.md is at 195/200 lines. Run /mind-cleanup first, or I'll add to a topic file instead."
 - If target is CLAUDE.md: warn if total will exceed 200 lines
-  - Suggest modularization: "Consider using /mind:optimize to extract sections into rules"
+  - Suggest modularization: "Consider using /mind-optimize to extract sections into rules"
 
 ### Step 5: Format Entry
 

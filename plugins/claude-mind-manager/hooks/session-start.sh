@@ -3,22 +3,15 @@
 # Checks MEMORY.md and CLAUDE.md line counts, rules syntax, outputs context injection.
 # Exit 0 + stdout → injected as Claude context (SessionStart special behavior).
 
-LOG_FILE="/tmp/mind-manager-errors.log"
-exec 2>>"$LOG_FILE"
-if ! command -v jq &>/dev/null; then
-  echo "[$(date '+%H:%M:%S')] session-start.sh: jq not found" >>"$LOG_FILE"
-  exit 0
-fi
-
-INPUT=$(cat)
-PROJECT_DIR=$(echo "$INPUT" | jq -r '.cwd // empty')
+source "$(dirname "$0")/lib.sh"
+mind_init "session-start"
 
 if [ -z "$PROJECT_DIR" ]; then
   exit 0
 fi
 
 # --- Paths ---
-HASH=$(echo "$PROJECT_DIR" | tr '/\\: ' '----' | sed 's/^-*//')
+HASH=$(hash_project_dir "$PROJECT_DIR")
 MEMORY_FILE="$HOME/.claude/projects/$HASH/memory/MEMORY.md"
 MIND_DIR="$PROJECT_DIR/.claude-mind"
 
@@ -42,7 +35,7 @@ CLAUDE_MD_THRESHOLD="${MIND_CLAUDE_MD_MAX_LINES:-200}"
 if [ -f "$MEMORY_FILE" ]; then
   MEM_LINES=$(wc -l < "$MEMORY_FILE" | tr -d ' ')
   if [ "$MEM_LINES" -gt "$MEMORY_THRESHOLD" ]; then
-    WARNINGS="${WARNINGS}MEMORY.md: ${MEM_LINES}/200 lines (threshold: ${MEMORY_THRESHOLD}). Run /mind:cleanup to free space. "
+    WARNINGS="${WARNINGS}MEMORY.md: ${MEM_LINES}/200 lines (threshold: ${MEMORY_THRESHOLD}). Run /mind-cleanup to free space. "
     WARN_COUNT=$((WARN_COUNT + 1))
   fi
 else
@@ -55,7 +48,7 @@ for CMD_FILE in "$PROJECT_DIR/CLAUDE.md" "$PROJECT_DIR/.claude/CLAUDE.md"; do
     CMD_LINES=$(wc -l < "$CMD_FILE" | tr -d ' ')
     if [ "$CMD_LINES" -gt "$CLAUDE_MD_THRESHOLD" ]; then
       REL_PATH=$(echo "$CMD_FILE" | sed "s|$PROJECT_DIR/||")
-      WARNINGS="${WARNINGS}${REL_PATH}: ${CMD_LINES} lines (threshold: ${CLAUDE_MD_THRESHOLD}). Compliance may degrade (>400 lines = 71%). Run /mind:optimize. "
+      WARNINGS="${WARNINGS}${REL_PATH}: ${CMD_LINES} lines (threshold: ${CLAUDE_MD_THRESHOLD}). Compliance may degrade (>400 lines = 71%). Run /mind-optimize. "
       WARN_COUNT=$((WARN_COUNT + 1))
     fi
     break  # Only check first found
@@ -64,7 +57,7 @@ done
 
 # --- Check CLAUDE.local.md deprecation ---
 if [ -f "$PROJECT_DIR/CLAUDE.local.md" ]; then
-  WARNINGS="${WARNINGS}CLAUDE.local.md detected. Anthropic indicates deprecation — consider migrating to @imports. Run /mind:optimize. "
+  WARNINGS="${WARNINGS}CLAUDE.local.md detected. Anthropic indicates deprecation — consider migrating to @imports. Run /mind-optimize. "
   WARN_COUNT=$((WARN_COUNT + 1))
 fi
 
@@ -73,7 +66,7 @@ RULES_DIR="$PROJECT_DIR/.claude/rules"
 if [ -d "$RULES_DIR" ]; then
   BAD_RULES=$(grep -rl '^paths:' "$RULES_DIR"/*.md 2>/dev/null | wc -l | tr -d ' ')
   if [ "$BAD_RULES" -gt 0 ]; then
-    WARNINGS="${WARNINGS}${BAD_RULES} rule file(s) use 'paths:' (known bug, may be silently ignored). Run /mind:rules migrate to fix. "
+    WARNINGS="${WARNINGS}${BAD_RULES} rule file(s) use 'paths:' (known bug, may be silently ignored). Run /mind-rules migrate to fix. "
     WARN_COUNT=$((WARN_COUNT + 1))
   fi
 fi
@@ -81,7 +74,6 @@ fi
 # --- Check active context ---
 ACTIVE_CTX="$PROJECT_DIR/.claude/rules/active-context.md"
 if [ -f "$ACTIVE_CTX" ]; then
-  # Extract timestamp from frontmatter
   CTX_DATE=$(grep '^# Last updated:' "$ACTIVE_CTX" 2>/dev/null | sed 's/# Last updated: //')
   if [ -n "$CTX_DATE" ]; then
     WARNINGS="${WARNINGS}Active context from last session loaded (saved: ${CTX_DATE}). "
@@ -90,7 +82,6 @@ fi
 
 # --- Output ---
 if [ "$WARN_COUNT" -gt 0 ] || [ -f "$ACTIVE_CTX" ]; then
-  # Structured JSON for SessionStart context injection
   ESCAPED_WARNINGS=$(echo "$WARNINGS" | sed 's/"/\\"/g')
   printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"[Mind Manager] %d warning(s): %s"}}' \
     "$WARN_COUNT" "$ESCAPED_WARNINGS"

@@ -1,12 +1,12 @@
 ---
-name: import
+name: mind-import
 description: |
-  Import knowledge from other Claude Code projects. Discovers all projects via
+  [Mind Manager] Import knowledge from other Claude Code projects. Discovers all projects via
   ~/.claude/projects/, shows their MEMORY.md content, and allows selective import
-  into the current project. Uses the same classification logic as /mind:remember.
+  into the current project. Uses the same classification logic as /mind-remember.
 
   Use when the user says "import from project", "cross-project", "mind import",
-  "knowledge from other project", "bring over settings", or "/mind:import [project]".
+  "knowledge from other project", "bring over settings", or "/mind-import [project]".
 argument-hint: "[project-name or path]"
 context: inherit
 allowed-tools: Read Glob Grep Edit Write Bash
@@ -74,7 +74,7 @@ Example: 3-5, 12, 20-25
 
 ### Step 4: Classify Imported Entries
 
-For each selected entry, use the same classification logic as `/mind:remember`:
+For each selected entry, use the same classification logic as `/mind-remember`:
 - Project convention → CLAUDE.md
 - Learned pattern → MEMORY.md
 - File-scoped rule → .claude/rules/

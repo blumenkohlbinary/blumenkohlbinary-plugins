@@ -1,7 +1,7 @@
 {
   "name": "claude-mind-manager",
-  "version": "2.0.2",
-  "description": "Comprehensive context management for Claude Code with quality scoring (0-100 + A-F), CLAUDE.md generation, natural language search, auto-learnings, and session summaries. 11 skills, 5 agents, 5 lifecycle hooks. Zero external dependencies.",
+  "version": "2.1.0",
+  "description": "Comprehensive context management for Claude Code with quality scoring (0-100 + A-F), CLAUDE.md generation, natural language search, auto-learnings, periodic backups (incl. transcript), and session summaries. 12 skills, 5 agents, 5 lifecycle hooks. Zero external dependencies.",
   "author": {
     "name": "blumenkohlbinary"
   },
