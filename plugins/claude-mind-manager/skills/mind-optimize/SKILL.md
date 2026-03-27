@@ -66,28 +66,72 @@ Categorize findings:
 Read `.claude-mind/suggestions.md` if it exists — these are CLAUDE.md update suggestions
 collected automatically by the Stop hook. Include them in the optimization plan.
 
-### Step 5b: Aktualitäts-Check (Fehlende Informationen erkennen)
+### Step 5b: Selbstdiagnose — Fehlende/Veraltete Informationen erkennen
 
-This is the key differentiator — don't just optimize what exists, detect what's MISSING.
+**CRITICAL:** This step is NOT optional. It is the key differentiator of this plugin. Do NOT skip it. Execute ALL checks below using Read, Grep, Glob, and Bash tools directly (no agent needed).
 
-For the active scope (`claude-md`, `memory`, `rules`, or `all`), check these sources:
+**Check 1: Learnings → CLAUDE.md/MEMORY.md**
+```
+Glob: .claude-mind/learnings/session-*.md
+For each learning entry (lines starting with "- "):
+  → Grep the learning text (first 30 chars) against CLAUDE.md and MEMORY.md
+  → If NOT found in either → add to "Missing" list: "Learning not documented: <text>"
+```
 
-| Source | What to check | Action |
-|---|---|---|
-| `.claude-mind/learnings/session-*.md` | Learnings not yet reflected in CLAUDE.md or MEMORY.md | → Suggest: add entry |
-| `.claude-mind/sessions/session-*.md` | Decisions or errors that should be documented | → Suggest: update CLAUDE.md |
-| `/tmp/mind-manager.log` | Recurring ERROR/WARN patterns (grep for ERROR/WARN, count occurrences) | → Suggest: document known bug |
-| `git log --oneline -10` (if in git repo) | Version bumps or feature commits not reflected in CLAUDE.md | → Suggest: update version/feature info |
-| CLAUDE.md content itself | Outdated version numbers, file names, default values that don't match actual code | → Suggest: fix stale data |
-| MEMORY.md entries | Entries that contradict current code or are about removed features | → Suggest: remove or update |
+**Check 2: Debug-Log Recurring Errors**
+```
+Read: /tmp/mind-manager.log
+Grep for "ERROR" and "WARN" lines
+Group by message pattern (strip timestamps), count occurrences
+Any pattern appearing 3+ times → add to "Missing" list: "Recurring issue: <pattern> (Nx)"
+```
 
-**How to check staleness:** Read each CLAUDE.md section, then verify key claims:
-- Version numbers: compare with `plugin.json` or `package.json`
-- File paths: check if referenced files still exist
-- Default values: compare with actual code (e.g., env var defaults in lib.sh)
-- Feature descriptions: compare with current hook/skill behavior
+**Check 3: Session Decisions**
+```
+Glob: .claude-mind/sessions/session-*.md (last 3 files)
+Read the "## Decisions" section from each
+For each decision:
+  → Grep against CLAUDE.md
+  → If NOT found → add to "Missing" list: "Undocumented decision: <text>"
+```
 
-Present findings as a separate "Missing/Outdated Information" section in the optimization plan.
+**Check 4: Version Consistency**
+```
+Read: plugin.json (or package.json) → extract "version" field
+Read: CLAUDE.md → grep for version number patterns (e.g., "v2.3.0", "Version: 2.3.0")
+If versions differ → add to "Outdated" list: "CLAUDE.md says vX.Y.Z but plugin.json says vA.B.C"
+```
+
+**Check 5: Path Validity**
+```
+Read: CLAUDE.md
+Extract all file paths (patterns matching / or \ with extensions, or backtick-wrapped paths)
+For each path: check if file/directory exists
+Dead paths → add to "Outdated" list: "Dead path in CLAUDE.md: <path>"
+```
+
+**Check 6: Default Values**
+```
+Read: CLAUDE.md → extract all environment variable defaults (MIND_BACKUP_INTERVAL, etc.)
+Read: hooks/auto-save-context.sh + hooks/lib.sh → extract actual defaults from code
+Compare → mismatches go to "Outdated" list: "CLAUDE.md says default=X but code says Y"
+```
+
+**Output:** Present ALL findings as a separate section in the optimization plan:
+```
+=== Missing/Outdated Information ===
+
+Missing (should be added):
+[M1] Learning not documented: "vfs/refresh errors are non-critical warnings"
+[M2] Undocumented decision: "switched from exec 2>> to mind_log()"
+
+Outdated (should be updated):
+[O1] CLAUDE.md says v2.3.0 but plugin.json says v2.4.0
+[O2] Dead path: `hooks/mind-manager-errors.log` (renamed to mind-manager.log)
+[O3] Default mismatch: MIND_BACKUP_INTERVAL CLAUDE.md says 15, code says 10
+
+For each: [Apply / Skip]
+```
 
 ### Step 6: Add Inline Checks
 

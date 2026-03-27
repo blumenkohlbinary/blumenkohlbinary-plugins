@@ -94,13 +94,13 @@ Proceed? [Yes / No]
 
 ### Step 3C: Create Mode (default)
 
-Back up these files if they exist:
+Back up these files if they exist. For each file that does NOT exist, include a note in the report (e.g., "MEMORY.md: not found — no backup"):
 
 1. **MEMORY.md** from `~/.claude/projects/<HASH>/memory/MEMORY.md`
 2. **CLAUDE.md** from `./CLAUDE.md` or `./.claude/CLAUDE.md`
 3. **active-context.md** from `.claude/rules/active-context.md`
 4. **All rule files** from `.claude/rules/*.md` (except active-context.md) — bundled as `rules-TIMESTAMP.tar` or concatenated as `rules-TIMESTAMP.md`
-5. **Transcript** from the current session transcript path (if available via Bash `ls /tmp/claude-transcript-*` or similar)
+5. **Transcript** — find via: `ls -t ~/.claude/projects/<HASH>/*.jsonl 2>/dev/null | head -1` (most recent JSONL file for this project). If no JSONL found, try `ls -t ~/.claude/projects/<HASH>/transcript*.jsonl 2>/dev/null`. NOTE: Do NOT use `/tmp/claude-transcript-*` — that path does not exist on Windows.
 
 Use timestamp format: `YYYYMMDD-HHMMSS`
 Destination: `.claude-mind/backups/`
