@@ -24,6 +24,8 @@ if [ ! -d "$MIND_DIR" ]; then
   fi
 fi
 
+mind_log "session start (project=$(basename "$PROJECT_DIR"))"
+
 WARNINGS=""
 WARN_COUNT=0
 
@@ -82,9 +84,12 @@ fi
 
 # --- Output ---
 if [ "$WARN_COUNT" -gt 0 ] || [ -f "$ACTIVE_CTX" ]; then
+  mind_log "${WARN_COUNT} warning(s): ${WARNINGS}"
   ESCAPED_WARNINGS=$(echo "$WARNINGS" | sed 's/"/\\"/g')
   printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"[Mind Manager] %d warning(s): %s"}}' \
     "$WARN_COUNT" "$ESCAPED_WARNINGS"
+else
+  mind_log "no warnings"
 fi
 
 # --- Persist env vars for session ---

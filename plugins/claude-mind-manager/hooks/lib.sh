@@ -4,22 +4,45 @@
 # Usage: source "$(dirname "$0")/lib.sh"
 
 # --- Constants ---
-MIND_LOG_FILE="/tmp/mind-manager-errors.log"
+MIND_LOG_FILE="/tmp/mind-manager.log"
+MIND_LOG_MAX_LINES="${MIND_LOG_MAX_LINES:-500}"
+MIND_SCRIPT_NAME="unknown"
+
+# --- mind_log: Always-on logging with auto-rotation ---
+# Logs everything for continuous debugging. Auto-trims when exceeding max lines.
+# Args: $1 = level (INFO|WARN|ERROR, optional — default INFO), rest = message
+mind_log() {
+  local level="INFO"
+  if [[ "$1" =~ ^(INFO|WARN|ERROR)$ ]]; then
+    level="$1"; shift
+  fi
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${level} ${MIND_SCRIPT_NAME}: $*" >> "$MIND_LOG_FILE" 2>/dev/null
+  # Auto-rotate: trim to 60% when log exceeds max lines
+  if [ -f "$MIND_LOG_FILE" ]; then
+    local lines
+    lines=$(wc -l < "$MIND_LOG_FILE" 2>/dev/null || echo 0)
+    if [ "$lines" -gt "$MIND_LOG_MAX_LINES" ]; then
+      local keep=$(( MIND_LOG_MAX_LINES * 3 / 5 ))
+      tail -"$keep" "$MIND_LOG_FILE" > "${MIND_LOG_FILE}.tmp" 2>/dev/null && \
+        mv "${MIND_LOG_FILE}.tmp" "$MIND_LOG_FILE" 2>/dev/null
+    fi
+  fi
+}
 
 # --- mind_init: Standard preamble for all hooks ---
 # Sets: INPUT, PROJECT_DIR, TRANSCRIPT_PATH, SESSION_ID
 # Args: $1 = script name (for logging)
 mind_init() {
-  local script_name="${1:-unknown}"
-  exec 2>>"$MIND_LOG_FILE"
+  MIND_SCRIPT_NAME="${1:-unknown}"
   if ! command -v jq &>/dev/null; then
-    echo "[$(date '+%H:%M:%S')] ${script_name}: jq not found in PATH" >>"$MIND_LOG_FILE"
+    mind_log ERROR "jq not found in PATH"
     exit 0
   fi
   INPUT=$(cat)
   PROJECT_DIR=$(echo "$INPUT" | jq -r '.cwd // empty')
   TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
   SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
+  mind_log "init (session=${SESSION_ID:0:8}, project=$(basename "$PROJECT_DIR" 2>/dev/null))"
 }
 
 # --- hash_project_dir: Deterministic project hash ---

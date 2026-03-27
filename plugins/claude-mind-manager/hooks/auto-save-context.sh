@@ -17,7 +17,7 @@ fi
 LEARNINGS_INTERVAL="${MIND_LEARNINGS_INTERVAL:-10}"
 CONTEXT_MAX_BYTES="${MIND_CONTEXT_MAX_BYTES:-8000}"
 CONTEXT_TAIL_LINES="${MIND_CONTEXT_TAIL_LINES:-150}"
-BACKUP_INTERVAL="${MIND_BACKUP_INTERVAL:-20}"
+BACKUP_INTERVAL="${MIND_BACKUP_INTERVAL:-15}"
 
 # --- Read message counter ---
 COUNT=$(read_counter)
@@ -26,6 +26,7 @@ COUNT=$(read_counter)
 RAW_CONTEXT=$(extract_assistant_text "$TRANSCRIPT_PATH" "$CONTEXT_TAIL_LINES" "$CONTEXT_MAX_BYTES")
 
 if [ -z "$RAW_CONTEXT" ]; then
+  mind_log WARN "no context extracted from transcript"
   exit 0
 fi
 
@@ -57,6 +58,8 @@ ${RAW_CONTEXT}
 ${RECENT_LEARNINGS:-No learnings recorded yet.}
 CTXEOF
 
+mind_log "context saved (${#RAW_CONTEXT} bytes, msg ${COUNT})"
+
 # === Below: periodic tasks (only every N messages) ===
 
 if [ "$COUNT" -lt 1 ]; then
@@ -68,15 +71,17 @@ MIND_DIR="$PROJECT_DIR/.claude-mind"
 # --- Periodic backup (every BACKUP_INTERVAL messages) ---
 if [ $((COUNT % BACKUP_INTERVAL)) -eq 0 ]; then
   BACKED_UP=$(create_backup "$PROJECT_DIR" "$TRANSCRIPT_PATH")
+  mind_log "backup triggered (msg ${COUNT}, ${BACKED_UP} files)"
   if [ "$BACKED_UP" -gt 0 ]; then
     echo "[Mind Manager] Periodic backup: ${BACKED_UP} file(s) saved (message ${COUNT})"
   fi
 fi
 
-# --- Session summary (every 2x learnings interval) ---
-SUMMARY_INTERVAL=$((LEARNINGS_INTERVAL * 2))
+# --- Session summary (every MIND_SUMMARY_INTERVAL messages, default 20) ---
+SUMMARY_INTERVAL="${MIND_SUMMARY_INTERVAL:-20}"
 if [ $((COUNT % SUMMARY_INTERVAL)) -eq 0 ]; then
   write_session_summary "$PROJECT_DIR" "$TRANSCRIPT_PATH" "$COUNT" "$CONTEXT_TAIL_LINES" >/dev/null
+  mind_log "summary written (msg ${COUNT})"
 fi
 
 # --- Extract learnings (every N messages) ---
@@ -103,6 +108,7 @@ LEOF
 
 ${LEARNINGS}
 "
+    mind_log "learnings extracted (msg ${COUNT})"
   fi
 fi
 

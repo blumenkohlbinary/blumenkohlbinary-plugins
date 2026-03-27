@@ -15,6 +15,7 @@ MSG_COUNT=$(read_counter)
 
 # Skip trivially short sessions (< 3 messages)
 if [ "$MSG_COUNT" -lt 3 ]; then
+  mind_log "session end skipped (only ${MSG_COUNT} messages)"
   rm -f "$(get_counter_file)"
   exit 0
 fi
@@ -29,6 +30,7 @@ SUMMARY_FILE=$(write_session_summary "$PROJECT_DIR" "$TRANSCRIPT_PATH" "$MSG_COU
 rm -f "$(get_counter_file)"
 
 # --- Report ---
+mind_log "session end (${MSG_COUNT} messages, ${BACKED_UP} files backed up, summary: $(basename "$SUMMARY_FILE"))"
 echo "[Mind Manager] Session ended: ${MSG_COUNT} messages, ${BACKED_UP} file(s) backed up -> $(basename "$SUMMARY_FILE")"
 
 exit 0

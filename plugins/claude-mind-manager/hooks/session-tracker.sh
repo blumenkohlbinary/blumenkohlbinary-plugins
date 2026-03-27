@@ -13,5 +13,6 @@ fi
 COUNT=$(read_counter)
 COUNT=$((COUNT + 1))
 atomic_write_counter "$COUNT"
+mind_log "counter: ${COUNT}"
 
 exit 0

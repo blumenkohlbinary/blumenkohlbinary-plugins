@@ -13,11 +13,15 @@ fi
 TRIGGER=$(echo "$INPUT" | jq -r '.trigger // "unknown"')
 
 # --- Create backup (with transcript) ---
-BACKED_UP=$(create_backup "$PROJECT_DIR" "$TRANSCRIPT_PATH")
+BACKED_UP=$(create_backup "$PROJECT_DIR" "$TRANSCRIPT_PATH" 2>/dev/null)
 
 # --- Report ---
-if [ "$BACKED_UP" -gt 0 ]; then
+if [ -n "$BACKED_UP" ] && [ "$BACKED_UP" -gt 0 ]; then
+  mind_log "pre-compact backup: ${BACKED_UP} files (trigger: ${TRIGGER})"
   echo "[Mind Manager] Pre-compact backup: ${BACKED_UP} file(s) saved (trigger: ${TRIGGER})"
+else
+  mind_log "Pre-compact backup failed or no files to back up (trigger: ${TRIGGER})"
+  echo "[Mind Manager] Pre-compact: no files backed up (trigger: ${TRIGGER})"
 fi
 
 exit 0
