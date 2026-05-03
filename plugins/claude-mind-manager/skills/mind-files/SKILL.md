@@ -9,6 +9,7 @@ description: |
   Use when the user says "setup project", "check project files", "mind files",
   "scaffold", "init project", "bootstrap project", "check setup",
   or "/mind-files".
+argument-hint: ""
 context: inherit
 allowed-tools: Read Glob Grep Write Bash Agent
 ---
@@ -218,6 +219,12 @@ For each confirmed action:
 - Keep under 30 lines
 
 ### Improving existing files:
+
+**Pre-Edit Read (MUST):** Vor JEDEM Edit existierender Datei: Read tool zuerst
+aufrufen. Auch wenn Step 4 Best-Practice-Checks gemacht hat — Claude's Edit-Tool
+benoetigt einen Read im selben Tool-Call-Kontext, sonst Crash mit
+`<tool_use_error>File has not been read yet`. (Fuer neue Files mit Write ist
+KEIN vorheriger Read noetig.)
 
 | Improvement | Tool | Aktion |
 |---|---|---|

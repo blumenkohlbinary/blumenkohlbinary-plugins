@@ -10,6 +10,7 @@ description: |
   Use when the user says "check memory", "optimize memory", "mind memory",
   "clean memory", "audit memory", "fix memory", "memory too long",
   or "/mind-memory".
+argument-hint: ""
 context: inherit
 allowed-tools: Read Glob Grep Edit Write Bash Agent
 ---
@@ -116,6 +117,18 @@ Apply all? [Yes / Select / Skip]
 **STOP HERE. Warte auf User-Bestaetigung.**
 
 ## Step 6: Fixes anwenden (nach User-OK)
+
+### Step 6a: Pre-Edit Read (MUST)
+
+Vor JEDEM Edit/Write: Read die Ziel-Datei zuerst (MEMORY.md, ggf. CLAUDE.md,
+ggf. existing Topic-File). Claude's Edit-Tool benoetigt einen Read im selben
+Tool-Call-Kontext, sonst Crash mit `<tool_use_error>File has not been read yet`.
+Auch wenn der context-analyzer-Agent in Step 3 die Datei gelesen hat — das
+zaehlt nicht fuer Step 6.
+
+Reihenfolge pro Fix: Read → Edit (Write fuer NEUE Topic-Files: kein Read noetig).
+
+### Step 6b: Fixes anwenden
 
 For each confirmed fix:
 | Fix-Typ | Tool | Aktion |

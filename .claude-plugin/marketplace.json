@@ -71,8 +71,8 @@
     },
     {
       "name": "claude-mind-manager",
-      "description": "Claude Mind Manager v3.1.0 - Region-based context management. 5 commands: /mind-claudemd, /mind-memory, /mind-rules, /mind-files, /mind-update. v3.1: intelligent multi-label project detection (code_app/workspace/scripts/data/config/plugin/mcp + secondary labels), 13 templates, supports C++/C#/Swift/Kotlin + non-code projects. 2 agents, 1 hook. Zero dependencies.",
-      "version": "3.1.0",
+      "description": "Claude Mind Manager v3.2.0 - Region-based context management. 6 commands: /mind-claudemd, /mind-memory, /mind-rules, /mind-files, /mind-update, /mind-session-log (NEW: JSONL session transcripts). v3.2 fixes edit-vor-read crash in 4 skills, adds MIND_BACKUP_DIR env-var, confirmation disambiguation. Claude Code CLI only (not Desktop). 2 agents, 1 hook. Zero dependencies.",
+      "version": "3.2.0",
       "author": {
         "name": "blumenkohlbinary"
       },

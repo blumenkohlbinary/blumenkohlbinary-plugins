@@ -9,6 +9,7 @@ description: |
   Use when the user says "update context", "refresh context", "mind update",
   "quick check", "context status", "sync context",
   or "/mind-update".
+argument-hint: ""
 context: inherit
 allowed-tools: Read Glob Grep Edit Bash
 ---
@@ -82,7 +83,15 @@ Run all checks inline (no agents):
 
 ## Step 4: Auto-Fix sichere Aenderungen
 
-Apply these fixes WITHOUT asking (safe, deterministic):
+**Pre-Edit Read (MUST):** Step 1 hat zwar alle Context-Dateien gelesen, aber das
+zaehlt NICHT fuer Step 4 — Claude's Edit-Tool benoetigt einen Read im SELBEN
+Tool-Call-Kontext wie das Edit. Vor jedem Auto-Fix:
+1. Read die Ziel-Datei (CLAUDE.md, Rule-Datei)
+2. Edit ausfuehren
+
+Sonst Crash mit `<tool_use_error>File has not been read yet`.
+
+Apply these fixes WITHOUT asking the user, but WITH explicit Read-before-Edit:
 
 | Fix | Condition | Action |
 |---|---|---|

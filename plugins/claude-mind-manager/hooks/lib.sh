@@ -88,7 +88,7 @@ create_backup() {
   local keep_count="${MIND_BACKUP_KEEP_COUNT:-5}"
   local transcript_keep="${MIND_TRANSCRIPT_KEEP_COUNT:-3}"
   local mind_dir="$project_dir/.claude-mind"
-  local backup_dir="$mind_dir/backups"
+  local backup_dir="${MIND_BACKUP_DIR:-$mind_dir/backups}"
   local hash
   hash=$(hash_project_dir "$project_dir")
   local memory_dir="$HOME/.claude/projects/$hash/memory"

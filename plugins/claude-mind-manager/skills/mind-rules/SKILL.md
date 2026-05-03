@@ -146,7 +146,9 @@ After:
 [Apply / Skip]
 ```
 
-3. Apply changes with Edit on confirmation
+3. **Read each rule file BEFORE Edit** — Edit-Tool benoetigt vorherigen Read im
+   selben Tool-Call-Kontext, sonst Crash mit `<tool_use_error>File has not been
+   read yet`. Apply changes with Edit on confirmation.
 4. Summary: "Migrated N files from paths: to globs:"
 
 ## Hard Constraints

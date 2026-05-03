@@ -123,12 +123,36 @@ Suggested actions:
 [F] Add dark mode feature to Architecture section
 [G] Remove generic advice line
 
-Apply all? [Yes / Select / Skip]
+Apply:
+  [safe]    — Nur sichere Currency-Fixes (Drift, Versions, Pfade)
+              Default bei vager Antwort ("ja"/"ok"/"update")
+  [all]     — Inklusive struktureller Aenderungen (Modularize, Section-Adds)
+  [select]  — Einzeln auswaehlen
+  [skip]    — Nichts aendern
 ```
 
 **STOP HERE. Warte auf User-Bestätigung.**
 
+**Disambiguation-Regel:** Bei vagen Antworten ("ja", "ok", "update", "los") IMMER
+die `safe` Variante wählen (keine Modularization, keine Datei-Restruktur). Dem
+User transparent mitteilen: "Wähle `safe` (Currency only) — sage `all` wenn du
+auch strukturelle Änderungen willst."
+
 ## Step 5: Fixes anwenden (nach User-OK)
+
+### Step 5a: Pre-Edit Read (MUST)
+
+Vor JEDEM Edit/Write Tool-Call: Read die Ziel-Datei zuerst. Auch wenn Step 4
+sie schon analysiert hat — Claude's Edit-Tool benötigt einen Read im selben
+Tool-Call-Kontext, sonst Crash mit `<tool_use_error>File has not been read yet`.
+
+Beispiel:
+1. Read CLAUDE.md  (für Currency-Fix)
+2. Edit CLAUDE.md  (Zeile X)
+
+Bei Modularize-Fix: zusätzlich Write der neuen Rule-Datei (kein Read nötig — neu).
+
+### Step 5b: Fixes anwenden
 
 Für jeden bestätigten Fix:
 | Fix-Typ | Tool | Aktion |
