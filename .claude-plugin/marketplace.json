@@ -71,8 +71,8 @@
     },
     {
       "name": "claude-mind-manager",
-      "description": "Claude Mind Manager v3.2.0 - Region-based context management. 6 commands: /mind-claudemd, /mind-memory, /mind-rules, /mind-files, /mind-update, /mind-session-log (NEW: JSONL session transcripts). v3.2 fixes edit-vor-read crash in 4 skills, adds MIND_BACKUP_DIR env-var, confirmation disambiguation. Claude Code CLI only (not Desktop). 2 agents, 1 hook. Zero dependencies.",
-      "version": "3.2.0",
+      "description": "Claude Mind Manager v3.2.1 - Region-based context management. 6 commands: /mind-claudemd, /mind-memory, /mind-rules, /mind-files, /mind-update, /mind-session-log. v3.2.1 hotfix: mind-session-log path cross-platform (cygpath), mind-update scans ALL custom context (global rules + MEMORY topic files), dead-path strict, auto-fix 4-class classification with coupled-files. Claude Code CLI only (not Desktop). 2 agents, 1 hook. Zero dependencies.",
+      "version": "3.2.1",
       "author": {
         "name": "blumenkohlbinary"
       },

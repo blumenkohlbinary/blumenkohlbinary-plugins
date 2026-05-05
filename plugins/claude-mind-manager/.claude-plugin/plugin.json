@@ -1,7 +1,7 @@
 {
   "name": "claude-mind-manager",
-  "version": "3.2.0",
-  "description": "Region-based context management for Claude Code. 6 commands: /mind-claudemd (create/audit/optimize CLAUDE.md), /mind-memory (MEMORY.md management), /mind-rules (rules validation/creation), /mind-files (project setup per type), /mind-update (fast context sweep), /mind-session-log (chronological session transcripts from JSONL). v3.2: bugfix release (edit-vor-read crash fixed in 4 skills, MIND_BACKUP_DIR env-var, confirmation disambiguation) + new mind-session-log skill. 2 agents, 1 hook. Claude Code CLI only (not Desktop). Zero dependencies.",
+  "version": "3.2.1",
+  "description": "Region-based context management for Claude Code. 6 commands: /mind-claudemd, /mind-memory, /mind-rules, /mind-files, /mind-update, /mind-session-log. v3.2.1 hotfix: mind-session-log path cross-platform (cygpath), mind-update now scans ALL custom context (global rules + MEMORY topic files), dead-path algorithm strict (no false-positives), auto-fix 4-class classification (AUTO/ASK/DESIGN/DEAD) with coupled-files detection. 2 agents, 1 hook. Claude Code CLI only (not Desktop). Zero dependencies.",
   "author": {
     "name": "blumenkohlbinary"
   },

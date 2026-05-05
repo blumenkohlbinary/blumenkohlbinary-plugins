@@ -139,15 +139,40 @@ fi
 
 ## Step 4: Slice + Python-Parser
 
+**Path-Cross-Platform-Setup (NEU v3.2.1):** Auf Windows + Git-Bash mit Windows-Python
+muss `/tmp/...` zu `C:\Users\...\AppData\Local\Temp\...` konvertiert werden. Sonst
+findet Python das Script nicht.
+
+```bash
+# Bash-Pfade (fuer Write/Read/awk im Skill — IMMER /tmp/... egal welche Plattform)
+SLICE_BASH="/tmp/session-slice.jsonl"
+PARSE_BASH="/tmp/parse_session.py"
+
+# Windows-Pfade (fuer Python-Aufruf — getrennt von Bash-Pfaden, nur fuer Python-Args)
+if command -v cygpath &>/dev/null; then
+  SLICE_WIN=$(cygpath -w "$SLICE_BASH")
+  PARSE_WIN=$(cygpath -w "$PARSE_BASH")
+else
+  # Fallback ohne cygpath: $USERNAME (Windows) bevorzugt, $USER fallback
+  USER_NAME="${USERNAME:-$USER}"
+  TMP_WIN="${TMP:-C:/Users/$USER_NAME/AppData/Local/Temp}"
+  SLICE_WIN="$TMP_WIN/session-slice.jsonl"
+  PARSE_WIN="$TMP_WIN/parse_session.py"
+  # WICHTIG: SLICE_BASH/PARSE_BASH bleiben /tmp/... fuer awk + Write Operations.
+  # Ohne cygpath funktioniert die Bash-Mount-Aufloesung typischerweise zu $TMP_WIN,
+  # also lesen Write-Ops nach /tmp und Python liest dieselben Dateien via $TMP_WIN.
+fi
+```
+
 Slice JSONL ab Start-Zeile:
 
 ```bash
-awk -v start="$START_LINE" 'NR>=start' "$JSONL" > /tmp/session-slice.jsonl
-echo "Slice: $(wc -l < /tmp/session-slice.jsonl) Zeilen"
+awk -v start="$START_LINE" 'NR>=start' "$JSONL" > "$SLICE_BASH"
+echo "Slice: $(wc -l < "$SLICE_BASH") Zeilen"
 ```
 
 Python-Script in Datei schreiben (NICHT `python3 -c` mit Backticks — siehe
-globale CLAUDE.md). Schreibe `/tmp/parse_session.py` mit folgendem Inhalt:
+globale CLAUDE.md). Schreibe `$PARSE_BASH` mit folgendem Inhalt:
 
 ```python
 #!/usr/bin/env python3
@@ -343,6 +368,14 @@ OUTPUT=".claude-mind/sessions/${DATE}_${THEMA}_${SUFFIX}.md"
 
 mkdir -p ".claude-mind/sessions"
 
+# Output auch fuer Python-Aufruf konvertieren (relative Pfade sind safe,
+# absolute via cygpath konvertieren)
+if command -v cygpath &>/dev/null; then
+  OUTPUT_WIN=$(cygpath -w "$(realpath "$OUTPUT" 2>/dev/null || echo "$PWD/$OUTPUT")")
+else
+  OUTPUT_WIN="$OUTPUT"
+fi
+
 # Aufruf (probiere .venv, dann python3, dann python):
 if [ -x ".venv/Scripts/python.exe" ]; then
   PYTHON=".venv/Scripts/python.exe"
@@ -352,7 +385,8 @@ else
   PYTHON="python"
 fi
 
-"$PYTHON" /tmp/parse_session.py "/tmp/session-slice.jsonl" "$OUTPUT" "$THEMA" "$MODE"
+# WICHTIG: Windows-Pfade an Python uebergeben (cygpath-konvertiert in Step 4)
+"$PYTHON" "$PARSE_WIN" "$SLICE_WIN" "$OUTPUT_WIN" "$THEMA" "$MODE"
 
 # Verifikation (im Chat, NICHT in Output-Datei):
 echo "=== Bilanz ==="
@@ -378,3 +412,6 @@ grep -oE '\*\*Tool:\*\* `[A-Za-z_]+`' "$OUTPUT" | sort | uniq -c | sort -rn
 - Output-Pfad respektiert `.claude-mind/sessions/` Convention
 - Output-Filename matched MODE (`_full`/`_compact`/`_conv`/`_full-notrunc`)
 - Slug-Derivation per `cygpath` mit Fallback auf neuestes Projekt-Dir (mtime)
+- **Path-Cross-Platform (v3.2.1):** Bash-Pfade (`/tmp/...`) NUR fuer Write/Bash-Operations.
+  Fuer Python-Aufruf IMMER Windows-Pfade via `cygpath -w` konvertieren — sonst findet
+  Windows-Python das Script nicht (echtes Bug aus Session 2026-05-05).
