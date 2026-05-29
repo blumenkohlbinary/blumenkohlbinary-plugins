@@ -75,16 +75,15 @@ unter `~/.claude/projects/<C--CD-KOHLEKTIV-...>` ab — Drive-Letter `C` GROSS,
 fuehrender `C--`, Spaces als `-`, Doppel-Bindestriche fuer ` - `.
 
 ```bash
-# Slug aus Windows-Pfad (cygpath wenn verfuegbar, sonst pwd-Fallback)
-if command -v cygpath &>/dev/null; then
-  WIN_PATH=$(cygpath -w "$(pwd)")
-else
-  # Fallback: pwd auf Git-Bash liefert /c/CD/... — manuell konvertieren
-  WIN_PATH=$(pwd | sed 's|^/\([a-z]\)/|\U\1:\\\\|; s|/|\\\\|g')
+# Slug + Projects-Dir (v3.2.2: zentralisiert in lib.sh)
+# hash_project_dir() in lib.sh kapselt cygpath
+# M3-Fix: $CLAUDE_PLUGIN_ROOT Guard
+if [ -z "$CLAUDE_PLUGIN_ROOT" ] || [ ! -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
+  echo "ERROR: \$CLAUDE_PLUGIN_ROOT nicht gesetzt oder lib.sh nicht gefunden" >&2
+  exit 1
 fi
-
-# Spaces und Sonderzeichen zu `-`, Doppel-Slash zu `--` durch Replacement-Reihenfolge
-SLUG=$(echo "$WIN_PATH" | sed 's|[\\: ]|-|g' | sed 's|^-*||')
+source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+SLUG=$(hash_project_dir)
 PROJECTS_DIR="$HOME/.claude/projects/$SLUG"
 
 # Fallback: wenn Slug-Dir nicht existiert, ls -td neueste Projekt-Dir
@@ -131,8 +130,48 @@ if [ -z "$START_LINE" ]; then START_LINE=1; fi
 echo "Start-Zeile: $START_LINE"
 
 # Thema aus letztem Slash-Command ableiten falls nicht aus Args gesetzt
+# v3.2.2: jq oder Python-Fallback statt grep — robust gegen lange JSON-Strings.
+# Alter Pattern `[^<]+` matched ueber JSON-Inhalt hinaus (Bug aus Session 2026-05-29 Log 3).
 if [ -z "$THEMA" ]; then
-  CMD=$(grep '<command-name>' "$JSONL" | tail -1 | grep -oE '<command-name>/[^<]+' | sed 's|<command-name>/||; s|.*:||')
+  CMD=""
+  if command -v jq &>/dev/null; then
+    # jq-Path: letzte Zeile mit command-name, parse Content, extract command
+    CMD=$(grep '<command-name>' "$JSONL" | tail -1 | \
+          jq -r '.message.content // ""' 2>/dev/null | \
+          grep -oE '<command-name>/[A-Za-z0-9:_-]+' | tail -1 | \
+          sed 's|<command-name>/||; s|.*:||')
+  fi
+  # N1-Fix v3.2.2: Fallthrough zu Python wenn jq fehlte ODER leeres Resultat lieferte
+  if [ -z "$CMD" ]; then
+    # Python-Fallback (in Datei, kein -c Backtick-Issue)
+    cat > /tmp/extract_cmd.py << 'PYEOF'
+import json
+import sys
+import re
+
+last = None  # EC4: explizit initialisieren — kein NameError bei 0 matches
+
+for line in open(sys.argv[1], encoding='utf-8'):
+    if '<command-name>' not in line:
+        continue
+    try:
+        obj = json.loads(line)
+        content = obj.get('message', {}).get('content', '')
+        if not isinstance(content, str):
+            continue
+        m = re.search(r'<command-name>/([^<]+)</command-name>', content)
+        if m:
+            last = m.group(1)
+    except (json.JSONDecodeError, AttributeError, KeyError):
+        continue
+
+if last is not None:
+    print(last.split(':')[-1] if ':' in last else last)
+else:
+    print('session')
+PYEOF
+    CMD=$(python3 /tmp/extract_cmd.py "$JSONL" 2>/dev/null)
+  fi
   THEMA="${CMD:-session}"
 fi
 ```
@@ -148,20 +187,18 @@ findet Python das Script nicht.
 SLICE_BASH="/tmp/session-slice.jsonl"
 PARSE_BASH="/tmp/parse_session.py"
 
-# Windows-Pfade (fuer Python-Aufruf — getrennt von Bash-Pfaden, nur fuer Python-Args)
-if command -v cygpath &>/dev/null; then
-  SLICE_WIN=$(cygpath -w "$SLICE_BASH")
-  PARSE_WIN=$(cygpath -w "$PARSE_BASH")
-else
-  # Fallback ohne cygpath: $USERNAME (Windows) bevorzugt, $USER fallback
-  USER_NAME="${USERNAME:-$USER}"
-  TMP_WIN="${TMP:-C:/Users/$USER_NAME/AppData/Local/Temp}"
-  SLICE_WIN="$TMP_WIN/session-slice.jsonl"
-  PARSE_WIN="$TMP_WIN/parse_session.py"
-  # WICHTIG: SLICE_BASH/PARSE_BASH bleiben /tmp/... fuer awk + Write Operations.
-  # Ohne cygpath funktioniert die Bash-Mount-Aufloesung typischerweise zu $TMP_WIN,
-  # also lesen Write-Ops nach /tmp und Python liest dieselben Dateien via $TMP_WIN.
+# Windows-Pfade fuer Python-Aufruf (getrennt von Bash-Pfaden)
+# H3-Fix v3.2.2: cygpath als HARD REQUIREMENT statt fragiler Fallback.
+# Ohne cygpath war frueheres Verhalten "wishful thinking" — Bash schreibt nach
+# msys2 /tmp, Python erwartet $TMP/..., resultierte in empty/missing files.
+if ! command -v cygpath &>/dev/null; then
+  echo "ERROR: cygpath nicht verfuegbar — mind-session-log benoetigt cygpath" >&2
+  echo "Hinweis: Git-Bash / MSYS2 / Cygwin installieren, dann erneut versuchen." >&2
+  exit 1
 fi
+
+SLICE_WIN=$(cygpath -w "$SLICE_BASH")
+PARSE_WIN=$(cygpath -w "$PARSE_BASH")
 ```
 
 Slice JSONL ab Start-Zeile:
@@ -171,8 +208,23 @@ awk -v start="$START_LINE" 'NR>=start' "$JSONL" > "$SLICE_BASH"
 echo "Slice: $(wc -l < "$SLICE_BASH") Zeilen"
 ```
 
-Python-Script in Datei schreiben (NICHT `python3 -c` mit Backticks — siehe
-globale CLAUDE.md). Schreibe `$PARSE_BASH` mit folgendem Inhalt:
+Python-Script in Datei schreiben — **Heredoc-Pattern (v3.2.2)**, NICHT Write-Tool.
+
+**WICHTIG (Lesson aus Session 2026-05-29 Log 3 Tool 10):** Write-Tool crasht mit
+`tool_use_error: File has not been read yet` wenn `/tmp/parse_session.py` aus
+früherer Session existiert. Heredoc via Bash umgeht das robust:
+
+```bash
+cat > "$PARSE_BASH" << 'PYEOF'
+<Python-Code wie unten>
+PYEOF
+```
+
+Heredoc-Tag `'PYEOF'` (single-quoted) verhindert Shell-Expansion in Python-Code
+(`$`, Backticks bleiben literal). Kein `python3 -c` Issue weil Python in eigener
+Datei landet. Kein Pre-Read-Overhead, kein Crash bei existing Files.
+
+Python-Code (zwischen `cat > "$PARSE_BASH" << 'PYEOF'` und `PYEOF`):
 
 ```python
 #!/usr/bin/env python3

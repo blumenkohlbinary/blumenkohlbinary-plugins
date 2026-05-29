@@ -36,10 +36,19 @@ skippen.**
 6. **Rules** (global): Glob `~/.claude/rules/*.md`
 
 ```bash
-# Hash + Memory-Verzeichnis:
-PROJECT_DIR=$(pwd)
-HASH=$(echo "$PROJECT_DIR" | sed 's|[/\\: ]|-|g' | sed 's|^-*||')
-MEMORY_DIR="$HOME/.claude/projects/$HASH/memory"
+# Hash + Memory-Verzeichnis (v3.2.2: zentralisiert in lib.sh)
+# Nutzt cygpath fuer korrektes Windows-Slug-Mapping (siehe lib.sh hash_project_dir)
+# M3-Fix: $CLAUDE_PLUGIN_ROOT Guard vor source
+if [ -z "$CLAUDE_PLUGIN_ROOT" ] || [ ! -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
+  echo "ERROR: \$CLAUDE_PLUGIN_ROOT nicht gesetzt oder lib.sh nicht gefunden" >&2
+  exit 1
+fi
+source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+MEMORY_DIR=$(get_memory_dir)
+# H2-aware: $? = 1 wenn Fallback verwendet wurde
+if [ "$?" = "1" ]; then
+  echo "WARN: MEMORY-Dir-Fallback aktiv — Slug-Mismatch erkannt" >&2
+fi
 
 # MEMORY.md (Hauptdatei)
 MEMORY_MAIN="$MEMORY_DIR/MEMORY.md"
@@ -58,6 +67,136 @@ Record line counts for each file immediately. Output-Pattern (siehe Step 6):
 - "(none)" wenn ein Target leer ist
 - Datei-Liste + Zeilen pro Topic-File / Rule-File explizit zeigen
 
+## Step 1.5: Custom-Context-Discovery (NEU v3.2.2, 2-Phasen)
+
+Vor Step 3: finde projekt-weite Custom-Context-Files (alles im Projekt-Ordner
+das fachlichen/technischen Code-Context enthaelt, nicht nur Auto-Loading-Rules).
+
+**User-Direktive:** Custom Context kann ueberall im Projekt liegen. Discovery-Logik:
+1. **Referenz-basiert** (deterministisch): Files die in CLAUDE.md/Rules per
+   Backtick erwaehnt werden zaehlen automatisch
+2. **Heuristik-basiert** (Fallback): score >= 2 ueber Code-Pattern-Indikatoren
+
+### SKIP_SET: Files die in Step 1 bereits behandelt sind
+
+```bash
+# Step 1.5 darf KEINE Files erneut als Custom Context aufnehmen die
+# Step 1 schon hat (CLAUDE.md, MEMORY, Topic-Files, Rules) — sonst
+# Double-Counting in Step 3a Version-Match (Bug B1 v3.2.2 Skill-Review).
+SKIP_SET=("./CLAUDE.md" "./.claude/CLAUDE.md" "$MEMORY_MAIN")
+
+# Add MEMORY-Topic-Files + Project-Rules + Global-Rules (von Step 1)
+while IFS= read -r f; do SKIP_SET+=("$f"); done <<< "$TOPIC_FILES"
+while IFS= read -r f; do SKIP_SET+=("$f"); done <<< "$PROJECT_RULES"
+while IFS= read -r f; do SKIP_SET+=("$f"); done <<< "$GLOBAL_RULES"
+
+is_in_skip_set() {
+  local target="$1"
+  for skip in "${SKIP_SET[@]}"; do
+    [ "$skip" = "$target" ] && return 0
+    # Normalize ./path vs path
+    [ "$skip" = "./$target" ] && return 0
+    [ "./$skip" = "$target" ] && return 0
+  done
+  return 1
+}
+```
+
+### Phase 1: Referenz-Discovery (deterministisch)
+
+```bash
+# Whitelist nur Doku-Formate (.md/.txt/.rst) — KEINE .json/.yaml/.py
+# (das sind Build-Configs/Source-Files, nicht Custom Context)
+REFERENCED=$(
+  grep -hoE '`[^`]*\.(md|txt|rst)`' \
+    CLAUDE.md .claude/rules/*.md ~/.claude/rules/*.md 2>/dev/null |
+  sed 's|^`||; s|`$||' |
+  sort -u
+)
+```
+
+### Phase 2: Heuristik-Discovery (Fallback)
+
+```bash
+# Optional: User-Override via .mindcontext (EC1)
+if [ -f .mindcontext ]; then
+  # Explizite Liste — Heuristik skippen
+  CUSTOM_CONTEXT_FILES=()
+  while IFS= read -r line; do
+    # Skip Kommentare + leere Zeilen
+    [[ -z "$line" || "$line" =~ ^# ]] && continue
+    # Glob-Expansion
+    for f in $line; do
+      [ -f "$f" ] && CUSTOM_CONTEXT_FILES+=("$f")
+    done
+  done < .mindcontext
+else
+  # Glob alle .md ausser ignorierte
+  ALL_MD=$(find . -name "*.md" \
+    -not -path "./.venv/*" \
+    -not -path "./.git/*" \
+    -not -path "./dist/*" \
+    -not -path "./build/*" \
+    -not -path "./node_modules/*" \
+    -not -path "./.pytest_cache/*" \
+    -not -path "./.claude-mind/*" \
+    -not -path "./CLAUDE.md" \
+    -not -path "./.claude/rules/*" \
+    2>/dev/null)
+
+  TOTAL_MD=$(echo "$ALL_MD" | wc -l)
+
+  # Tiered Schwelle (EC1: gross-Projekte)
+  if [ "$TOTAL_MD" -gt 100 ]; then
+    SCORE_THRESHOLD=3
+    echo "INFO: $TOTAL_MD .md Files gefunden — Heuristik-Schwelle erhoeht auf score >= 3"
+    echo "      Tipp: .mindcontext anlegen fuer explizite User-Konfiguration"
+  else
+    SCORE_THRESHOLD=2  # User-Direktive Default
+  fi
+
+  CUSTOM_CONTEXT_FILES=()
+
+  # 2a: Alle referenzierten Files (deterministisch, Phase 1)
+  for ref in $REFERENCED; do
+    for candidate in "./$ref" "$ref"; do
+      if [ -f "$candidate" ] && ! is_in_skip_set "$candidate"; then
+        CUSTOM_CONTEXT_FILES+=("$candidate")
+        break
+      fi
+    done
+  done
+
+  # 2b: Heuristik fuer nicht-referenzierte .md
+  for f in $ALL_MD; do
+    # Skip wenn bereits in Step 1 Liste (B1-Fix)
+    is_in_skip_set "$f" && continue
+    # Skip wenn bereits via Referenz aufgenommen
+    [[ " ${CUSTOM_CONTEXT_FILES[@]} " =~ " $f " ]] && continue
+
+    # Heuristik-Counter (defensiv: || true + tr -d Newlines fuer Arithmetik, M1-Fix)
+    has_code_blocks=$(grep -c '```' "$f" 2>/dev/null | tr -d '\n' || true)
+    has_paths=$(grep -cE '`[^`]*[/\\][^`]*`' "$f" 2>/dev/null | tr -d '\n' || true)
+    has_versions=$(grep -cE 'v[0-9]+\.[0-9]+' "$f" 2>/dev/null | tr -d '\n' || true)
+    has_test_counts=$(grep -cE '\b[0-9]{2,4}\s+[Tt]ests?\b' "$f" 2>/dev/null | tr -d '\n' || true)
+    has_function_refs=$(grep -cE '`[a-z_][a-zA-Z0-9_]*\(\)`|`[A-Z][a-zA-Z0-9]+\.[a-zA-Z_]+`' "$f" 2>/dev/null | tr -d '\n' || true)
+
+    # Default 0 falls Variable leer (defensive)
+    score=$(( ${has_code_blocks:-0} + ${has_paths:-0} + ${has_versions:-0} + ${has_test_counts:-0} + ${has_function_refs:-0} ))
+    if [ "$score" -ge "$SCORE_THRESHOLD" ]; then
+      CUSTOM_CONTEXT_FILES+=("$f")
+    fi
+  done
+fi
+
+echo "Custom Context discovered: ${#CUSTOM_CONTEXT_FILES[@]} files"
+```
+
+**Edge-Cases-Handling:**
+- **EC1 Performance:** bei >100 .md Files → score-Schwelle erhoeht auf 3, User-Hinweis fuer `.mindcontext`
+- **EC2 False-Positives:** Whitelist nur `.md/.txt/.rst` als Custom Context (kein `.json/.yaml/.py`)
+- **EC3 .mindcontext Override:** User kann projekt-spezifisch konfigurieren
+
 ## Step 2: Referenzen laden
 
 Read these reference files for budget thresholds:
@@ -68,10 +207,62 @@ Read these reference files for budget thresholds:
 
 Run all checks inline (no agents):
 
-### 3a: Version Match
-- Read `plugin.json` or `package.json` -> extract `"version":`
-- Grep CLAUDE.md for version strings (e.g., "Version: 2.6.0", "Aktuelle Version: 2.6.0")
-- Mismatch -> Finding (auto-fixable)
+### 3a: Version Match (ueber ALLE Custom Context — NEU v3.2.2)
+
+**Source of Truth bestimmen** (Reihenfolge):
+1. `dist/stable/_build_info.py` (wenn Build-System), sonst
+2. `pyproject.toml` / `package.json` / `plugin.json` Version
+
+**Grep alle Custom-Context-Files** (aus Step 1 + Step 1.5):
+- CLAUDE.md (project + global)
+- `.claude/rules/*.md` (project) + `~/.claude/rules/*.md` (global)
+- MEMORY.md + Topic-Files
+- Custom-Context-Files aus Step 1.5 Discovery
+
+**Pattern (Regex, case-insensitive):**
+```python
+VERSION_PATTERNS = [
+    r'v\d+\.\d+\.\d+(?:-\w+(?:\.\d+)?)?',  # v1.0.5, v1.0.6-dev.13
+    r'Version:\s*v?\d+\.\d+',
+    r'Aktuelle\s+Version:\s*v?\d+',
+    r'Stable\s+v\d+\.\d+',
+]
+```
+
+Pro Match: `file:line + extrahierte Version + Source-Truth → Mismatch?`
+Mismatch → Finding mit Klasse AUTO/ASK/DESIGN (siehe Step 4 v3.2.1).
+
+**Sonder-Behandlung "abgeschlossen markierte" Files (User-Direktive):**
+- Wenn Custom-Context-File alle Bugs/Tasks als "geschlossen"/"erledigt" markiert
+  UND mtime > 30 Tage alt → Klasse **INFO** mit Vorschlag "koennte archiviert
+  werden". **NIEMALS Auto-Action.**
+
+### 3a.1: Stale Test-Counts (NEU v3.2.2, conditional)
+
+**Conditional (M2-Fix):** Test-Count-Check nur wenn Python+pytest+tests/ existieren.
+Skill ist projekt-agnostisch — bei Nicht-Python-Projekten skippen.
+
+```bash
+# Pytest verfuegbar UND tests/ existiert?
+if [ -d "tests/" ] && (command -v pytest &>/dev/null || [ -x ".venv/Scripts/python.exe" ]); then
+  # Source of Truth: pytest --collect-only
+  if [ -x ".venv/Scripts/python.exe" ]; then
+    REAL_COUNT=$(.venv/Scripts/python -m pytest tests/ --collect-only -q 2>/dev/null | tail -1 | grep -oE '[0-9]+' | head -1)
+  else
+    REAL_COUNT=$(pytest tests/ --collect-only -q 2>/dev/null | tail -1 | grep -oE '[0-9]+' | head -1)
+  fi
+
+  if [ -n "$REAL_COUNT" ] && [ "$REAL_COUNT" -gt 0 ]; then
+    # Grep alle Custom-Context-Files fuer hardcoded Test-Counts
+    # Pattern: '\b\d{2,4}\s+[Tt]ests?\b' (z.B. "434 Tests", "283 tests")
+    # Mismatch → Finding (AUTO bei Drift <10%, ASK bei groesserer)
+    :  # Logik in Step 4 implementiert
+  fi
+else
+  # Skip — nicht-Python oder kein tests/-Dir
+  REAL_COUNT=""
+fi
+```
 
 ### 3b: Dead Paths (kontextuell, KEINE False-Positives)
 
@@ -147,13 +338,13 @@ grep -rn '^paths:' "$HOME"/.claude/rules/*.md 2>/dev/null
 
 ## Step 4: Findings-Klassifikation + Fixes
 
-**Pre-Edit Read (MUST):** Step 1 hat zwar alle Context-Dateien gelesen, aber das
-zaehlt NICHT fuer Step 4 — Claude's Edit-Tool benoetigt einen Read im SELBEN
-Tool-Call-Kontext wie das Edit. Vor jedem Fix:
-1. Read die Ziel-Datei (CLAUDE.md, Rule-Datei)
-2. Edit ausfuehren
+**Pre-Edit Read (MUST, praezisiert v3.2.2):** Step 1 hat zwar alle Context-Dateien
+gelesen, aber das zaehlt NICHT fuer Step 4 — Read muss im SELBEN Tool-Call-Kontext
+wie Edit erfolgen.
 
-Sonst Crash mit `<tool_use_error>File has not been read yet`.
+**1× Read der Ziel-Datei** reicht fuer N sequentielle Auto-Fixes (Edit-Tool
+garantiert "file state is current — no need to Read it back"). Re-Read nur wenn
+anderes Tool die Datei zwischendurch modifiziert.
 
 ### 4a: Klassifikation pro Finding
 
@@ -325,6 +516,10 @@ If there are pending items (ASK-Findings, compression candidates), ask:
 ## Hard Constraints
 
 - MUST be fast: NO Agent tool dispatch (all checks inline)
+- **Parallel-Bash-Limit (NEU v3.2.2):** Skill startet MAX 2 Bash-Tools parallel,
+  niemals 3+. Bei 3+ Calls: zu seriellem Aufruf wechseln ODER kombinieren via `&&`.
+  Claude Code's Tool-System cancelled uebermaessige Parallelitaet (siehe Session
+  2026-05-29 Log 4 Tool 5+7 `Cancelled: parallel tool call ... errored`).
 - Auto-fix ONLY safe changes: version numbers, dead paths, paths: -> globs: migration
 - ASK for everything else: compression, adding git commits, removing content
 - ALWAYS show what was auto-fixed in the report

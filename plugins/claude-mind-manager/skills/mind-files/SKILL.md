@@ -220,11 +220,13 @@ For each confirmed action:
 
 ### Improving existing files:
 
-**Pre-Edit Read (MUST):** Vor JEDEM Edit existierender Datei: Read tool zuerst
-aufrufen. Auch wenn Step 4 Best-Practice-Checks gemacht hat — Claude's Edit-Tool
-benoetigt einen Read im selben Tool-Call-Kontext, sonst Crash mit
-`<tool_use_error>File has not been read yet`. (Fuer neue Files mit Write ist
-KEIN vorheriger Read noetig.)
+**Pre-Edit Read (MUST, praezisiert v3.2.2):** **1× Read der Ziel-Datei VOR dem
+ersten Edit** — reicht fuer N sequentielle Edits (Edit-Tool garantiert
+"file state is current"). **Re-Read nur** wenn anderes Tool die Datei zwischendurch
+modifiziert. Step 4 Best-Practice-Checks zaehlen nicht — Read muss im SELBEN
+Tool-Call-Kontext wie Edit erfolgen.
+
+Fuer NEUE Files mit Write ist KEIN vorheriger Read noetig.
 
 | Improvement | Tool | Aktion |
 |---|---|---|

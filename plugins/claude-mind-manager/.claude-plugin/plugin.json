@@ -1,7 +1,7 @@
 {
   "name": "claude-mind-manager",
-  "version": "3.2.1",
-  "description": "Region-based context management for Claude Code. 6 commands: /mind-claudemd, /mind-memory, /mind-rules, /mind-files, /mind-update, /mind-session-log. v3.2.1 hotfix: mind-session-log path cross-platform (cygpath), mind-update now scans ALL custom context (global rules + MEMORY topic files), dead-path algorithm strict (no false-positives), auto-fix 4-class classification (AUTO/ASK/DESIGN/DEAD) with coupled-files detection. 2 agents, 1 hook. Claude Code CLI only (not Desktop). Zero dependencies.",
+  "version": "3.2.2",
+  "description": "Region-based context management for Claude Code. 6 commands: /mind-claudemd, /mind-memory, /mind-rules, /mind-files, /mind-update, /mind-session-log. v3.2.2 hotfix: lib.sh hash_project_dir() centralized with cygpath-aware Windows-Slug-Mapping (fixes Klammern-Bug + Backslash-Bug for pre-compact MEMORY lookups). NEW Custom-Context-Discovery (2-Phasen: Referenz + Heuristik, tiered, .mindcontext override). mind-session-log heredoc-pattern (avoids Write crash) + jq+Python thema-extraction. 2 agents, 1 hook (PreCompact). Claude Code CLI only (not Desktop). Zero dependencies. cygpath required (Git-Bash/MSYS2).",
   "author": {
     "name": "blumenkohlbinary"
   },

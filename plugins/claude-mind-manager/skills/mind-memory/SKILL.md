@@ -28,11 +28,16 @@ Compute the project hash for the memory path:
 4. Also glob topic files: `~/.claude/projects/<hash>/memory/*.md`
 
 ```bash
-# Hash-Algorithmus (Beispiel):
-# C:\CD\KOHLEKTIV\Plugin - Entwicklung -> C--CD-KOHLEKTIV-Plugin---Entwicklung
-PROJECT_DIR=$(pwd)
-HASH=$(echo "$PROJECT_DIR" | sed 's|[/\\: ]|-|g' | sed 's|^-*||')
-MEMORY_DIR="$HOME/.claude/projects/$HASH/memory"
+# Hash + Memory-Verzeichnis (v3.2.2: zentralisiert in lib.sh)
+# Korrektes Windows-Slug-Mapping via cygpath (siehe lib.sh hash_project_dir)
+# Beispiel: C:\CD\KOHLEKTIV\Plugin - Entwicklung -> C--CD-KOHLEKTIV-Plugin---Entwicklung
+# M3-Fix: $CLAUDE_PLUGIN_ROOT Guard
+if [ -z "$CLAUDE_PLUGIN_ROOT" ] || [ ! -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
+  echo "ERROR: \$CLAUDE_PLUGIN_ROOT nicht gesetzt oder lib.sh nicht gefunden" >&2
+  exit 1
+fi
+source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+MEMORY_DIR=$(get_memory_dir)
 ```
 
 **Wenn KEINE MEMORY.md gefunden:**
@@ -118,15 +123,19 @@ Apply all? [Yes / Select / Skip]
 
 ## Step 6: Fixes anwenden (nach User-OK)
 
-### Step 6a: Pre-Edit Read (MUST)
+### Step 6a: Pre-Edit Read (MUST, praezisiert v3.2.2)
 
-Vor JEDEM Edit/Write: Read die Ziel-Datei zuerst (MEMORY.md, ggf. CLAUDE.md,
-ggf. existing Topic-File). Claude's Edit-Tool benoetigt einen Read im selben
-Tool-Call-Kontext, sonst Crash mit `<tool_use_error>File has not been read yet`.
-Auch wenn der context-analyzer-Agent in Step 3 die Datei gelesen hat — das
-zaehlt nicht fuer Step 6.
+**1× Read der Ziel-Datei VOR dem ersten Edit** — reicht fuer N sequentielle
+Edits (Edit-Tool garantiert "file state is current — no need to Read it back").
+**Re-Read nur** wenn anderes Tool die Datei zwischendurch modifiziert.
 
-Reihenfolge pro Fix: Read → Edit (Write fuer NEUE Topic-Files: kein Read noetig).
+Auch wenn der context-analyzer-Agent in Step 3 die Datei gelesen hat: **das
+zaehlt nicht** — Read muss im SELBEN Tool-Call-Kontext wie Edit erfolgen.
+
+Reihenfolge pro Datei: 1× Read → beliebig viele Edits → (ggf. Re-Read nach
+externer Modifikation).
+
+Write fuer NEUE Topic-Files: kein Read noetig (neue Datei).
 
 ### Step 6b: Fixes anwenden
 

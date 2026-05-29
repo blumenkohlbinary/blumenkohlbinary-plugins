@@ -56,10 +56,61 @@ mind_init() {
   mind_log "init (session=${SESSION_ID:0:8}, project=$(basename "$PROJECT_DIR" 2>/dev/null))"
 }
 
-# --- hash_project_dir: Deterministic project hash ---
-# Used to locate ~/.claude/projects/<hash>/memory/
+# --- hash_project_dir: Cross-platform Slug-Derivation (v3.2.2 redesigned) ---
+# Args: $1 = project_dir (oder $(pwd) wenn leer)
+# Output: Slug passend zu Claude-Code's Schema
+# Konvertiert Drive-Letter zu Großbuchstaben (cygpath), Backslash/Colon/Space/Klammern zu -
+#
+# Replaces v3.0 implementation that had Klammern-Bug + Backslash-Bug
+# (alte Funktion produzierte korrupte Slugs für Windows-Pfade aus JSON-CWD).
+#
+# HARD REQUIREMENT: cygpath muss verfuegbar sein (Git-Bash, MSYS2, Cygwin).
+# Auf reinem Linux/macOS ist das Plugin sowieso eingeschraenkt nutzbar
+# (Claude Code Plugin ist primaer fuer Windows + Git-Bash designed).
+# H1-Fix v3.2.2: alter sed-Fallback war broken auf BSD-sed (GNU \U Escape).
 hash_project_dir() {
-  echo "$1" | tr '/\\: ' '----' | sed 's/^-*//'
+  local project_dir="${1:-$(pwd)}"
+  local win_path
+
+  if ! command -v cygpath &>/dev/null; then
+    mind_log ERROR "cygpath nicht verfuegbar - hash_project_dir() braucht cygpath (Git-Bash/MSYS2/Cygwin)"
+    echo "ERROR: cygpath required for hash_project_dir()" >&2
+    # Best-effort: assume project_dir ist schon Windows-Form
+    win_path="$project_dir"
+  else
+    win_path=$(cygpath -w "$project_dir" 2>/dev/null || echo "$project_dir")
+  fi
+
+  # Backslash, Colon, Space, Klammern → Bindestrich
+  # Fuehrende Bindestriche entfernen
+  echo "$win_path" | sed 's|[\\: ()]|-|g' | sed 's|^-*||'
+}
+
+# --- get_memory_dir: Project-spezifisches MEMORY-Verzeichnis (v3.2.2 NEU) ---
+# Mit Fallback auf neuestes Projekt-Dir (mtime) bei Slug-Mismatch
+# Args: optional $1 = project_dir (default $(pwd))
+# Returns: 0 wenn primary dir gefunden, 1 wenn Fallback verwendet wurde (H2-Fix)
+get_memory_dir() {
+  local hash
+  hash=$(hash_project_dir "$@")
+  local memory_dir="$HOME/.claude/projects/$hash/memory"
+
+  if [ -d "$memory_dir" ]; then
+    echo "$memory_dir"
+    return 0
+  fi
+
+  # Fallback: neuestes Projekt-Dir
+  local projects_dir
+  projects_dir=$(ls -td "$HOME"/.claude/projects/*/ 2>/dev/null | head -1 | sed 's|/$||')
+  memory_dir="$projects_dir/memory"
+
+  # H2-Fix: stderr-Warnung damit Skill/User mismatch erkennt
+  mind_log WARN "Slug-Dir $hash nicht gefunden, fallback: $projects_dir"
+  echo "WARN: get_memory_dir Fallback (Slug-Mismatch) — verwende $projects_dir statt $hash" >&2
+
+  echo "$memory_dir"
+  return 1
 }
 
 # --- _backup_if_changed: Copy file only if content differs from latest backup ---

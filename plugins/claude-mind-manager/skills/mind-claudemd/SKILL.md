@@ -95,6 +95,10 @@ Während der Agent läuft, selbst prüfen:
 
 ### Step 4d: Ergebnisse konsolidieren + präsentieren
 
+**Reduktion (v3.2.2):** Wenn context-analyzer-Agent eine vollstaendige
+Findings-Tabelle geliefert hat, Tabelle **1:1 uebernehmen** statt eigenes Format
+neu zu generieren. Nur Apply-Optionen (safe/all/select) hinzufuegen.
+
 Agent-Ergebnisse + eigene Inline-Checks zusammenführen. Anzeigen als:
 
 ```
@@ -140,17 +144,37 @@ auch strukturelle Änderungen willst."
 
 ## Step 5: Fixes anwenden (nach User-OK)
 
-### Step 5a: Pre-Edit Read (MUST)
+### Step 5a: Backup + Pre-Edit Read (MUST)
 
-Vor JEDEM Edit/Write Tool-Call: Read die Ziel-Datei zuerst. Auch wenn Step 4
-sie schon analysiert hat — Claude's Edit-Tool benötigt einen Read im selben
-Tool-Call-Kontext, sonst Crash mit `<tool_use_error>File has not been read yet`.
+**Backup-Block (KONKRETER Bash-Snippet — NEU v3.2.2, präzisiert):**
 
-Beispiel:
-1. Read CLAUDE.md  (für Currency-Fix)
-2. Edit CLAUDE.md  (Zeile X)
+```bash
+# WICHTIG: Backup MIT cd ins Projekt-Verzeichnis VOR cp.
+# Sonst landet relativer Pfad im aktuellen CWD (z.B. Mind-Manager-Workspace
+# statt Ziel-Projekt — Bug aus Session 2026-05-29 Log 1 Tool 15).
+# N2-Fix: $CLAUDE_PROJECT_DIR (Claude Code env var) bevorzugt, Fallback $(pwd)
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+cd "$PROJECT_DIR" && \
+  mkdir -p .claude-mind/backups && \
+  cp CLAUDE.md ".claude-mind/backups/CLAUDE.md.$(date +%Y%m%d_%H%M%S).bak" && \
+  echo "Backup OK: $(ls -t .claude-mind/backups/CLAUDE.md.*.bak | head -1)"
+```
 
-Bei Modularize-Fix: zusätzlich Write der neuen Rule-Datei (kein Read nötig — neu).
+**Pre-Edit Read (praezisiert v3.2.2):**
+- **1× Read der Ziel-Datei VOR dem ersten Edit** — reicht fuer N sequentielle
+  Edits (Edit-Tool garantiert "file state is current — no need to Read it back")
+- **Re-Read nur** wenn anderes Tool (z.B. Bash) die Datei zwischendurch modifiziert
+- Crash-Vermeidung: `<tool_use_error>File has not been read yet` tritt auf wenn
+  Edit OHNE vorherigen Read aufgerufen wird
+
+Beispiel-Sequenz:
+1. Read CLAUDE.md  (1× am Anfang)
+2. Edit CLAUDE.md Z.96 (v10 → v11)
+3. Edit CLAUDE.md Z.181 (v10 → v11)
+4. Edit CLAUDE.md Z.185 (8 → 11 cols)
+   ... (beliebig viele weitere Edits ohne neuen Read)
+
+Bei Modularize-Fix: zusaetzlich Write der neuen Rule-Datei (kein Read noetig — neue Datei).
 
 ### Step 5b: Fixes anwenden
 
