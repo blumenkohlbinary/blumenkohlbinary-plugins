@@ -1,17 +1,23 @@
 ---
 name: mind-update
 description: |
-  [Mind Manager] Schneller Context-Update — alle Dateien pruefen, Versionen aktualisieren, komprimieren.
-  Kein Agent-Dispatch (schnell!). Prueft CLAUDE.md, MEMORY.md, Rules inline:
-  Version-Mismatch, tote Pfade, fehlende Git-Commits, Budget-Ueberschreitungen,
-  Rules-Syntax. Auto-Fix fuer sichere Aenderungen, Rueckfrage fuer alles andere.
+  [Mind Manager] Context-Sweep — Drift-Erkennung (Versionen, Pfade, Counts, Syntax)
+  PLUS (v3.3.0) Knowledge-Sync: 4 Per-Bereich-Agents parallel (claude-md/memory/
+  rules/custom-context) gleichen Session-Inhalte mit Custom-Context-Files ab,
+  klassifizieren 5 Klassen (UPDATE/ENRICH/ADD/NEW_FILE/INFO). Auto-Fix fuer
+  sichere Aenderungen, Rueckfrage fuer alles andere.
+
+  **BREAKING CHANGE v3.3.0:** Default-Verhalten beinhaltet jetzt Knowledge-Sync
+  (~20K Token zusaetzlich, ~30s laenger). Wer alte schnelle Drift-Only-Variante
+  will: `--quick` Arg pflicht. v3.2.x Default-User: bewusster Wechsel auf
+  `--quick` oder Akzeptanz der erweiterten Funktion.
 
   Use when the user says "update context", "refresh context", "mind update",
   "quick check", "context status", "sync context",
-  or "/mind-update".
-argument-hint: ""
+  or "/mind-update [--quick]".
+argument-hint: "[--quick]"
 context: inherit
-allowed-tools: Read Glob Grep Edit Bash
+allowed-tools: Read Glob Grep Edit Bash Agent
 ---
 
 # Schneller Context-Update
@@ -203,6 +209,18 @@ Read these reference files for budget thresholds:
 - [references/budget-thresholds.md](../../references/budget-thresholds.md) -- SFEIR compliance data, line limits
 - [references/token-budget-formulas.md](../../references/token-budget-formulas.md) -- Token calculation formulas
 
+## Step 2.5: Args parsen (NEU v3.3.0)
+
+```bash
+ARGS="${ARGUMENTS:-}"
+QUICK_MODE="no"
+echo "$ARGS" | grep -qE '(^|[[:space:]])--quick([[:space:]]|$)' && QUICK_MODE="yes"
+
+if [ "$QUICK_MODE" = "yes" ]; then
+  echo "INFO: --quick Mode -> nur Drift-Checks (Step 3), kein Knowledge-Sync (Step 3.5)"
+fi
+```
+
 ## Step 3: Quick Checks
 
 Run all checks inline (no agents):
@@ -336,7 +354,197 @@ grep -rn '^paths:' "$HOME"/.claude/rules/*.md 2>/dev/null
 - >300 lines = INFO: "Moderate context load"
 - <300 lines = OK
 
-## Step 4: Findings-Klassifikation + Fixes
+## Step 3.5: Per-Bereich Knowledge-Sync (NEU v3.3.0, 4 parallel Agents)
+
+**Skip wenn `QUICK_MODE=yes`** — dann direkt zu Step 4.
+
+Sonst: 4 `context-analyzer` Agents PARALLEL dispatchen (alle in 1 Tool-Call-Message
+fuer echtes Parallel). Jeder Agent bekommt:
+- Scope: `claude-md` / `memory` / `rules` / `custom-context`
+- Mode: `knowledge-sync`
+- Bereich-Files (Read-only)
+- Session-Auszug (USER + ASSISTANT_TEXT der letzten 200 Events) — siehe Sampling unten
+
+**Token-Budget:** 4× Sonnet-Agent ~5K Tokens = ~20K total. User-OK akzeptiert.
+
+### Session-Auszug-Sampling (Plan-EC2: 3-stufiger Algorithmus)
+
+Bei langen Sessions (>500 Events) verliert naives "letzte 200" Architektur-Entscheidungen
+aus der Mitte. 3-Stufen-Algorithmus:
+
+```bash
+# Python-Helper extrahiert relevante Events aus aktueller JSONL
+# (gleicher Code wie mind-compact Step 3, hier zur Wiederverwendung)
+SAMPLE_BASH="/tmp/mind_update_sample.py"
+
+if ! command -v cygpath &>/dev/null; then
+  echo "ERROR: cygpath nicht verfuegbar — mind-update Step 3.5 benoetigt cygpath" >&2
+  exit 1
+fi
+SAMPLE_WIN=$(cygpath -w "$SAMPLE_BASH")
+
+# JSONL der aktuellen Session finden (gleicher Code wie mind-session-log Step 2)
+# H3-Fix Skill-Review: Guard wiederholen, falls Step 3.5 in fresh bash invocation laeuft
+if [ -z "$CLAUDE_PLUGIN_ROOT" ] || [ ! -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
+  echo "ERROR: \$CLAUDE_PLUGIN_ROOT nicht gesetzt oder lib.sh nicht gefunden" >&2
+  exit 1
+fi
+source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+SLUG=$(hash_project_dir)
+PROJECTS_DIR="$HOME/.claude/projects/$SLUG"
+[ ! -d "$PROJECTS_DIR" ] && PROJECTS_DIR=$(ls -td "$HOME"/.claude/projects/*/ 2>/dev/null | head -1 | sed 's|/$||')
+JSONL=$(ls -t "$PROJECTS_DIR"/*.jsonl 2>/dev/null | grep -v '/subagents/' | head -1)
+JSONL_WIN=$(cygpath -w "$JSONL")
+
+# Sample-Script (Heredoc)
+cat > "$SAMPLE_BASH" << 'PYEOF'
+#!/usr/bin/env python3
+"""Session-Auszug fuer mind-update Step 3.5 — 3-stufiges Sampling.
+
+Stage 1 Pre-Filter: Events mit Decision/Bug/Architecture/Constraint-Markern
+Stage 2 Stratified: bei >300 Pre-Filtered -> 5 Buckets, Top-60 nach Score
+Stage 3 Hint: bei >1000 Total -> User-Hinweis (im Skill-Output)
+"""
+import json, re, sys
+from pathlib import Path
+
+JSONL_PATH = sys.argv[1]
+OUT_PATH = sys.argv[2]
+
+# Pre-Filter Patterns (gleicher Geist wie mind-compact)
+RELEVANT_PATTERNS = [
+    re.compile(r'\b(decision|architekt|pattern|wir entscheiden|wir nutzen|wir machen)\b', re.IGNORECASE),
+    re.compile(r'\b(bug|error|fail|crash|fix|tool_use_error|cancelled)\b', re.IGNORECASE),
+    re.compile(r'\b(MUST|NEVER|niemals|immer|wichtig|kein push)\b', re.IGNORECASE),
+    re.compile(r'\bversion\s+(?:v?\d+\.\d+|\d+\.\d+\.\d+)', re.IGNORECASE),
+    re.compile(r'\b(install|deploy|release|commit|push|merge)\b', re.IGNORECASE),
+]
+
+# Self-Exclusion: aktueller mind-update Run
+SELF = re.compile(r'<command-name>/(?:[^/<]+:)?mind-update</command-name>')
+
+EXCLUDE_FROM = None
+for lineno, line in enumerate(open(JSONL_PATH, encoding='utf-8'), 1):
+    if SELF.search(line):
+        EXCLUDE_FROM = lineno
+
+events = []  # (lineno, role, text, score)
+total = 0
+
+with open(JSONL_PATH, encoding='utf-8') as f:
+    for lineno, line in enumerate(f, 1):
+        if EXCLUDE_FROM and lineno >= EXCLUDE_FROM:
+            continue
+        try:
+            obj = json.loads(line.strip())
+        except json.JSONDecodeError:
+            continue
+        if obj.get('isSidechain') or obj.get('type') == 'queue-operation':
+            continue
+        msg = obj.get('message', {}) or {}
+        content = msg.get('content')
+        text = ""
+        role = ""
+        if obj.get('type') == 'user' and isinstance(content, str):
+            text, role = content, "USER"
+        elif obj.get('type') == 'assistant' and isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get('type') == 'text':
+                    text += block.get('text', '') + "\n"
+            role = "ASSISTANT"
+        if not text:
+            continue
+        total += 1
+        # Stage 1: Pre-Filter Score = Anzahl gematchter Patterns
+        score = sum(1 for p in RELEVANT_PATTERNS if p.search(text))
+        if score > 0:
+            events.append((lineno, role, text[:500], score))  # text auf 500 chars limit
+
+# Stage 2: Stratified bei >300 Pre-Filtered
+if len(events) > 300:
+    events.sort(key=lambda x: x[0])  # by line_no
+    bucket_size = len(events) // 5
+    buckets = [events[i*bucket_size:(i+1)*bucket_size] for i in range(5)]
+    buckets[-1] = events[4*bucket_size:]  # rest in letzten Bucket
+    # Top-60 pro Bucket nach Score
+    selected = []
+    for b in buckets:
+        b.sort(key=lambda x: -x[3])  # score desc
+        selected.extend(b[:60])
+    events = selected
+
+# Stage 3 wird im Skill-Output gehandhabt (Hinweis bei total > 1000)
+
+# Output JSON
+out = {
+    "total_events": total,
+    "filtered_events": len(events),
+    "long_session_hint": total > 1000,
+    "self_exclusion_line": EXCLUDE_FROM,
+    "sample": [{"line": l, "role": r, "text": t} for (l, r, t, _) in events]
+}
+Path(OUT_PATH).write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding='utf-8')
+print(f"OK: {total} total -> {len(events)} sampled")
+PYEOF
+
+# Python-Path
+if [ -x ".venv/Scripts/python.exe" ]; then PYTHON=".venv/Scripts/python.exe"
+elif command -v python3 &>/dev/null; then PYTHON="python3"
+else PYTHON="python"; fi
+
+SESSION_SAMPLE_BASH="/tmp/mind_update_session.json"
+SESSION_SAMPLE_WIN=$(cygpath -w "$SESSION_SAMPLE_BASH")
+"$PYTHON" "$SAMPLE_WIN" "$JSONL_WIN" "$SESSION_SAMPLE_WIN"
+
+# Hinweis bei sehr langer Session
+TOTAL=$(grep -oE '"total_events":\s*[0-9]+' "$SESSION_SAMPLE_BASH" | grep -oE '[0-9]+')
+LONG=$(grep -oE '"long_session_hint":\s*(true|false)' "$SESSION_SAMPLE_BASH" | grep -oE '(true|false)')
+if [ "$LONG" = "true" ]; then
+  echo "WARN: Session sehr lang ($TOTAL Events). Empfehlung: erst /mind-compact + /compact, dann /mind-update erneut."
+fi
+```
+
+### 4 parallel Agent-Dispatches
+
+Dispatcht in EINER Tool-Call-Message (echtes Parallel — siehe Plan D1: max 4 Agents pro Skill):
+
+| Agent | scope | mode | Input |
+|---|---|---|---|
+| 1 | `claude-md` | `knowledge-sync` | CLAUDE.md project + global + Session-Auszug aus `$SESSION_SAMPLE_BASH` |
+| 2 | `memory` | `knowledge-sync` | MEMORY.md + Topic-Files aus Step 1 + Session-Auszug |
+| 3 | `rules` | `knowledge-sync` | Project-Rules + Global-Rules aus Step 1 + Session-Auszug |
+| 4 | `custom-context` | `knowledge-sync` | `CUSTOM_CONTEXT_FILES` aus Step 1.5 + Session-Auszug |
+
+**Skip-Logik pro Agent:**
+- Agent 4 (`custom-context`) skippen wenn `${#CUSTOM_CONTEXT_FILES[@]} == 0` (Plan EC4)
+
+**Prompt-Format pro Agent** (Skill-Review M5 — Serialisierung explizit):
+
+Skill konstruiert pro Agent einen Markdown-Prompt mit Sections:
+```markdown
+mode: knowledge-sync
+scope: <claude-md|memory|rules|custom-context>
+
+## Memory Dir
+<MEMORY_DIR-Pfad aus get_memory_dir()>
+
+## Custom Context Files       (NUR scope: custom-context)
+./plan.md
+./research.md
+./docs/architecture.md
+
+## Session Auszug (letzte N Events)
+[Inhalt aus $SESSION_SAMPLE_BASH JSON, formatiert als USER/ASSISTANT-Blocks]
+```
+
+Die `CUSTOM_CONTEXT_FILES`-Array wird **als 1 Pfad pro Zeile** in die `## Custom Context Files`-Section serialisiert:
+```bash
+printf '%s\n' "${CUSTOM_CONTEXT_FILES[@]}"
+```
+
+Findings aller (3-4) Agents aggregieren → an Step 4.
+
+## Step 4: Findings-Klassifikation + Fixes (Skill-Review M6 — Header ergaenzt)
 
 **Pre-Edit Read (MUST, praezisiert v3.2.2):** Step 1 hat zwar alle Context-Dateien
 gelesen, aber das zaehlt NICHT fuer Step 4 — Read muss im SELBEN Tool-Call-Kontext
@@ -348,7 +556,9 @@ anderes Tool die Datei zwischendurch modifiziert.
 
 ### 4a: Klassifikation pro Finding
 
-Jedes Finding bekommt eine Klasse aus 4 Optionen:
+Jedes Finding bekommt eine Klasse aus 9 Optionen (4 Drift + 5 Knowledge-Sync):
+
+**Drift-Klassen (aus Step 3, bestehend):**
 
 | Klasse | Bedeutung | Aktion |
 |---|---|---|
@@ -356,6 +566,16 @@ Jedes Finding bekommt eine Klasse aus 4 Optionen:
 | **ASK** | Echter Mismatch ABER mit Build/Release-Konsequenzen (z.B. `pyproject.toml` Version, Hatchling/PyPI-Metadata, semver-relevant) | User fragen — NIE silent auto-fixen |
 | **DESIGN** | "By design" markiert in Rule/CLAUDE.md (explizite Regel sagt "NICHT anfassen") | NICHT als "Issue" zaehlen, aber als Hinweis am Ende erwaehnen — ggf. Regel praezisieren |
 | **DEAD** | Pfad existiert nicht UND Pfad enthaelt `/` oder `\` (siehe Step 3b) | AUTO falls eindeutig (max 5 Findings), sonst ASK |
+
+**Knowledge-Sync-Klassen (aus Step 3.5, NEU v3.3.0):**
+
+| Klasse | Bedeutung | Aktion |
+|---|---|---|
+| **UPDATE** | Custom-Context-Wert veraltet (Session-Stand widerspricht) | ASK Default — User entscheidet weil "veraltet" subjektiv |
+| **ENRICH** | Wert vorhanden aber vage — Session hat Details | ASK Default — User entscheidet ob Details rein sollen |
+| **ADD** | Wissen aus Session fehlt komplett in Custom-Context | ASK Default — User waehlt Ziel-Datei + Section |
+| **NEW_FILE** | Komplett neues Thema, kein passender Container | ASK Default — User bestaetigt Filename + Inhalt |
+| **INFO** (uebergreifend, Drift+Sync) | Hinweis ohne Action (Archive-Vorschlag, Limit-Warnung) | Listen only, kein Action |
 
 **KRITISCHE REGEL:** Wenn ein Finding "ASK" ist und User sagt "behebe alle" /
 "fix all" / "ja mach", gilt das als explizite Erlaubnis — Fix darf erfolgen.
@@ -477,11 +697,12 @@ Compression candidates (3):
 Apply compressions? [Yes / Select / Skip]
 ```
 
-## Step 6: Report (alle 6 Targets explizit)
+## Step 6: Report (alle 6 Targets + Knowledge-Sync explizit)
 
 ```
 === Context Update ===
-Checked: N files (project + global + topic-files) | Auto-fixed: X | Needs input: Y | By design: Z | Dead: W
+Checked: N files | Drift: A auto-fixed, B need input, C by design, D dead
+Knowledge-Sync: E findings (U:N E:N A:N NF:N I:N) — skipped if --quick
 
 CLAUDE.md (project):     145 -> 138 lines (-7)
   [AUTO] Version 2.5.0 -> 2.6.0
@@ -494,28 +715,40 @@ MEMORY.md (project):      89 lines (OK, within 200 budget)
 MEMORY topic files:       2 (lessons.md: 12, tab7-bugfixes.md: 18)
 
 Rules (project):          3 files, all valid syntax
-  build-process.md         126 lines
-  portal.md                 36 lines
-  ...
-
-Rules (global):           4 files, all valid syntax (NEU v3.2.1: explizit geprueft)
-  backup-before-delete.md  34 lines
-  deep-review.md           18 lines
-  keine-annahmen.md         9 lines
-  plan-mode.md              8 lines
+Rules (global):           4 files, all valid syntax
 
 Total context: 287 lines (~2870 tokens) -- Compliance: ~92%
+
+=== Knowledge-Sync (NEU v3.3.0, Session ↔ Custom Context) ===
+Scope claude-md       (Agent 1): 2 UPDATE, 1 ENRICH
+Scope memory          (Agent 2): 0 Findings
+Scope rules           (Agent 3): 1 ADD ("Plan-Mode-Regel" fehlt in ~/.claude/rules/)
+Scope custom-context  (Agent 4): 1 NEW_FILE-Vorschlag (backup-strategie.md)
+
+[UPDATE]   CLAUDE.md:15 "Version 3.2.2" -> Session diskutiert v3.3.0
+[ENRICH]   knowledge/best-practices.md:120 Heredoc-Section knapp -> Session hat 4 Code-Beispiele
+[ADD]      Session erklaert "Self-Exclusion Pattern" — keine Custom-Context-Datei
+           Vorschlag: knowledge/best-practices.md "Self-Reference Patterns" anhaengen
+[NEW_FILE] backup-strategie.md (~40 Zeilen, deckt 8 Zustellplan-Patterns ab)
+[INFO]     MEMORY.md 180 Zeilen — nahe 200-Limit
+
+Want me to apply [1]? [Yes / Select / Skip]
 ```
 
-**WICHTIG:** Wenn Y > 0, IMMER explizit listen — kein "0 issues" wenn ASK-Findings
-existieren. Step 4 Klassifikation entscheidet Klasse, Step 6 zaehlt korrekt.
+**WICHTIG:** Wenn pending Findings (ASK/UPDATE/ENRICH/ADD/NEW_FILE), IMMER explizit listen
+— kein "0 issues". Step 4 Klassifikation entscheidet Klasse, Step 6 zaehlt korrekt.
 
-If there are pending items (ASK-Findings, compression candidates), ask:
-"Want me to fix item [1]? [Yes / Skip]"
+**Knowledge-Sync-Findings sind alle ASK-Default** (User entscheidet pro Finding):
+"Want me to apply [N]? [Yes / Select / Skip]"
+
+If `QUICK_MODE=yes`: Knowledge-Sync-Sektion komplett ueberspringen, Report endet bei
+Total-Context-Zeile.
 
 ## Hard Constraints
 
-- MUST be fast: NO Agent tool dispatch (all checks inline)
+- MUST be fast: NO Agent dispatch EXCEPT Step 3.5 (4 parallel `context-analyzer`, NUR wenn `QUICK_MODE=no`)
+- **`--quick` Arg:** Step 3.5 skippen, nur inline-Drift wie v3.2.2 (Backward-Compat fuer User die kein Knowledge-Sync wollen)
+- **Parallel-Agent-Limit (NEU v3.3.0):** MAX 4 context-analyzer parallel (Plan D1). Skills duerfen NICHT andere Skills dispatchen die ihrerseits Agents starten.
 - **Parallel-Bash-Limit (NEU v3.2.2):** Skill startet MAX 2 Bash-Tools parallel,
   niemals 3+. Bei 3+ Calls: zu seriellem Aufruf wechseln ODER kombinieren via `&&`.
   Claude Code's Tool-System cancelled uebermaessige Parallelitaet (siehe Session

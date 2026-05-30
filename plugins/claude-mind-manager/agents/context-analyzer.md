@@ -3,10 +3,12 @@ name: context-analyzer
 description: |
   Unified context analysis: CLAUDE.md quality scoring, MEMORY.md duplicates/staleness,
   Rules syntax validation, cross-file contradictions, optimization suggestions with
-  token savings estimates. Read-only — never modifies files.
+  token savings estimates. Plus (v3.3.0) Knowledge-Gap-Detection: Session-Inhalte
+  mit Custom-Context-Files abgleichen (UPDATE/ENRICH/ADD/NEW_FILE/INFO Klassen).
+  Read-only — never modifies files.
 
-  Dispatched by mind:claudemd, mind:memory, mind:rules, mind:update.
-  Accepts a scope parameter to focus analysis.
+  Dispatched by mind-claudemd, mind-memory, mind-rules, mind-files, mind-update.
+  Accepts scope + mode parameter to focus analysis.
 model: sonnet
 tools:
   - Read
@@ -24,22 +26,61 @@ color: green
 # Context Analyzer Agent
 
 Unified analysis of all context files. Replaces claude-md-analyzer + memory-auditor + context-optimizer.
+**v3.3.0:** zusaetzlicher Knowledge-Sync-Mode fuer mind-update Step 3.5.
 
 ## Input
 
-The dispatching skill passes a scope in the agent prompt:
+The dispatching skill passes a **scope** and a **mode** in the agent prompt:
+
+**Scopes (was analysiert wird):**
 - `scope: claude-md` → focus on CLAUDE.md files only
 - `scope: memory` → focus on MEMORY.md + topic files only
 - `scope: rules` → focus on .claude/rules/*.md only
-- `scope: all` → analyze everything (used by mind:update)
+- `scope: custom-context` (NEU v3.3.0) → focus on project-internal Custom Context (z.B. `plan.md`, `research.md`, `docs/*.md`). Skill uebergibt CUSTOM_CONTEXT_FILES-Liste im Prompt — Agent liest diese direkt (KEINE eigene Discovery, Skill hat schon via mind-update Step 1.5 discovered)
+- `scope: all` → analyze everything (used by mind:update legacy)
+
+**Modes (wie analysiert wird, NEU v3.3.0):**
+- `mode: default` (Backward-Compat, alle bestehenden Skills) → Quality-Scoring + Severity-Findings (CRITICAL/WARNING/INFO)
+- `mode: knowledge-sync` (NEU, NUR mind-update Step 3.5) → 5 Action-Klassen UPDATE/ENRICH/ADD/NEW_FILE/INFO + Session-Auszug-Vergleich
+
+| mode | dispatcht von | Klassen | Input zusaetzlich |
+|---|---|---|---|
+| `default` | mind-claudemd, mind-memory, mind-rules, mind-files, mind-update (Pre-v3.3.0-Style) | CRITICAL/WARNING/INFO (Severity) | nur Bereich-Files |
+| `knowledge-sync` | mind-update Step 3.5 (NEU) | UPDATE/ENRICH/ADD/NEW_FILE/INFO (Action-Type) | Bereich-Files + Session-Auszug (USER + ASSISTANT_TEXT) |
 
 ## Step 1: Discover Files
 
 Based on scope, locate:
 - **claude-md**: `~/.claude/CLAUDE.md`, `./CLAUDE.md`, `./.claude/CLAUDE.md`, `./CLAUDE.local.md`
-- **memory**: Compute hash (path with /\: and spaces → hyphens, strip leading), read `~/.claude/projects/<hash>/memory/MEMORY.md` + glob `~/.claude/projects/<hash>/memory/*.md`
+- **memory**: **Memory-Dir wird vom Skill uebergeben** (im Prompt unter `## Memory Dir`), nicht selbst computen. Skill nutzt `lib.sh::get_memory_dir()` (v3.2.2 cygpath-aware) — Agent hat KEIN Bash, kann lib.sh nicht sourcen. Agent liest dann `<memory-dir>/MEMORY.md` + globt `<memory-dir>/*.md`.
 - **rules**: Glob `.claude/rules/*.md`, `~/.claude/rules/*.md`
+- **custom-context** (NEU v3.3.0): KEINE Discovery — Skill uebergibt CUSTOM_CONTEXT_FILES-Liste im Prompt **als Markdown-Block unter `## Custom Context Files` mit 1 Pfad pro Zeile** (siehe Prompt-Format unten). Agent liest die Files direkt. Falls Block fehlt/leer: "No custom context files passed" zurueckmelden, nichts tun.
 - **all**: All of the above
+
+### Erwartetes Prompt-Format (Skill -> Agent)
+
+Skills im Knowledge-Sync-Mode senden strukturierten Markdown-Prompt:
+
+```markdown
+mode: knowledge-sync
+scope: custom-context
+
+## Memory Dir
+/home/user/.claude/projects/<hash>/memory
+
+## Custom Context Files
+./plan.md
+./research.md
+./docs/architecture.md
+./knowledge/backup-strategie.md
+
+## Session Auszug (letzte N Events)
+[USER] ...
+[ASSISTANT] ...
+[USER] ...
+```
+
+Agent parsed die Sections, liest die Files, vergleicht mit Session-Auszug.
 
 ## Step 2: Analyze (per scope)
 
@@ -85,11 +126,39 @@ Based on scope, locate:
 5. **Offload**: MEMORY.md entries → topic files
 For each suggestion: estimate token savings = (affected_lines × 10)
 
+### Knowledge-Gap-Detection (mode: knowledge-sync ONLY, NEU v3.3.0)
+
+**Aktivierung:** Skill setzt `mode: knowledge-sync` UND uebergibt Session-Auszug
+(USER + ASSISTANT_TEXT der letzten N Events) im Prompt als JSON oder Markdown-Block.
+
+**Methode:**
+1. Parse Session-Auszug → extrahiere thematische Statements (1 Bullet/Decision pro Statement)
+2. Pro Statement: Suche in Bereich-Files via Read + Grep ob aehnliche Inhalte vorhanden sind (Stichwort-Match auf Schluesselbegriffe)
+3. Klassifiziere in 5 Klassen:
+
+| Klasse | Wenn | Output-Feld |
+|---|---|---|
+| **UPDATE** | Bereich-File-Wert widerspricht Session (z.B. Version-String, Pfad, Test-Count, Anzahl-Items) | `file:line + alt → neu` |
+| **ENRICH** | Bereich-File-Wert vorhanden aber knapper als Session-Detail | `file:line + Erweiterungs-Vorschlag (was fehlt)` |
+| **ADD** | Session-Inhalt findet keinen Match in Bereich-Files | Vorschlag: `in welche Datei (Filename) + welche Section (Heading)` |
+| **NEW_FILE** | Komplett neues Thema, kein passender Container in den Bereich-Files | `Filename-Vorschlag (z.B. backup-strategie.md) + Inhalts-Preview (3-5 Zeilen)` |
+| **INFO** | Stand korrekt / Beobachtung ohne Action | Beschreibender Text |
+
+**Edge-Cases:**
+- **EC1 NEW_FILE-Konflikt:** Bevor NEW_FILE vorgeschlagen wird: Glob ob File bereits existiert (egal in welchem Subdir) → falls ja, ENRICH statt NEW_FILE
+- **EC2 Leerer Session-Auszug:** Skill hat keinen Session-Inhalt mitgeschickt → Knowledge-Gap-Block skippen, nur Default-Analyse ausgeben
+- **EC3 Session-Auszug zu lang:** Skill hat schon pre-sampled (3-stufiger Algorithmus aus mind-update Step 3.5 EC2) — Agent verarbeitet was kommt, keine eigene Sampling-Logik
+
+**Hard Constraints fuer Knowledge-Sync-Mode:**
+- KEINE Freitext-Antworten — alle Findings strukturiert mit Klasse + file:line + Action-Vorschlag
+- Bei UPDATE/ENRICH: konkreten Diff-Vorschlag (alt vs neu) — der Skill leitet daraus die Edit-Anweisung ab
+- Bei NEW_FILE: Filename-Vorschlag soll der Konvention der bestehenden Custom-Context-Files folgen (z.B. wenn andere Files `kebab-case.md` sind: gleiche Konvention)
+
 ## Step 3: Output Format
 
-Report as structured Markdown with line numbers for every finding:
+**Default-Mode** — Severity-Findings (CRITICAL/WARNING/INFO):
 
-    ## Context Analysis Report (scope: <scope>)
+    ## Context Analysis Report (scope: <scope>, mode: default)
 
     ### File Inventory
     | File | Lines | ~Tokens | Grade |
@@ -111,9 +180,33 @@ Report as structured Markdown with line numbers for every finding:
     - Findings: N total (N critical, N warning, N info)
     - Estimated savings: ~X tokens
 
+**Knowledge-Sync-Mode (NEU v3.3.0)** — Action-Klassen:
+
+    ## Knowledge-Sync Report (scope: <scope>, mode: knowledge-sync)
+
+    ### File Inventory
+    | File | Lines | Letzter Mtime |
+    |------|-------|---------------|
+
+    ### Findings (5 Klassen)
+    | # | Klasse | File:Line | Description | Action-Vorschlag |
+    |---|--------|-----------|-------------|------------------|
+    | 1 | UPDATE | CLAUDE.md:15 | "Version 3.2.2" → Session diskutiert v3.3.0 | Edit: `3.2.2` → `3.3.0` |
+    | 2 | ENRICH | knowledge/best-practices.md:120 | Heredoc-Section knapp — Session hat 4 Code-Beispiele | Append code-examples block |
+    | 3 | ADD    | (none)    | Session erklaert "Self-Exclusion Pattern" — kein Custom-Context erwaehnt | Vorschlag: knowledge/best-practices.md neue Section "Self-Reference Patterns" |
+    | 4 | NEW_FILE | (none)  | Session entwickelt Backup-Strategie — passt zu keinem existierenden File | Vorschlag: `knowledge/backup-strategie.md` (~40 Zeilen, deckt 8 Patterns ab) |
+    | 5 | INFO   | MEMORY.md:180 | Approaches 200-line Truncation-Limit | (kein Action, Hinweis) |
+
+    ### Summary
+    - Knowledge-Sync Findings: N total (N UPDATE, N ENRICH, N ADD, N NEW_FILE, N INFO)
+    - Custom-Context-Files analyzed: M
+    - Session events processed: K
+
 ## Hard Constraints
 - NEVER modify any files
 - NEVER use Bash, Edit, or Write tools
 - NEVER dispatch sub-agents
-- ALWAYS include file:line for every finding
-- ALWAYS estimate token savings (lines × 10) for optimization suggestions
+- ALWAYS include file:line for every finding (außer ADD/NEW_FILE wo file:line nicht existiert — dann `(none)`)
+- ALWAYS estimate token savings (lines × 10) for optimization suggestions (default-mode only)
+- **Knowledge-Sync-Mode:** Konkreten Action-Vorschlag pro Finding (Diff bei UPDATE, Append bei ENRICH, Filename + Inhalts-Preview bei NEW_FILE) — der Skill leitet daraus die Edit-Anweisung ab
+- **Mode-Erkennung:** `mode: knowledge-sync` Header im Prompt aktiviert den Sync-Block. Ohne Header → default-mode (Backward-Compat).

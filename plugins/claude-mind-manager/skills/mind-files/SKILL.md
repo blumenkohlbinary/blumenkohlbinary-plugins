@@ -23,12 +23,34 @@ Projekttyp erkennen -> Soll-Zustand definieren -> Ist pruefen -> User-OK -> Erst
 Dispatch **project-scanner** agent:
 "Scan this project for tech stack, project type, build/test/lint commands, key directories, frameworks, and package manager. Report structured findings."
 
+## Step 1.5: Per-Bereich Setup-Analyse (NEU v3.3.0, 4 parallel Agents)
+
+**WICHTIG (Plan D1 + Skill-Review H1):** project-scanner aus Step 1 muss VOR Step 1.5
+abgeschlossen sein (seriell). Step 1.5 dispatcht dann 4 context-analyzer parallel in
+EINER Tool-Call-Message. NIEMALS 5 Agents auf einmal — Step-Order PFLICHT.
+
+Nach abgeschlossener project-scanner-Analyse: 4 `context-analyzer` Agents PARALLEL
+dispatchen (mode: default), alle in EINER Tool-Call-Message:
+
+| Agent | Scope | Findings |
+|---|---|---|
+| 1 | `build` | Build-System fehlt? Build-Commands dokumentiert? Linter konfiguriert? |
+| 2 | `backup` | Hat Projekt schon `tools/backup_tools.py` o.ae.? `.claude-mind/backups/` Dir? `.backuprc`? |
+| 3 | `tests` | Test-Infra (pytest/jest/...)? `tests/` Dir? CI-Config? |
+| 4 | `secrets` | `.env`/credentials? `.gitignore` Coverage OK? `.claude/settings.json` deny-Patterns? |
+
+Findings aller 4 Agents -> Step 4 Aggregat-Report.
+
+**Hard Constraint:** MAX 4 Agents parallel (Plan D1). Plus project-scanner aus Step 1
+= 5 Dispatches total — alle parallel.
+
 ## Step 2: Referenzen laden
 
 Read these reference files for templates and best practices:
 - [references/templates.md](../../references/templates.md) -- 13 project type templates
 - [references/claudemd-best-practices.md](../../references/claudemd-best-practices.md) -- Required sections, anti-patterns
 - [references/context-file-guide.md](../../references/context-file-guide.md) -- Complete file catalog
+- [references/backup-system-templates/README.md](../../references/backup-system-templates/README.md) -- Backup-System Templates (NEU v3.3.0)
 
 ## Step 3: Soll-Zustand dynamisch ableiten
 
@@ -234,6 +256,92 @@ Fuer NEUE Files mit Write ist KEIN vorheriger Read noetig.
 | Add permissions.deny entries | Edit | Add to existing settings.json |
 | Add missing CLAUDE.md section | Edit | Insert section at appropriate position |
 
+### Backup-System installieren (NEU v3.3.0)
+
+Wenn Step 1.5 Agent 2 (scope: backup) `MISSING` meldet UND User Backup-Vorschlag
+bestaetigt: Backup-System ins Projekt installieren.
+
+**Vorgehen:**
+
+```bash
+# 1. Tools-Dir anlegen
+mkdir -p "$CLAUDE_PROJECT_DIR/tools" "$CLAUDE_PROJECT_DIR/docs" "$CLAUDE_PROJECT_DIR/.claude-mind/backups"
+
+# 2. Templates 1:1 ins Projekt schreiben (Read aus references/, Write ins Projekt)
+# 4 Python-Files + 1 Doku-File:
+for FILE in tools/backup_tools.py tools/rollback.py tools/mutation_guard.py tools/update_changelog.py docs/BACKUP_USAGE.md; do
+  cp "$CLAUDE_PLUGIN_ROOT/references/backup-system-templates/$FILE" "$CLAUDE_PROJECT_DIR/$FILE"
+done
+
+# 3. .backupignore generieren (Standard-Defaults)
+cat > "$CLAUDE_PROJECT_DIR/.backupignore" << 'EOF'
+# .backupignore - Files die NICHT in Backups landen
+# Format aehnlich .gitignore
+node_modules/
+__pycache__/
+.venv/
+.git/
+dist/
+build/
+*.pyc
+.DS_Store
+.pytest_cache/
+.coverage
+EOF
+
+# 4. .backuprc generieren — projekt-spezifisch basierend auf project-scanner
+# (siehe Detection-Tabelle unten)
+```
+
+**Test-Cmd-Detection fuer `.backuprc`** (project-scanner-Output nutzen):
+
+| project-scanner-Detection | `BACKUP_TEST_CMD` in `.backuprc` |
+|---|---|
+| `pyproject.toml` + `tests/` + pytest in deps | `pytest -q` |
+| `package.json` mit `"test": "jest"` im scripts | `npm test` |
+| `package.json` mit `"test": "vitest"` im scripts | `npx vitest run` |
+| `package.json` mit anderem `"test"` script | `npm test` |
+| `Cargo.toml` | `cargo test` |
+| `go.mod` | `go test ./...` |
+| `*.csproj` / `*.sln` (C# / .NET) | `dotnet test` |
+| `pom.xml` (Maven) | `mvn test` |
+| `build.gradle` / `build.gradle.kts` | `gradle test` |
+| Sonst (kein erkanntes Build-System) | `""` (leer = skip Test-Gate, sicher) |
+
+`.backuprc` Template:
+```bash
+# .backuprc - Backup-System-Konfiguration
+# Auto-generiert von claude-mind-manager v3.3.0
+
+# Test-Cmd das vor riskanten Operationen laeuft (leer = skip)
+export BACKUP_TEST_CMD="<aus Detection oben>"
+
+# Backup-Target (default OK, hier expliziert)
+export BACKUP_TARGET=".claude-mind/backups"
+
+# Test-Timeout in Sekunden (default 300 = 5 min)
+export BACKUP_TEST_TIMEOUT=300
+```
+
+**Edge-Cases:**
+- **Existierende `tools/`-Files:** Skill checkt `test -f tools/backup_tools.py` — bei Treffer ASK "Existierende Files ueberschreiben? [Yes/Select/Skip]". Default Skip.
+- **Projekt ohne Python:** Installation laeuft, aber WARN: *"Python nicht gefunden. Backup-System installiert aber NICHT lauffaehig bis Python installiert ist."*
+- **Bestehende `backup_tools.py` mit anderem `__version__`:** ASK "Auf v.X updaten?". Default Skip.
+
+**User-Output nach Installation:**
+```
+[OK] Backup-System installiert in $CLAUDE_PROJECT_DIR/tools/
+  4 Python-Files + 1 Doku + .backupignore + .backuprc
+
+Naechste Schritte:
+  source .backuprc                                       # Env-Vars laden
+  python tools/backup_tools.py --help                    # CLI-Hilfe
+  python tools/rollback.py list                          # Snapshots listen
+  python tools/backup_tools.py gfs .claude-mind/backups  # GFS-Retention-Plan (dry-run)
+
+Doku: docs/BACKUP_USAGE.md
+```
+
 ## Step 6: Summary
 
 ```
@@ -254,3 +362,7 @@ Project readiness: Good (all critical files present)
 - For CLAUDE.md generation: ALWAYS use project-scanner results, NEVER guess
 - For settings.json: ALWAYS include .env* in deny patterns (security baseline)
 - NEVER include secrets, API keys, or credentials in any generated file
+- **Parallel-Agent-Limit (NEU v3.3.0, Plan D1 + Skill-Review H1):** Step 1.5 dispatcht MAX 4 context-analyzer parallel. project-scanner aus Step 1 ist seriell DAVOR — NICHT in derselben Tool-Call-Message. Step-Order: Step 1 (project-scanner alleine) → warten auf Result → Step 1.5 (4 context-analyzer parallel). Total 5 Agent-Dispatches, aber MAX 4 gleichzeitig.
+- **Backup-System Direktive H:** Wird in JEDEM Projekt vorgeschlagen (User-OK Pflicht), nicht typ-abhaengig — "backups schaden nie"
+- **Templates plugin-unabhaengig:** Nach Installation kein Plugin-Bezug — Tools laufen autonom im Projekt. Keine Hardcodes von Plugin-Pfaden in den installierten Files (Direktive C)
+- **Python-Detection vor Backup-Installation:** Wenn `python --version` UND `python3 --version` fehlschlagen: Installation laeuft trotzdem (User-OK gegeben) ABER mit WARN "nicht lauffaehig bis Python da ist"
