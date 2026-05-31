@@ -1,7 +1,7 @@
 {
   "name": "claude-mind-manager",
-  "version": "3.3.0",
-  "description": "Region-based context management for Claude Code. 7 skills: mind-claudemd, mind-memory, mind-rules, mind-files, mind-update, mind-session-log, mind-compact (NEW v3.3.0). 2 agents (context-analyzer with knowledge-sync mode + project-scanner), 1 hook (PreCompact). v3.3.0: 4 parallel per-area agents in mind-update + mind-files, Knowledge-Sync (Session vs Custom Context, 5 classes UPDATE/ENRICH/ADD/NEW_FILE/INFO), Multi-Command session-log (1 file per command, full-notrunc default), /mind-compact template generator, plugin-independent Python backup-system installer (GFS+SHA-256+Rollback+Mutation-Guard). Claude Code CLI only. cygpath required (Git-Bash/MSYS2).",
+  "version": "3.3.1",
+  "description": "Region-based context management for Claude Code. 7 skills + 2 agents + 1 hook. v3.3.1 hotfix: Pflicht-Agent-Dispatch (Step 1.5 + 3.5 nicht mehr überspringbar) + Self-Check-Output-Block mit Beleg-Daten + Rules-Inhalts-Check (Step 3e.2) + mind-session-log Filter nur mind-* Commands (User-Direktive) + Compaction-Dedup via content-hash. Fixt Real-World-Bugs aus Session 2026-05-31. Claude Code CLI only. cygpath required.",
   "author": {
     "name": "blumenkohlbinary"
   },

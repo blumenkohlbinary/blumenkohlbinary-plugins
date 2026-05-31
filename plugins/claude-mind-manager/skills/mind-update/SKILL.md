@@ -51,8 +51,9 @@ if [ -z "$CLAUDE_PLUGIN_ROOT" ] || [ ! -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; 
 fi
 source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
 MEMORY_DIR=$(get_memory_dir)
+GET_MEM_RC=$?  # H1-Fix Skill-Review v3.3.1: $? in Variable capturen vor naechstem Cmd
 # H2-aware: $? = 1 wenn Fallback verwendet wurde
-if [ "$?" = "1" ]; then
+if [ "$GET_MEM_RC" = "1" ]; then
   echo "WARN: MEMORY-Dir-Fallback aktiv — Slug-Mismatch erkannt" >&2
 fi
 
@@ -341,12 +342,57 @@ paths = set(re.findall(pattern, claude_md_content))
   WARNING "Topic-File hat unerwartete Frontmatter".
 
 ```bash
-# Project rules
+# Project rules — Syntax-Check (paths: vs globs:)
 grep -rn '^paths:' .claude/rules/*.md 2>/dev/null
 
 # Global rules (NEU v3.2.1)
 grep -rn '^paths:' "$HOME"/.claude/rules/*.md 2>/dev/null
 ```
+
+### 3e.2: Rules-Inhalts-Drift (NEU v3.3.1, zusaetzlich zu 3e Syntax) — PFLICHT
+
+**WICHTIG (Real-World-Bug aus Session 2026-05-31):** Step 3e prueft nur `paths:` Syntax,
+aber NICHT den INHALT der Rule-Files. Drift (veraltete Versionen, Test-Counts) bleibt
+unbemerkt. **Skip nur bei `QUICK_MODE=yes`.**
+
+**Restriktive Patterns** (vermeiden Plauder-False-Positives wie "we discussed dev.13"):
+
+```bash
+if [ "$QUICK_MODE" != "yes" ]; then
+  RULES_HITS=0
+  for f in .claude/rules/*.md "$HOME"/.claude/rules/*.md; do
+    [ -f "$f" ] || continue
+    # Versions-Patterns nur mit Kontext-Keyword (Stable/Unstable/Last sync/Tabelle/Bullet/Code)
+    hits=$(grep -nE "v?[0-9]+\.[0-9]+\.[0-9]+(-dev\.[0-9]+)?" "$f" 2>/dev/null | \
+           grep -iE "(stable|unstable|tag|commit|last sync|^[[:space:]]*[-*|\`])" )
+    # Test-Counts nur mit Test-Keyword in derselben Zeile
+    hits2=$(grep -nE "\b[0-9]{2,4}\s+(pytest-)?[Tt]ests?\b" "$f" 2>/dev/null | \
+            grep -iE "(gruen|gruene|passed|collected|pytest|coverage)")
+    if [ -n "$hits$hits2" ]; then
+      echo "=== $f ($(wc -l < "$f") Zeilen) ==="
+      [ -n "$hits" ] && echo "$hits"
+      [ -n "$hits2" ] && echo "$hits2"
+      RULES_HITS=$((RULES_HITS + 1))
+    fi
+  done
+  echo "Rules-Files mit potentieller Drift: $RULES_HITS"
+fi
+```
+
+**False-Positive-Mitigation:**
+- Versions-Pattern valid nur wenn Zeile mit Kontext-Keyword (`Stable`/`Unstable`/`Tag`/`Commit`/`Last sync`) ODER mit `-`/`*`/`|`/backtick beginnt (Tabelle/Bullet/Code)
+- Test-Counts valid nur wenn `gruen`/`passed`/`collected`/`pytest`/`coverage` in derselben Zeile
+- Bei >10 Hits in EINEM Rule-File: Warnung "vermutlich noch False-Positives" + User-Frage statt Auto-Action
+
+**Jeder Hit → Finding mit Klasse aus Step 4:**
+- AUTO bei eindeutiger Drift (z.B. `434 Tests gruen` und Source-of-Truth ist 464)
+- ASK bei Build/Release-relevanten Files (z.B. `build-process.md` `Last sync` updaten?)
+- INFO bei Genesis-Refs ("Pool-Reform seit v1.0.6-dev.6" — Doku der Historie, keine Drift)
+
+**Beispiel-Hits (Real-World Zustellplan):**
+- `build-process.md:17` `Last sync: v1.0.3 / 2026-05-07` (Stable jetzt v1.0.5) → ASK
+- `git-conventional-commits.md:94` `283 Tests gruen` (jetzt 464) → AUTO
+- `tab1-berechnung.md:44` `Pool-Reform seit v1.0.6-dev.6` → INFO (Genesis)
 
 ### 3f: Total Context Budget
 - Sum all context file lines: CLAUDE.md (all scopes) + MEMORY.md + all rules
@@ -697,7 +743,59 @@ Compression candidates (3):
 Apply compressions? [Yes / Select / Skip]
 ```
 
-## Step 6: Report (alle 6 Targets + Knowledge-Sync explizit)
+## Step 6: Report — PFLICHT-Self-Check-Block am Anfang (NEU v3.3.1)
+
+**WICHTIG:** Der Report MUSS mit dem Self-Check-Block BEGINNEN. Jeder Marker MUSS
+konkrete Beleg-Daten enthalten (Tool-Call-Refs, file:line, Agent-Findings).
+
+**Wenn ein Marker fehlt oder `(SKIPPED)` ohne `--quick` enthaelt:** Der Skill-Run
+ist BUGGY — User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Steps
+1.5 + 3.5 + 3e.2 ausfuehren".
+
+### Bei QUICK_MODE=yes: Banner + SKIPPED-Markers
+
+```
+##############################################################
+##  QUICK MODE ACTIVE — Knowledge-Sync wurde SKIPPED         ##
+##  Du siehst nur Drift-Checks (Version, Pfade, Test-Counts) ##
+##  Fuer vollen Sweep: /mind-update OHNE --quick aufrufen    ##
+##############################################################
+
+=== Context Update v3.3.1 — Self-Check ===
+[Step 1.5 Custom-Context-Discovery] SKIPPED — --quick mode (User-Wahl)
+[Step 3.5 Per-Bereich Knowledge-Sync] SKIPPED — --quick mode (User-Wahl)
+[Step 3e.2 Rules-Inhalts-Check] SKIPPED — --quick mode (User-Wahl)
+```
+
+### Bei NORMAL MODE: PFLICHT-Format mit Belegen (anti-faking EC1)
+
+```
+=== Context Update v3.3.1 — Self-Check ===
+[Step 1.5 Custom-Context-Discovery] <N> Files discovered:
+  - <pfad1> (mtime: YYYY-MM-DD HH:MM, size: <X>KB)
+  - <pfad2> (mtime: YYYY-MM-DD HH:MM, size: <X>KB)
+  ... (oder "0 Files — Bash-find Output in Tool-Call #<N>")
+
+[Step 3.5 Per-Bereich Knowledge-Sync] 4 Agents dispatched:
+  - scope=claude-md      → <A> Findings (U:<x> E:<y> A:<z> NF:<w> I:<v>)
+      Beispiel-Belege: [UPDATE] CLAUDE.md:15 "v3.2.2" -> Session v3.3.0
+  - scope=memory         → <B> Findings (oder "0 — MEMORY aktuell")
+  - scope=rules          → <C> Findings (Beleg: file:line)
+  - scope=custom-context → <D> Findings (oder "SKIPPED: 0 Custom-Context-Files aus Step 1.5")
+  Beleg: Agent-Tool-Calls #X, #Y, #Z, #W
+
+[Step 3e.2 Rules-Inhalts-Check] <R> Drift-Hits in <F> Rule-Files:
+  - build-process.md:17 "Last sync: v1.0.3" (Stable jetzt v1.0.5)
+  - git-conventional-commits.md:94 "283 Tests gruen" (jetzt 464)
+  ... (oder "0 Hits — Rules sind inhaltlich aktuell")
+  Beleg: Bash-grep Output in Tool-Call #<N>
+```
+
+**Pflicht-Format jeder Marker-Zeile:** `<scope/check>` → `<count> <kind>` → `(Beleg-Quelle: <Tool-Call-Ref oder file:line>)`. Ohne Beleg ist Marker UNGUELTIG.
+
+---
+
+## Step 6.1: Drift-Report + Knowledge-Sync-Report (nach Self-Check-Block)
 
 ```
 === Context Update ===
@@ -746,9 +844,25 @@ Total-Context-Zeile.
 
 ## Hard Constraints
 
-- MUST be fast: NO Agent dispatch EXCEPT Step 3.5 (4 parallel `context-analyzer`, NUR wenn `QUICK_MODE=no`)
-- **`--quick` Arg:** Step 3.5 skippen, nur inline-Drift wie v3.2.2 (Backward-Compat fuer User die kein Knowledge-Sync wollen)
-- **Parallel-Agent-Limit (NEU v3.3.0):** MAX 4 context-analyzer parallel (Plan D1). Skills duerfen NICHT andere Skills dispatchen die ihrerseits Agents starten.
+### PFLICHT-Steps (KEIN Inline-Ersatz, NEU v3.3.1)
+
+**Step 1.5 (Custom-Context-Discovery) + Step 3.5 (4 parallel Agents) + Step 3e.2 (Rules-Inhalts-Check) sind PFLICHT** (ausser `QUICK_MODE=yes` aus `--quick` Arg).
+
+- Skill DARF NICHT diese Steps "inline ersetzen" oder "wegen Token-Ersparnis ueberspringen"
+- Auch wenn Claude "die Session direkt hat" bedeutet das NICHT dass es alle 4 Bereiche systematisch durchgeht — 4 Agents = 4 unabhaengige Perspektiven, die Inline-Logik faellt zu einem einzelnen Pass zusammen
+- Step 1.5 entdeckt projekt-weite Custom-Context-Files (plan.md, research.md, docs/* etc.) via Bash-Discovery — Inline-Ersatz unmoeglich weil Skill die Files nicht kennt ohne find/grep
+- Wenn ein Step uebersprungen wurde: Step 6 Self-Check-Block MUSS das ausweisen — Skill darf NICHT mit Drift-Report fortfahren ohne Self-Check-Block voraus
+- User darf Report mit fehlendem/unvollstaendigem Self-Check zurueckweisen
+
+### Bei QUICK_MODE=yes (--quick Arg)
+
+- Step 1.5 + Step 3.5 + Step 3e.2 explizit skippen
+- Prominenter Banner im Report-Header (siehe Step 6)
+- Self-Check-Block markiert jeden Step als `SKIPPED — --quick (User-Wahl)`
+
+### Parallel-Agent-Limit
+
+- **MAX 4 context-analyzer parallel** (Plan D1). Skills duerfen NICHT andere Skills dispatchen die ihrerseits Agents starten.
 - **Parallel-Bash-Limit (NEU v3.2.2):** Skill startet MAX 2 Bash-Tools parallel,
   niemals 3+. Bei 3+ Calls: zu seriellem Aufruf wechseln ODER kombinieren via `&&`.
   Claude Code's Tool-System cancelled uebermaessige Parallelitaet (siehe Session

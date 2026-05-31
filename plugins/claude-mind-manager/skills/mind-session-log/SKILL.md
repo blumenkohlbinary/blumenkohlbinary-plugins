@@ -9,7 +9,7 @@ description: |
   Use when the user says "session log", "transkript", "log session",
   "mind session log", "logge die session", "session transkript",
   or "/mind-session-log [scope]".
-argument-hint: "[combined|compact|conversation|full|full-notrunc|no-truncate|komplett|ab /command|ab YYYY-MM-DD HH:MM]"
+argument-hint: "[combined|compact|conversation|full|full-notrunc|no-truncate|komplett|all-commands|ab /command|ab YYYY-MM-DD HH:MM]"
 context: inherit
 allowed-tools: Read Glob Grep Bash Write
 ---
@@ -34,11 +34,16 @@ Check `$ARGUMENTS`. Mehrere Args kombinierbar (z.B. `compact ab /mind-claudemd`)
 **Default-Verhalten v3.3.0 (NEU):** Multi-Command-Splitting + `full-notrunc` als Default.
 Pro Slash-Command in der Session wird eine eigene Datei erzeugt, OHNE 5000-char-Cap.
 
+**v3.3.1 NEU:** Default-Filter **nur mind-* Commands** (User-Direktive: "du sollst nur
+die mind command erfassen"). User-Internals (`/model`, `/context`, `/compact`) werden
+ausgefiltert. Override via `--all-commands` Arg.
+
 ```bash
 ARGS="${ARGUMENTS:-}"
 MODE="full-notrunc"     # v3.3.0 DEFAULT: kein 5000-char-Cap (war "full" mit Cap)
 THEMA=""
 SPLIT_MODE="per-command"  # v3.3.0 DEFAULT: 1 File pro Slash-Command
+ALL_COMMANDS="no"        # v3.3.1 NEU: Default nur mind-* Commands
 START_OVERRIDE=""        # 1 = ab Zeile 1 der JSONL
 START_PATTERN=""         # ab letztem Vorkommen dieses Patterns
 START_TIMESTAMP=""       # ISO-8601 Timestamp
@@ -53,6 +58,10 @@ esac
 
 # v3.3.0 NEU: `combined` Arg → altes Verhalten (1 File ab letztem Command)
 echo "$ARGS" | grep -qE '(^|[[:space:]])combined([[:space:]]|$)' && SPLIT_MODE="combined"
+
+# v3.3.1 NEU: `all-commands` oder `--all-commands` Arg → alle Slash-Commands (nicht nur mind-*)
+# H1-Fix Skill-Review: Regex toleriert sowohl bare als auch --prefix-Form
+echo "$ARGS" | grep -qE '(^|[[:space:]])(--)?all-commands([[:space:]]|$)' && ALL_COMMANDS="yes"
 
 # `komplett` -> ab Zeile 1 + combined (alte Semantik: 1 File ab Anfang)
 if echo "$ARGS" | grep -q "komplett"; then
@@ -158,9 +167,20 @@ siehe v3.2.2 Lessons — grep-Pattern matchte ueber JSON-Inhalt hinaus).
 if [ "$SPLIT_MODE" = "per-command" ]; then
   RANGES_BASH="/tmp/extract_ranges.py"
   cat > "$RANGES_BASH" << 'PYEOF'
-import json, sys, re
+"""Extract command-ranges from JSONL with v3.3.1 enhancements:
+- Filter: nur mind-* Commands (User-Direktive), Override via sys.argv[2]="yes"
+- Dedup: (cmd, ts, content-hash) Key gegen Compaction-Embedding-Duplikate (EC2)
+"""
+import hashlib
+import json
+import re
+import sys
 
-ranges = []  # (line_no, command_name, timestamp_iso)
+ALL_COMMANDS = sys.argv[2] if len(sys.argv) > 2 else "no"
+
+raw_ranges = []  # (line_no, command_name, timestamp_iso, content_hash)
+filtered_count = 0  # non-mind Commands gefiltert
+
 for lineno, line in enumerate(open(sys.argv[1], encoding='utf-8'), 1):
     if '<command-name>' not in line:
         continue
@@ -175,12 +195,37 @@ for lineno, line in enumerate(open(sys.argv[1], encoding='utf-8'), 1):
         cmd_full = m.group(1)
         # Namespace strippen: 'claude-mind-manager:mind-update' -> 'mind-update'
         cmd = cmd_full.split(':')[-1] if ':' in cmd_full else cmd_full
+
+        # v3.3.1 NEU: Filter nur mind-* Commands (Default)
+        if ALL_COMMANDS != "yes" and not cmd.startswith("mind-"):
+            filtered_count += 1
+            continue
+
         ts = obj.get('timestamp', '')
-        ranges.append((lineno, cmd, ts))
+        # v3.3.1 NEU: Content-Hash gegen Compaction-Duplikate (EC2)
+        # H2-Fix Skill-Review: hash parsed `content` (nicht raw line) — invariant
+        # gegen JSON-Envelope-Reordering bei Compaction-Embedding
+        content_hash = hashlib.sha1(content[:200].encode('utf-8')).hexdigest()[:8]
+        raw_ranges.append((lineno, cmd, ts, content_hash))
     except (json.JSONDecodeError, AttributeError, KeyError):
         continue
 
-for r in ranges:
+# v3.3.1 NEU: Dedup nach (cmd, ts, content_hash) Key
+seen_keys = {}
+unique_ranges = []
+dedup_count = 0
+for (lineno, cmd, ts, content_hash) in raw_ranges:
+    key = (cmd, ts, content_hash)
+    if key in seen_keys:
+        dedup_count += 1
+        continue
+    seen_keys[key] = lineno
+    unique_ranges.append((lineno, cmd, ts))
+
+# Stats nach stderr (Bilanz im Skill)
+print(f"# STATS: filtered_non_mind={filtered_count} dedup_compaction={dedup_count} kept={len(unique_ranges)}", file=sys.stderr)
+
+for r in unique_ranges:
     print(f"{r[0]}|{r[1]}|{r[2]}")
 PYEOF
 
@@ -202,7 +247,9 @@ PYEOF
     PYTHON="python"
   fi
 
-  RANGES_TXT=$("$PYTHON" "$RANGES_WIN" "$JSONL_WIN")
+  # v3.3.1: ALL_COMMANDS Arg ans Python-Script weitergeben (Default "no" → Filter mind-*)
+  RANGES_TXT=$("$PYTHON" "$RANGES_WIN" "$JSONL_WIN" "$ALL_COMMANDS" 2>/tmp/range_stats.txt)
+  RANGE_STATS=$(cat /tmp/range_stats.txt 2>/dev/null | grep '^# STATS:' | head -1)
 
   # Fallback: keine Commands gefunden -> ganze JSONL als 1 Range (mode=combined)
   if [ -z "$RANGES_TXT" ]; then
@@ -614,9 +661,13 @@ done
 ```bash
 echo ""
 echo "=== Bilanz ==="
-echo "Erzeugt:  ${#CREATED_FILES[@]} File(s)"
-echo "Skipped:  $SKIPPED_COUNT Range(s) (self-exclusion oder leer)"
-echo "Mode:     $MODE | Split: $SPLIT_MODE"
+echo "Erzeugt:    ${#CREATED_FILES[@]} File(s)"
+echo "Skipped:    $SKIPPED_COUNT Range(s) (self-exclusion oder leer)"
+echo "Mode:       $MODE | Split: $SPLIT_MODE | Filter: $([ "$ALL_COMMANDS" = "yes" ] && echo "all-commands" || echo "mind-* only (Default v3.3.1)")"
+# v3.3.1: Filter + Dedup Stats aus Python-Helper
+if [ -n "$RANGE_STATS" ]; then
+  echo "Range-Stats: $RANGE_STATS" | sed 's|^# STATS: ||'
+fi
 echo ""
 echo "Files:"
 for f in "${CREATED_FILES[@]}"; do
@@ -649,6 +700,8 @@ fi
   - `combined` (Backward-Compat): `YYYY-MM-DD_<thema>_<suffix>.md` (wie v3.2.x)
 - **Default-Mode v3.3.0:** `full-notrunc` (war `full` in v3.2.x) — User-Direktive: kein 5000-Cap im Default, wichtig fuers Debuggen
 - **Default-Split v3.3.0:** `per-command` (1 File pro Slash-Command) — Backward-Compat via `combined` Arg
+- **Default-Filter v3.3.1 (NEU, User-Direktive):** nur `mind-*` Commands erfasst. User-Internals (`/model`, `/context`, `/compact` etc.) werden ausgefiltert. Override via `--all-commands` Arg fuer ALLE Slash-Commands.
+- **Compaction-Dedup v3.3.1 (NEU, Bug aus Session 2026-05-31):** Identische `(cmd, timestamp, content-hash[0:8])` Tripel werden als Compaction-Embedding-Duplikate gewertet und nur 1× erfasst. Bilanz zeigt `dedup_compaction=<N>` Stats.
 - **Self-Exclusion (Plan EC6):** Im per-command-Mode wird der mind-session-log Range selbst uebersprungen. Regex `^(.*:)?mind-session-log$` toleriert Namespace-Variation, NICHT Custom-Wrapper unter anderem Namen
 - Slug-Derivation per `cygpath` mit Fallback auf neuestes Projekt-Dir (mtime)
 - **Path-Cross-Platform (v3.2.1):** Bash-Pfade (`/tmp/...`) NUR fuer Write/Bash-Operations.

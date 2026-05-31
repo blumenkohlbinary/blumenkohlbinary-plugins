@@ -23,7 +23,12 @@ Projekttyp erkennen -> Soll-Zustand definieren -> Ist pruefen -> User-OK -> Erst
 Dispatch **project-scanner** agent:
 "Scan this project for tech stack, project type, build/test/lint commands, key directories, frameworks, and package manager. Report structured findings."
 
-## Step 1.5: Per-Bereich Setup-Analyse (NEU v3.3.0, 4 parallel Agents)
+## Step 1.5: Per-Bereich Setup-Analyse (NEU v3.3.0, 4 parallel Agents) — PFLICHT v3.3.1
+
+**PFLICHT-Step (NEU v3.3.1):** Step 1 + Step 1.5 sind PFLICHT — KEIN Inline-Ersatz
+"wegen Token-Ersparnis". 4 Bereich-Agents = 4 unabhaengige Perspektiven, die Inline-Logik
+faellt zu einem einzelnen Pass zusammen. Wenn uebersprungen: Step 6 Self-Check-Block
+markiert es klar — User darf zurueckweisen.
 
 **WICHTIG (Plan D1 + Skill-Review H1):** project-scanner aus Step 1 muss VOR Step 1.5
 abgeschlossen sein (seriell). Step 1.5 dispatcht dann 4 context-analyzer parallel in
@@ -342,7 +347,32 @@ Naechste Schritte:
 Doku: docs/BACKUP_USAGE.md
 ```
 
-## Step 6: Summary
+## Step 6: Report — PFLICHT-Self-Check-Block am Anfang (NEU v3.3.1)
+
+**WICHTIG:** Report MUSS mit Self-Check-Block BEGINNEN. Jeder Marker mit konkreten Belegen.
+
+**Wenn ein Marker fehlt oder `(SKIPPED)` enthaelt ohne explizite Begruendung:**
+User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step 1 + Step 1.5 ausfuehren".
+
+```
+=== Project Setup Report v3.3.1 — Self-Check ===
+[Step 1 project-scanner] Profile: <z.B. code_app +docs +tests>
+  Tech-Stack: <z.B. Python 3.11, pyproject.toml, pytest>
+  Beleg: project-scanner Agent Tool-Call #<N>
+
+[Step 1.5 Per-Bereich-Setup-Analyse] 4 Agents dispatched:
+  - scope=build    → <N> Findings (z.B. "Build-System OK, Linter konfiguriert")
+  - scope=backup   → <N> Findings (z.B. "tools/backup_tools.py fehlt — install vorgeschlagen")
+  - scope=tests    → <N> Findings (z.B. "pytest OK, 464 tests collected")
+  - scope=secrets  → <N> Findings (z.B. ".env nicht in .gitignore — FIX")
+  Beleg: Agent Tool-Calls #<X>, #<Y>, #<Z>, #<W>
+```
+
+**Pflicht-Format jeder Marker-Zeile:** `<scope/step>` → `<count> <kind>` → `(Beleg: <Tool-Call-Ref>)`.
+
+---
+
+## Step 6.1: Summary (nach Self-Check-Block)
 
 ```
 === Project Setup Complete ===

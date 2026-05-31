@@ -52,12 +52,16 @@ Read these reference files for quality criteria and budget data:
 - [references/quality-criteria.md](../../references/quality-criteria.md) -- Optimization patterns + anti-patterns
 - [references/budget-thresholds.md](../../references/budget-thresholds.md) -- SFEIR compliance data, line thresholds
 
-## Step 3: Dispatch context-analyzer Agent
+## Step 3: Dispatch context-analyzer Agent — PFLICHT v3.3.1
+
+**PFLICHT-Step:** Skill MUSS context-analyzer dispatchen. Inline-Checks (Step 4) sind
+ZUSAETZLICH, nicht ERSATZ. Wenn Agent uebersprungen: Self-Check-Block in Step 5 markiert
+es — User darf zurueckweisen.
 
 Launch **context-analyzer** with scope=memory:
 "Analyze all memory files in this project. Scope: memory. Report duplicates (exact and semantic), stale entries, budget issues, misplaced content, and optimization suggestions with token savings estimates."
 
-## Step 4: Eigene Inline-Checks (parallel zum Agent)
+## Step 4: Eigene Inline-Checks (parallel zum Agent, ZUSAETZLICH)
 
 While the agent runs, perform these checks directly:
 
@@ -89,6 +93,18 @@ While the agent runs, perform these checks directly:
 ## Step 5: Ergebnisse konsolidieren + praesentieren
 
 Merge agent results with inline checks. Display as:
+
+**PFLICHT-Self-Check-Block am Anfang (NEU v3.3.1):**
+
+```
+=== MEMORY.md Audit Report v3.3.1 — Self-Check ===
+[Step 3 context-analyzer] Agent dispatched: <N> Findings (Duplicates: <D>, Stale: <S>, Misplaced: <M>)
+  Beleg: context-analyzer Tool-Call #<N>
+[Step 4 Inline-Checks] Budget: <X>/200 lines, Cross-File-Duplikate: <Y>, Stale-Pfade: <Z>
+  Beleg: Bash-Tool-Call #<N>
+```
+
+Fehlt der Self-Check-Block oder enthaelt `(SKIPPED)`: User darf zurueckweisen.
 
 ```
 === MEMORY.md Audit Report ===

@@ -79,12 +79,16 @@ Read these reference files:
 - [references/prompt-quality-guide.md](../../references/prompt-quality-guide.md) — CLAUDE.md writing best practices
 - [references/budget-thresholds.md](../../references/budget-thresholds.md) — SFEIR compliance data
 
-### Step 4b: Dispatch context-analyzer Agent
+### Step 4b: Dispatch context-analyzer Agent — PFLICHT v3.3.1
+
+**PFLICHT-Step:** Skill MUSS context-analyzer dispatchen. Inline-Checks (Step 4c) sind
+ZUSAETZLICH, nicht ERSATZ. Wenn Agent uebersprungen: Self-Check-Block in Step 4d markiert
+es — User darf zurueckweisen.
 
 Launch **context-analyzer** with scope=claude-md:
 "Analyze all CLAUDE.md files in this project. Scope: claude-md. Report quality score, contradictions, staleness, optimization suggestions with token savings estimates."
 
-### Step 4c: Eigene Inline-Checks (parallel zum Agent)
+### Step 4c: Eigene Inline-Checks (parallel zum Agent, ZUSAETZLICH)
 
 Während der Agent läuft, selbst prüfen:
 
@@ -100,6 +104,18 @@ Findings-Tabelle geliefert hat, Tabelle **1:1 uebernehmen** statt eigenes Format
 neu zu generieren. Nur Apply-Optionen (safe/all/select) hinzufuegen.
 
 Agent-Ergebnisse + eigene Inline-Checks zusammenführen. Anzeigen als:
+
+**PFLICHT-Self-Check-Block am Anfang (NEU v3.3.1):**
+
+```
+=== CLAUDE.md Audit Report v3.3.1 — Self-Check ===
+[Step 4b context-analyzer] Agent dispatched: <N> Findings (Severity: <C> CRITICAL, <W> WARNING, <I> INFO), Health-Score <X>/100
+  Beleg: context-analyzer Tool-Call #<N>
+[Step 4c Inline-Checks] Version-Match: <ok/mismatch>, Pfad-Check: <Y> tote Pfade, Git-Check: <Z> unreflektierte Commits
+  Beleg: Bash-Tool-Call #<N>
+```
+
+Fehlt der Self-Check-Block oder enthaelt `(SKIPPED)`: User darf zurueckweisen.
 
 ```
 === CLAUDE.md Audit Report ===
