@@ -23,12 +23,15 @@ Projekttyp erkennen -> Soll-Zustand definieren -> Ist pruefen -> User-OK -> Erst
 Dispatch **project-scanner** agent:
 "Scan this project for tech stack, project type, build/test/lint commands, key directories, frameworks, and package manager. Report structured findings."
 
-## Step 1.5: Per-Bereich Setup-Analyse (NEU v3.3.0, 4 parallel Agents) — PFLICHT v3.3.1
+## Step 1.5: Per-Bereich Setup-Analyse (4 parallel Agents) — directive v3.3.2
 
-**PFLICHT-Step (NEU v3.3.1):** Step 1 + Step 1.5 sind PFLICHT — KEIN Inline-Ersatz
-"wegen Token-Ersparnis". 4 Bereich-Agents = 4 unabhaengige Perspektiven, die Inline-Logik
-faellt zu einem einzelnen Pass zusammen. Wenn uebersprungen: Step 6 Self-Check-Block
-markiert es klar — User darf zurueckweisen.
+**Identitaet:** Step 1 + Step 1.5 gehoeren zum Skill — sie werden ausgefuehrt, nicht
+abgewogen. 4 Bereich-Agents = 4 unabhaengige Perspektiven.
+
+> **Bekanntes TODO (separates Ticket, NICHT hier):** Die 4 Agents pruefen groesstenteils
+> nur Datei-Existenz (`test -e`) — das ist deterministisch und waere als Inline-Check/
+> Script effizienter abbildbar. Refactoring-Kandidat fuer eine spaetere Version
+> (siehe known-issues). In v3.3.2 bleibt die Struktur unveraendert.
 
 **WICHTIG (Plan D1 + Skill-Review H1):** project-scanner aus Step 1 muss VOR Step 1.5
 abgeschlossen sein (seriell). Step 1.5 dispatcht dann 4 context-analyzer parallel in
@@ -355,7 +358,7 @@ Doku: docs/BACKUP_USAGE.md
 User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step 1 + Step 1.5 ausfuehren".
 
 ```
-=== Project Setup Report v3.3.1 — Self-Check ===
+=== Project Setup Report v3.3.2 — Self-Check ===
 [Step 1 project-scanner] Profile: <z.B. code_app +docs +tests>
   Tech-Stack: <z.B. Python 3.11, pyproject.toml, pytest>
   Beleg: project-scanner Agent Tool-Call #<N>

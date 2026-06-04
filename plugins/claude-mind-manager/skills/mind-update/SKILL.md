@@ -1,16 +1,15 @@
 ---
 name: mind-update
 description: |
-  [Mind Manager] Context-Sweep — Drift-Erkennung (Versionen, Pfade, Counts, Syntax)
-  PLUS (v3.3.0) Knowledge-Sync: 4 Per-Bereich-Agents parallel (claude-md/memory/
-  rules/custom-context) gleichen Session-Inhalte mit Custom-Context-Files ab,
-  klassifizieren 5 Klassen (UPDATE/ENRICH/ADD/NEW_FILE/INFO). Auto-Fix fuer
+  [Mind Manager] Context-Sweep mit ZWEI Pflicht-Teilen: (1) deterministische
+  Drift-Erkennung (Versionen, Pfade, Counts, Syntax, Commit-Coverage) inline,
+  (2) Knowledge-Sync — dispatcht IMMER 4 Per-Bereich-Agents parallel (claude-md/
+  memory/rules/custom-context) die Session-Inhalte mit den Context-Files abgleichen
+  und in 5 Klassen klassifizieren (UPDATE/ENRICH/ADD/NEW_FILE/INFO). Auto-Fix fuer
   sichere Aenderungen, Rueckfrage fuer alles andere.
 
-  **BREAKING CHANGE v3.3.0:** Default-Verhalten beinhaltet jetzt Knowledge-Sync
-  (~20K Token zusaetzlich, ~30s laenger). Wer alte schnelle Drift-Only-Variante
-  will: `--quick` Arg pflicht. v3.2.x Default-User: bewusster Wechsel auf
-  `--quick` oder Akzeptanz der erweiterten Funktion.
+  Der Knowledge-Sync ist KEINE optionale Beschleunigungs-Stufe — er ist Teil der
+  Identitaet dieses Skills. Nur `--quick` schaltet ihn explizit ab.
 
   Use when the user says "update context", "refresh context", "mind update",
   "quick check", "context status", "sync context",
@@ -20,15 +19,21 @@ context: inherit
 allowed-tools: Read Glob Grep Edit Bash Agent
 ---
 
-# Schneller Context-Update
+# Context-Sweep + Knowledge-Sync
 
-Alle Context-Dateien inline pruefen -> sichere Fixes auto-anwenden -> Report.
+Deterministische Drift-Checks inline -> Knowledge-Sync via Per-Bereich-Agents
+-> sichere Fixes auto-anwenden -> Report.
 
-Designed to be FAST: no agent dispatch, no deep analysis, pure inline checks.
+**Identitaet (directive):** Dieser Skill macht BEIDES — Drift-Checks UND Knowledge-Sync.
+Der Knowledge-Sync (Step 3.5) wird IMMER ausgefuehrt (ausser `--quick`). Es gibt
+KEINEN Inline-Ersatz dafuer: der semantische Abgleich Session<->Context laeuft NUR
+ueber die dispatchten Agents. "Ich kenne den Stand schon" ist kein gueltiger Grund
+ihn zu ueberspringen — siehe Step 3c Commit-Coverage, die Gaps objektiv belegt.
 
 ## Step 1: Alle Context-Dateien lesen (project + global + topic-files)
 
-Read all context files inline (no agent dispatch). **6 Targets — alle PFLICHT,
+Read all context files directly via Read/Bash (dies ist der Datei-Lese-Schritt;
+der Knowledge-Sync via Agents folgt in Step 3.5). **6 Targets — alle PFLICHT,
 keine Auslassung. Wenn ein Target fehlt: explizit "(none)" loggen, NICHT silent
 skippen.**
 
@@ -318,11 +323,43 @@ paths = set(re.findall(pattern, claude_md_content))
   Algorithmus-Probleme
 - Bei 1-5 Findings: Auto-Fix erlaubt (mit Read-vor-Edit pro Step 4)
 
-### 3c: Git Log Check
-- Only if `.git/` directory exists
-- Run `git log --oneline -10`
-- Look for `feat:`, `fix:`, `refactor:` commits that are NOT mentioned in CLAUDE.md
-- Unreflected commits -> Finding (ask user: add to CLAUDE.md?)
+### 3c: Commit-Coverage-Gate (deterministisch — objektiver Knowledge-Gap)
+
+**Zweck (v3.3.2):** Dies ist der DETERMINISTISCHE Kern der Knowledge-Gap-Erkennung.
+Er entwertet die "ich kenne den Stand schon"-Ausrede: wenn Commit X nachweislich
+in keiner Context-Datei steht, IST das ein Gap — unabhaengig davon was Claude
+zu wissen glaubt. Diese Findings speisen Step 3.5 mit konkreten Pruef-Punkten.
+
+- Nur wenn `.git/` existiert.
+- `git log --oneline -30` (oder seit letztem doc-beruehrenden Commit).
+- Pro `feat:`/`fix:`/`refactor:`/`perf:` Commit: Scope + Subject-Stichworte gegen
+  **CLAUDE.md UND MEMORY.md** greppen.
+
+```bash
+# Commit-Coverage: welche Feature-Commits sind NICHT in den Context-Dateien?
+# Stichwort-Wahl (N1-Fix): zuerst dev.NN, dann der conventional-commit-SCOPE
+# (feat(SCOPE):), erst zuletzt ein Subject-Token — Stopwords ausgeschlossen.
+STOP='the|and|for|that|with|from|into|als|der|die|das|und|fix|feat|add|new|update'
+git log --oneline -30 | grep -iE '^[0-9a-f]+ (feat|fix|refactor|perf)(\(|:)' | while read -r line; do
+  hash=$(echo "$line" | cut -d' ' -f1)
+  subj=$(echo "$line" | cut -d' ' -f2-)
+  # 1) dev.NN  2) scope aus feat(scope):  3) erstes Subject-Token >=4 chars, kein Stopword
+  key=$(echo "$subj" | grep -oiE 'dev\.[0-9]+' | head -1)
+  [ -z "$key" ] && key=$(echo "$subj" | sed -nE 's/^[a-z]+\(([a-z0-9_-]{3,})\).*/\1/p' | head -1)
+  [ -z "$key" ] && key=$(echo "$subj" | tr ' ' '\n' | grep -iE '^[a-z_]{4,}$' | grep -ivE "^($STOP)$" | head -1)
+  if [ -n "$key" ] && ! grep -qiF "$key" CLAUDE.md "$MEMORY_MAIN" 2>/dev/null; then
+    echo "GAP: $hash '$subj' — Stichwort '$key' fehlt in CLAUDE.md+MEMORY.md"
+  fi
+done
+```
+
+**N1-Hinweis:** Die Stichwort-Heuristik kann im Zweifel einen Gap *übersehen* (false-negative),
+aber nie einen *erfinden* (kein false-GAP) — die Gate-Evidenz bleibt verlässlich. Bei
+Unsicherheit lieber Step 3.5 trotzdem laufen lassen (Agents finden den semantischen Rest).
+
+- Jeder `GAP:` = **objektives Knowledge-Gap-Finding** (Commit-Hash + Subject + fehlendes Stichwort).
+- Diese Liste geht als konkreter Input an Step 3.5 ("verifiziere/ergaenze diese unreflektierten Commits").
+- **WICHTIG:** Wenn die Commit-Coverage Gaps zeigt, MUSS Step 3.5 laufen — ein nicht-leeres Gap-Set widerlegt jede "alles synchron / ich kenne den Stand"-Annahme.
 
 ### 3d: MEMORY.md Budget
 - Count lines in MEMORY.md
@@ -400,18 +437,19 @@ fi
 - >300 lines = INFO: "Moderate context load"
 - <300 lines = OK
 
-## Step 3.5: Per-Bereich Knowledge-Sync (NEU v3.3.0, 4 parallel Agents)
+## Step 3.5: Per-Bereich Knowledge-Sync (4 parallel Agents)
 
-**Skip wenn `QUICK_MODE=yes`** — dann direkt zu Step 4.
+**Directive:** Dieser Schritt laeuft IMMER (ausser `QUICK_MODE=yes`). Es gibt keinen
+Inline-Ersatz — der semantische Abgleich Session<->Context laeuft NUR ueber die
+Agents. Wenn Step 3c Commit-Coverage-Gaps gefunden hat, ist "alles synchron / ich
+kenne den Stand" objektiv widerlegt → dispatchen ist Pflicht, nicht Ermessen.
 
-Sonst: 4 `context-analyzer` Agents PARALLEL dispatchen (alle in 1 Tool-Call-Message
-fuer echtes Parallel). Jeder Agent bekommt:
+Dispatch 4 `context-analyzer` Agents PARALLEL (alle in 1 Tool-Call-Message). Jeder bekommt:
 - Scope: `claude-md` / `memory` / `rules` / `custom-context`
 - Mode: `knowledge-sync`
 - Bereich-Files (Read-only)
+- **Die Commit-Coverage-Gaps aus Step 3c** als konkrete Pruef-Punkte ("verifiziere/ergaenze diese unreflektierten Commits in deinem Bereich")
 - Session-Auszug (USER + ASSISTANT_TEXT der letzten 200 Events) — siehe Sampling unten
-
-**Token-Budget:** 4× Sonnet-Agent ~5K Tokens = ~20K total. User-OK akzeptiert.
 
 ### Session-Auszug-Sampling (Plan-EC2: 3-stufiger Algorithmus)
 
@@ -761,7 +799,7 @@ ist BUGGY — User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step
 ##  Fuer vollen Sweep: /mind-update OHNE --quick aufrufen    ##
 ##############################################################
 
-=== Context Update v3.3.1 — Self-Check ===
+=== Context Update v3.3.2 — Self-Check ===
 [Step 1.5 Custom-Context-Discovery] SKIPPED — --quick mode (User-Wahl)
 [Step 3.5 Per-Bereich Knowledge-Sync] SKIPPED — --quick mode (User-Wahl)
 [Step 3e.2 Rules-Inhalts-Check] SKIPPED — --quick mode (User-Wahl)
@@ -770,11 +808,16 @@ ist BUGGY — User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step
 ### Bei NORMAL MODE: PFLICHT-Format mit Belegen (anti-faking EC1)
 
 ```
-=== Context Update v3.3.1 — Self-Check ===
+=== Context Update v3.3.2 — Self-Check ===
 [Step 1.5 Custom-Context-Discovery] <N> Files discovered:
   - <pfad1> (mtime: YYYY-MM-DD HH:MM, size: <X>KB)
   - <pfad2> (mtime: YYYY-MM-DD HH:MM, size: <X>KB)
   ... (oder "0 Files — Bash-find Output in Tool-Call #<N>")
+
+[Step 3c Commit-Coverage] <K> unreflektierte feat/fix/refactor-Commits:
+  - <hash> "<subject>" — Stichwort "<key>" fehlt in CLAUDE.md+MEMORY.md
+  ... (oder "0 — alle Feature-Commits in Context-Files reflektiert")
+  Beleg: git-log + grep Output in Tool-Call #<N>
 
 [Step 3.5 Per-Bereich Knowledge-Sync] 4 Agents dispatched:
   - scope=claude-md      → <A> Findings (U:<x> E:<y> A:<z> NF:<w> I:<v>)
@@ -783,6 +826,10 @@ ist BUGGY — User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step
   - scope=rules          → <C> Findings (Beleg: file:line)
   - scope=custom-context → <D> Findings (oder "SKIPPED: 0 Custom-Context-Files aus Step 1.5")
   Beleg: Agent-Tool-Calls #X, #Y, #Z, #W
+
+**Regel (v3.3.2):** Wenn Step 3c K>0 Gaps zeigt, DARF [Step 3.5] nicht "0 dispatched /
+gegenstandslos" sein — die Gaps sind objektiver Gegenbeweis. "Ich kenne den Stand"
+ist kein zulaessiger Eintrag hier.
 
 [Step 3e.2 Rules-Inhalts-Check] <R> Drift-Hits in <F> Rule-Files:
   - build-process.md:17 "Last sync: v1.0.3" (Stable jetzt v1.0.5)
@@ -844,15 +891,15 @@ Total-Context-Zeile.
 
 ## Hard Constraints
 
-### PFLICHT-Steps (KEIN Inline-Ersatz, NEU v3.3.1)
+### Identitaet: dieser Skill dispatcht IMMER (directive, v3.3.2)
 
-**Step 1.5 (Custom-Context-Discovery) + Step 3.5 (4 parallel Agents) + Step 3e.2 (Rules-Inhalts-Check) sind PFLICHT** (ausser `QUICK_MODE=yes` aus `--quick` Arg).
+**Step 1.5 (Custom-Context-Discovery) + Step 3.5 (4 parallel Agents) + Step 3e.2 (Rules-Inhalts-Check) gehoeren zur Identitaet des Skills** (ausser `QUICK_MODE=yes`).
 
-- Skill DARF NICHT diese Steps "inline ersetzen" oder "wegen Token-Ersparnis ueberspringen"
-- Auch wenn Claude "die Session direkt hat" bedeutet das NICHT dass es alle 4 Bereiche systematisch durchgeht — 4 Agents = 4 unabhaengige Perspektiven, die Inline-Logik faellt zu einem einzelnen Pass zusammen
-- Step 1.5 entdeckt projekt-weite Custom-Context-Files (plan.md, research.md, docs/* etc.) via Bash-Discovery — Inline-Ersatz unmoeglich weil Skill die Files nicht kennt ohne find/grep
-- Wenn ein Step uebersprungen wurde: Step 6 Self-Check-Block MUSS das ausweisen — Skill darf NICHT mit Drift-Report fortfahren ohne Self-Check-Block voraus
-- User darf Report mit fehlendem/unvollstaendigem Self-Check zurueckweisen
+- Der semantische Abgleich (Step 3.5) hat **keinen Inline-Ersatz** — er laeuft NUR ueber die Agents. Inline-Reasoning ist kein Substitut.
+- **"Ich kenne den Stand schon / habe es selbst geschrieben" ist KEIN gueltiger Skip-Grund.** Step 3c Commit-Coverage belegt Gaps OBJEKTIV (Commit X steht nachweislich nicht in den Context-Files). Subjektives Wissen schlaegt diese Evidenz nicht.
+- Wenn Step 3c ein nicht-leeres Gap-Set liefert, MUSS Step 3.5 laufen — der Schritt ist dann nicht "gegenstandslos".
+- Step 1.5 entdeckt projekt-weite Custom-Context-Files (plan.md, research.md, docs/*) via Bash-Discovery — die Files sind ohne find/grep gar nicht bekannt.
+- Step 6 Self-Check-Block weist jeden Step mit Belegen aus; fehlt er, darf der User den Report zurueckweisen.
 
 ### Bei QUICK_MODE=yes (--quick Arg)
 
