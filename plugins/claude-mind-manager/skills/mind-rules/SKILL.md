@@ -123,6 +123,26 @@ globs: src/api/**/*.ts
 4. Show preview, confirm file path (`.claude/rules/<name>.md`)
 5. Write on confirmation
 
+#### Companion-Rules fuer installierte Tools ("No Dead Tools" — NEU v4.0)
+
+Wenn eine Rule ein **installiertes Tool erreichbar machen** soll (z.B. `tools/backup_tools.py`,
+`tools/version.py`, `tools/update_changelog.py`), gelten zwei Zusatz-Regeln:
+
+- **`globs:` muss auf die Trigger-Dateien zeigen**, an denen das Tool relevant wird — nicht
+  irgendein Muster. Beispiele:
+  - Backup-Tool (immer relevant vor Datei-Ops) -> `globs: ["**/*"]` (always-on).
+  - Versions-Tool -> `globs: ["build.py", "*.spec", "**/*.py", "pyproject.toml", "VERSION"]`.
+- **Inhalt = WANN + WIE**, nicht nur WAS: konkreter Trigger ("vor Mass-Delete", "nach
+  Feature-Fertigstellung"), der genaue CLI-Aufruf, und die 2-3 load-bearing Fallen.
+- **Grund (ehrlich):** Eine glob-Rule laedt auto, sobald Claude eine passende Datei anfasst,
+  und macht das Tool *erreichbar* — sie garantiert NICHT dass es genutzt wird (Prosa =
+  schwaechste Enforcement-Stufe). Aber ein totes `.py` im Ordner -> eine geladene Anweisung
+  ist eine echte Verbesserung. `docs/*.md` (Menschen-Doku) wird NICHT auto-geladen und zaehlt nicht.
+
+mind-files nutzt fertige Companion-Rule-Templates aus `references/rule-templates/`
+(`backup-usage.md`, `release-hygiene.md`, `release-build.md`) — diese hier sind die
+Vorlage/Muster fuer handgeschriebene Companion-Rules.
+
 ---
 
 ### Subcommand: migrate
@@ -158,3 +178,4 @@ After:
 - ALWAYS warn about user-level rules with paths: (known to not work)
 - NEVER modify rules without showing the diff first
 - Rules without globs: are valid — they always load (document this, don't warn)
+- **"No Dead Tools" (NEU v4.0):** Wird ein Tool ins Projekt installiert, MUSS eine Companion-Rule mit passendem `globs:`-Trigger dazu — sonst liegt das Tool tot im Ordner. Companion-Rule = WANN + WIE + load-bearing Fallen, nicht nur WAS. Ehrlich: Rule = erreichbar, nicht garantiert-genutzt.

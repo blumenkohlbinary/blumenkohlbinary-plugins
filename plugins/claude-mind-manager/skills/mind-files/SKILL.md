@@ -36,8 +36,12 @@ Zusaetzlich (PFLICHT, via `test -e`/Glob konkret pruefen — Exist/Missing pro P
 - TESTS:   Test-Infra (pytest/jest/xunit/...) + `tests/`-Dir? CI-Config (.github/workflows)?
 - SECRETS: `.env`/credential-Files? `.gitignore`-Coverage ok? `.claudeignore`?
            `.claude/settings.json` mit `permissions.deny` fuer `.env*`/secrets?
+- RELEASE: Git-Repo (`.git` vorhanden)? Versionierungs-Signal (`build.py` / `*.spec` /
+           `pyproject.toml` mit `[project] version` / `VERSION`-Datei / `package.json` version)?
+           **Python vorhanden** (`python`/`python3` im PATH ODER `.venv/`)? — noetig fuers
+           Gating des Versioning-Packs (Step 5c: NUR Python-Release-App).
 
-Gib die 4 Bereiche als eigene Exist-vs-Missing-Sektion zurueck."
+Gib die 5 Bereiche als eigene Exist-vs-Missing-Sektion zurueck."
 ```
 
 > **v3.3.3 (Weg B):** Frueher liefen hier 4 zusaetzliche `context-analyzer`-Agents
@@ -271,9 +275,17 @@ UND User Backup-Vorschlag bestaetigt: Backup-System ins Projekt installieren.
 mkdir -p "$CLAUDE_PROJECT_DIR/tools" "$CLAUDE_PROJECT_DIR/docs" "$CLAUDE_PROJECT_DIR/.claude-mind/backups"
 
 # 2. Templates 1:1 ins Projekt schreiben (Read aus references/, Write ins Projekt)
-# 4 Python-Files + 1 Doku-File:
-for FILE in tools/backup_tools.py tools/rollback.py tools/mutation_guard.py tools/update_changelog.py docs/BACKUP_USAGE.md; do
-  cp "$CLAUDE_PLUGIN_ROOT/references/backup-system-templates/$FILE" "$CLAUDE_PROJECT_DIR/$FILE"
+# 3 Python-Files + 1 Doku-File:
+# (update_changelog.py gehoert NICHT hierher — es ist Release-Hygiene, nicht Backup;
+#  wird im Release-Hygiene-Bundle installiert, siehe Step 5b.)
+# Overwrite-Guard PFLICHT (Hard Constraint "NEVER overwrite without confirmation"):
+# existiert eine Datei schon -> SKIP + User fragen, NIE blind ueberschreiben.
+for FILE in tools/backup_tools.py tools/rollback.py tools/mutation_guard.py docs/BACKUP_USAGE.md; do
+  if [ -f "$CLAUDE_PROJECT_DIR/$FILE" ]; then
+    echo "SKIP: $FILE existiert bereits (User fragen ob ueberschreiben)"
+  else
+    cp "$CLAUDE_PLUGIN_ROOT/references/backup-system-templates/$FILE" "$CLAUDE_PROJECT_DIR/$FILE"
+  fi
 done
 
 # 3. .backupignore generieren (Standard-Defaults)
@@ -326,6 +338,27 @@ export BACKUP_TARGET=".claude-mind/backups"
 export BACKUP_TEST_TIMEOUT=300
 ```
 
+**5. Companion-Rule schreiben (PFLICHT — "No Dead Tools"):**
+
+Ohne diese Rule liegen die `tools/*.py` tot im Ordner — Claude weiss nicht WANN er sie
+aufrufen soll (`BACKUP_USAGE.md` ist Menschen-Doku, wird nicht auto-geladen). Die Rule
+mit `globs:`-Frontmatter laedt automatisch, sobald Claude eine passende Datei anfasst,
+und macht das Backup-Tool **erreichbar**.
+
+```bash
+mkdir -p "$CLAUDE_PROJECT_DIR/.claude/rules"
+# Overwrite-Guard: existiert die Rule schon -> NICHT ueberschreiben (ASK, default Skip)
+if [ -f "$CLAUDE_PROJECT_DIR/.claude/rules/backup-usage.md" ]; then
+  echo "SKIP: .claude/rules/backup-usage.md existiert bereits (User fragen ob ueberschreiben)"
+else
+  cp "$CLAUDE_PLUGIN_ROOT/references/rule-templates/backup-usage.md" \
+     "$CLAUDE_PROJECT_DIR/.claude/rules/backup-usage.md"
+fi
+```
+
+Dann **1 Pointer-Zeile** in `CLAUDE.md` (via Edit, unter einem `## Tooling`/`## Backup`-Abschnitt
+oder anlegen): `- Backup-System: \`tools/backup_tools.py\` + \`rollback.py\` — Nutzung siehe \`.claude/rules/backup-usage.md\``
+
 **Edge-Cases:**
 - **Existierende `tools/`-Files:** Skill checkt `test -f tools/backup_tools.py` — bei Treffer ASK "Existierende Files ueberschreiben? [Yes/Select/Skip]". Default Skip.
 - **Projekt ohne Python:** Installation laeuft, aber WARN: *"Python nicht gefunden. Backup-System installiert aber NICHT lauffaehig bis Python installiert ist."*
@@ -334,7 +367,9 @@ export BACKUP_TEST_TIMEOUT=300
 **User-Output nach Installation:**
 ```
 [OK] Backup-System installiert in $CLAUDE_PROJECT_DIR/tools/
-  4 Python-Files + 1 Doku + .backupignore + .backuprc
+  3 Python-Files + 1 Doku + .backupignore + .backuprc
+  + .claude/rules/backup-usage.md  (Companion-Rule — macht die Tools erreichbar)
+  + CLAUDE.md Pointer-Zeile
 
 Naechste Schritte:
   source .backuprc                                       # Env-Vars laden
@@ -345,7 +380,97 @@ Naechste Schritte:
 Doku: docs/BACKUP_USAGE.md
 ```
 
-## Step 6: Report — PFLICHT-Self-Check-Block am Anfang (v3.3.3)
+### Step 5b: Release-Hygiene-Bundle installieren (NEU v4.0 — jedes Git-Projekt)
+
+**Wann:** Projekt ist ein Git-Repo (`test -d .git`) UND User bestaetigt den Vorschlag.
+Rule-only-Baseline fuer Commit-/Changelog-Disziplin — kein Sprach-Gate, funktioniert fuer
+Node/C#/Python/etc. (Bump laeuft ueber die native Toolchain bzw. das Versioning-Pack unten).
+
+**No-Dead-Tools:** `update_changelog.py` ist ein *Tool* -> es wird NUR mit seiner Companion-Rule
+installiert, nie allein.
+
+```bash
+if [ -d "$CLAUDE_PROJECT_DIR/.git" ]; then
+  mkdir -p "$CLAUDE_PROJECT_DIR/tools" "$CLAUDE_PROJECT_DIR/.claude/rules"
+
+  # update_changelog.py ist ein PYTHON-Tool -> ohne Interpreter waere es ein totes Tool.
+  # Python-Detection; fehlt Python -> WARN (analog Backup-Bundle), Install laeuft trotzdem.
+  if ! (python --version >/dev/null 2>&1 || python3 --version >/dev/null 2>&1); then
+    echo "WARN: Python nicht gefunden. update_changelog.py installiert aber NICHT lauffaehig"
+    echo "      bis Python installiert ist (die Conventional-Commit-Regeln gelten trotzdem)."
+  fi
+
+  # 1. Changelog-Engine (git-basiert) — gehoert hierher, NICHT zum Backup-Bundle. Overwrite-Guard.
+  if [ -f "$CLAUDE_PROJECT_DIR/tools/update_changelog.py" ]; then
+    echo "SKIP: tools/update_changelog.py existiert bereits (User fragen ob ueberschreiben)"
+  else
+    cp "$CLAUDE_PLUGIN_ROOT/references/backup-system-templates/tools/update_changelog.py" \
+       "$CLAUDE_PROJECT_DIR/tools/update_changelog.py"
+  fi
+
+  # 2. Companion-Rule (Overwrite-Guard: nie ueberschreiben, ASK default Skip)
+  if [ -f "$CLAUDE_PROJECT_DIR/.claude/rules/release-hygiene.md" ]; then
+    echo "SKIP: .claude/rules/release-hygiene.md existiert bereits (User fragen)"
+  else
+    cp "$CLAUDE_PLUGIN_ROOT/references/rule-templates/release-hygiene.md" \
+       "$CLAUDE_PROJECT_DIR/.claude/rules/release-hygiene.md"
+  fi
+fi
+```
+
+Dann **1 Pointer-Zeile** in `CLAUDE.md`: `- Release-Hygiene: Conventional Commits + \`python tools/update_changelog.py\` — siehe \`.claude/rules/release-hygiene.md\``
+
+### Step 5c: Versioning-Pack installieren (NEU v4.0 — NUR Python-Release-App)
+
+**Gating (alle drei Bedingungen aus dem project-scanner-Report, sonst NICHT anbieten):**
+1. **Python vorhanden** (project-scanner meldet `python`/`python3`/`.venv`), UND
+2. **Release-produzierende App** — Primary `code_app` (NICHT `library`/`workspace`/
+   `scripts`/`data`/`config`/`plugin`/`mcp`). Eine PyInstaller-GUI-App faellt unter
+   `code_app` (Build-System + ausfuehrbarer Code) — die project-scanner-Taxonomie kennt
+   kein separates `desktop_app`. UND
+3. **Build/Version-Signal** — `build.py` ODER `*.spec` ODER `pyproject.toml` (mit oder
+   ohne `[project] version`) ODER eine `VERSION`-Datei. (version.py bedient VERSION,
+   pyproject, package.json und *.csproj — daher hier breit.)
+
+**Immer detect-and-OFFER, nie erzwungen.** Fehlt Python -> Pack GAR NICHT anbieten (sonst
+totes Tool — genau der Bug den v4.0 killt). User bestaetigt ("notwendig").
+
+**Companion-Rule schreiben ist PFLICHT** (No-Dead-Tools, wie Step 5) — version.py wird NIE
+ohne `release-build.md` installiert:
+
+```bash
+# nur ausfuehren wenn Gating erfuellt UND User bestaetigt
+mkdir -p "$CLAUDE_PROJECT_DIR/tools" "$CLAUDE_PROJECT_DIR/.claude/rules"
+
+# 1. version.py (stdlib-only, kein PyInstaller-Teil)
+if [ -f "$CLAUDE_PROJECT_DIR/tools/version.py" ]; then
+  echo "SKIP: tools/version.py existiert bereits (User fragen ob ueberschreiben)"
+else
+  cp "$CLAUDE_PLUGIN_ROOT/references/release-templates/version.py" \
+     "$CLAUDE_PROJECT_DIR/tools/version.py"
+fi
+
+# 2. Companion-Rule release-build.md (PFLICHT, Overwrite-Guard)
+if [ -f "$CLAUDE_PROJECT_DIR/.claude/rules/release-build.md" ]; then
+  echo "SKIP: .claude/rules/release-build.md existiert bereits (User fragen)"
+else
+  cp "$CLAUDE_PLUGIN_ROOT/references/rule-templates/release-build.md" \
+     "$CLAUDE_PROJECT_DIR/.claude/rules/release-build.md"
+fi
+```
+
+Dann **1 Pointer-Zeile** in `CLAUDE.md`: `- Versionierung: \`python tools/version.py show|bump|release\` — siehe \`.claude/rules/release-build.md\``
+
+**Changelog-Kopplung (ehrlich):** `version.py release --changelog` ruft `tools/update_changelog.py`
+auf — das liefert das Release-Hygiene-Bundle (Step 5b), das aber ein **Git-Repo** braucht
+(der Changelog wird aus Git-Tags generiert). Daher **NICHT** in 5c mit-installieren (in einem
+Nicht-Git-Repo waere update_changelog.py selbst ein totes Tool). Zwei Faelle:
+- **Git-Repo:** Step 5b lief bereits (gleiche Setup-Runde) -> `--changelog` funktioniert.
+- **Kein Git-Repo:** `version.py release` ohne `--changelog` nutzen. Wird `--changelog` doch
+  gesetzt und das Tool fehlt, **degradiert version.py sauber**: WARN "update_changelog.py nicht
+  gefunden - Changelog uebersprungen", der Bump/Tag laeuft normal durch (kein Abbruch).
+
+## Step 6: Report — PFLICHT-Self-Check-Block am Anfang (v4.0)
 
 **WICHTIG:** Report MUSS mit Self-Check-Block BEGINNEN. Jeder Marker mit konkreten Belegen.
 
@@ -353,7 +478,7 @@ Doku: docs/BACKUP_USAGE.md
 User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step 1 ausfuehren".
 
 ```
-=== Project Setup Report v3.3.3 — Self-Check ===
+=== Project Setup Report v4.0 — Self-Check ===
 [Step 1 project-scanner] Profile: <z.B. code_app +docs +tests>
   Tech-Stack: <z.B. Python 3.11, pyproject.toml, pytest>
   Setup-Bereiche (vom project-scanner via test -e/Glob gescannt):
@@ -361,10 +486,19 @@ User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step 1 ausfuehren"
   - BACKUP  → <Exist/Missing>
   - TESTS   → <Exist/Missing>
   - SECRETS → <Exist/Missing>
+  - RELEASE → <Git? Versions-Signal? Python? — entscheidet Pack-Angebot>
+  No-Dead-Tools-Nachweis (1:1 Tool -> Companion-Rule, pro TATSAECHLICH installiertem Tool):
+  - tools/backup_tools.py     -> .claude/rules/backup-usage.md    [geschrieben / n.a.]
+  - tools/update_changelog.py -> .claude/rules/release-hygiene.md [geschrieben / n.a.]
+  - tools/version.py          -> .claude/rules/release-build.md   [geschrieben / n.a.]
   Beleg: project-scanner Agent Tool-Call #<N>
 ```
 
-**Pflicht-Format:** Profile + alle 4 Setup-Bereiche mit Exist/Missing + `(Beleg: project-scanner Tool-Call #<N>)`.
+**Pflicht-Format:** Profile + alle 5 Setup-Bereiche mit Exist/Missing + No-Dead-Tools-Nachweis
++ `(Beleg: project-scanner Tool-Call #<N>)`. **Jedes installierte Tool MUSS in der Tabelle
+seine exakte `.claude/rules/*.md` als `[geschrieben]` nachweisen** (nicht installierte Tools =
+`n.a.`). Ein installiertes Tool ohne `[geschrieben]`-Rule = No-Dead-Tools-Invariante verletzt,
+User darf zurueckweisen.
 
 ---
 
@@ -392,3 +526,6 @@ Project readiness: Good (all critical files present)
 - **Backup-System Direktive H:** Wird in JEDEM Projekt vorgeschlagen (User-OK Pflicht), nicht typ-abhaengig — "backups schaden nie"
 - **Templates plugin-unabhaengig:** Nach Installation kein Plugin-Bezug — Tools laufen autonom im Projekt. Keine Hardcodes von Plugin-Pfaden in den installierten Files (Direktive C)
 - **Python-Detection vor Backup-Installation:** Wenn `python --version` UND `python3 --version` fehlschlagen: Installation laeuft trotzdem (User-OK gegeben) ABER mit WARN "nicht lauffaehig bis Python da ist"
+- **"No Dead Tools"-Invariante (NEU v4.0, KERN):** JEDES Tool das dieser Skill ins Projekt installiert (`tools/backup_tools.py`, `tools/update_changelog.py`, `tools/version.py`, …) MUSS zusammen mit einer glob-getriggerten Companion-`.claude/rules/*.md` installiert werden, die Claude sagt WANN + WIE er's nutzt + 1 Pointer-Zeile in CLAUDE.md. **Kein Tool-Install ohne Rule** — sonst liegt das Tool tot im Ordner (`docs/*.md` ist Menschen-Doku, wird nicht auto-geladen). Ehrlich: die Rule macht das Tool *erreichbar*, nicht garantiert-genutzt (Prosa-Enforcement) — aber totes `.py` -> geladene Anweisung ist eine echte Verbesserung.
+- **Versioning-Pack-Gating (NEU v4.0):** `version.py` + `release-build.md` NUR bei Python + Release-App (Primary `code_app`) + Build/Version-Signal anbieten. **Nie wo Python fehlt** — sonst waere version.py selbst ein totes Tool. Immer OFFER, nie erzwungen.
+- **update_changelog.py-Ownership (NEU v4.0):** gehoert ins Release-Hygiene-Bundle (Step 5b, `test -d .git`), NICHT ins Backup-Bundle. Nie ohne `release-hygiene.md`.

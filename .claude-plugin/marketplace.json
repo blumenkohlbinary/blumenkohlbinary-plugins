@@ -71,8 +71,8 @@
     },
     {
       "name": "claude-mind-manager",
-      "description": "Claude Mind Manager v3.3.3 - Region-based context management. 7 skills + 2 agents + 1 hook. v3.3.3: mind-files Step 1.5 (4 redundante File-Existenz-Agents) entfernt — project-scanner deckt build/backup/tests/secrets in einem Durchgang ab (Weg B); behebt einen Skip-Bug-Wiederauftritt (eine TODO-Notiz war zur Ausrede geworden). v3.3.2: mind-update Agent-Dispatch-Skip gefixt via Munition-Entfernung + Commit-Coverage-Gate. v3.3.0/3.3.1: Knowledge-Sync, Multi-Command session-log, /mind-compact, Python backup-system installer. Claude Code CLI only. cygpath required.",
-      "version": "3.3.3",
+      "description": "Claude Mind Manager v4.0.0 - Region-based context management. 7 skills + 2 agents + 1 hook. v4.0 'No Dead Tools': mind-files installiert Tools jetzt NUR mit glob-getriggerter Companion-Rule (.claude/rules/*.md), die sagt WANN sie zu nutzen sind — behebt Tools, die ungenutzt im Projektordner lagen. NEU: Release-Hygiene-Bundle (Conventional Commits + git-Changelog) fuer jedes Git-Repo; Versioning-Pack (tools/version.py: dev.N-Counter, Manifest-Sync mit Dissens-Guard) NUR fuer Python-Release-Apps (gated). v3.3.x: Skip-Bug-Fixes (Munition-Entfernung, Commit-Coverage-Gate, Weg-B-Loeschung). Claude Code CLI only. cygpath required.",
+      "version": "4.0.0",
       "author": {
         "name": "blumenkohlbinary"
       },
