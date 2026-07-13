@@ -18,39 +18,34 @@ allowed-tools: Read Glob Grep Write Bash Agent
 
 Projekttyp erkennen -> Soll-Zustand definieren -> Ist pruefen -> User-OK -> Erstellen/Verbessern.
 
-## Step 1: Projekttyp erkennen
+## Step 1: Projekttyp erkennen + Setup-Bereiche scannen (project-scanner)
 
-Dispatch **project-scanner** agent:
-"Scan this project for tech stack, project type, build/test/lint commands, key directories, frameworks, and package manager. Report structured findings."
+Dispatch **project-scanner** agent (ein Dispatch — er hat Read/Glob/Grep/Bash und
+deckt alle Setup-Bereiche in einem Durchgang ab):
 
-## Step 1.5: Per-Bereich Setup-Analyse (4 parallel Agents) — directive v3.3.2
+```
+"Scan this project for tech stack, project type, build/test/lint commands, key
+directories, frameworks, and package manager. Report structured findings.
 
-**Identitaet:** Step 1 + Step 1.5 gehoeren zum Skill — sie werden ausgefuehrt, nicht
-abgewogen. 4 Bereich-Agents = 4 unabhaengige Perspektiven.
+Zusaetzlich (PFLICHT, via `test -e`/Glob konkret pruefen — Exist/Missing pro Punkt):
+- BUILD:   Build-System vorhanden (package.json/pyproject.toml/*.csproj/CMakeLists...)?
+           Build-Commands dokumentiert? Linter/Formatter konfiguriert (.editorconfig,
+           eslint, prettier, ruff...)?
+- BACKUP:  Projekt-Backup-System schon da (`tools/backup_tools.py` o.ae.)?
+           `.claude-mind/backups/` Dir? `.backuprc`?
+- TESTS:   Test-Infra (pytest/jest/xunit/...) + `tests/`-Dir? CI-Config (.github/workflows)?
+- SECRETS: `.env`/credential-Files? `.gitignore`-Coverage ok? `.claudeignore`?
+           `.claude/settings.json` mit `permissions.deny` fuer `.env*`/secrets?
 
-> **Bekanntes TODO (separates Ticket, NICHT hier):** Die 4 Agents pruefen groesstenteils
-> nur Datei-Existenz (`test -e`) — das ist deterministisch und waere als Inline-Check/
-> Script effizienter abbildbar. Refactoring-Kandidat fuer eine spaetere Version
-> (siehe known-issues). In v3.3.2 bleibt die Struktur unveraendert.
+Gib die 4 Bereiche als eigene Exist-vs-Missing-Sektion zurueck."
+```
 
-**WICHTIG (Plan D1 + Skill-Review H1):** project-scanner aus Step 1 muss VOR Step 1.5
-abgeschlossen sein (seriell). Step 1.5 dispatcht dann 4 context-analyzer parallel in
-EINER Tool-Call-Message. NIEMALS 5 Agents auf einmal — Step-Order PFLICHT.
-
-Nach abgeschlossener project-scanner-Analyse: 4 `context-analyzer` Agents PARALLEL
-dispatchen (mode: default), alle in EINER Tool-Call-Message:
-
-| Agent | Scope | Findings |
-|---|---|---|
-| 1 | `build` | Build-System fehlt? Build-Commands dokumentiert? Linter konfiguriert? |
-| 2 | `backup` | Hat Projekt schon `tools/backup_tools.py` o.ae.? `.claude-mind/backups/` Dir? `.backuprc`? |
-| 3 | `tests` | Test-Infra (pytest/jest/...)? `tests/` Dir? CI-Config? |
-| 4 | `secrets` | `.env`/credentials? `.gitignore` Coverage OK? `.claude/settings.json` deny-Patterns? |
-
-Findings aller 4 Agents -> Step 4 Aggregat-Report.
-
-**Hard Constraint:** MAX 4 Agents parallel (Plan D1). Plus project-scanner aus Step 1
-= 5 Dispatches total — alle parallel.
+> **v3.3.3 (Weg B):** Frueher liefen hier 4 zusaetzliche `context-analyzer`-Agents
+> (build/backup/tests/secrets). Sie pruefen nur Datei-Existenz (`test -e`) — der
+> project-scanner (hat Bash) erledigt das im selben Durchgang. Die 4 Agents waren
+> redundant und wurden **entfernt** (statt einen ueberspringbaren Redundanz-Schritt
+> zu erzwingen). Kein Verlust an Abdeckung — die 4 Bereiche stehen jetzt im
+> project-scanner-Auftrag oben.
 
 ## Step 2: Referenzen laden
 
@@ -266,8 +261,8 @@ Fuer NEUE Files mit Write ist KEIN vorheriger Read noetig.
 
 ### Backup-System installieren (NEU v3.3.0)
 
-Wenn Step 1.5 Agent 2 (scope: backup) `MISSING` meldet UND User Backup-Vorschlag
-bestaetigt: Backup-System ins Projekt installieren.
+Wenn der project-scanner BACKUP als `MISSING` meldet (kein `tools/backup_tools.py`)
+UND User Backup-Vorschlag bestaetigt: Backup-System ins Projekt installieren.
 
 **Vorgehen:**
 
@@ -350,28 +345,26 @@ Naechste Schritte:
 Doku: docs/BACKUP_USAGE.md
 ```
 
-## Step 6: Report — PFLICHT-Self-Check-Block am Anfang (NEU v3.3.1)
+## Step 6: Report — PFLICHT-Self-Check-Block am Anfang (v3.3.3)
 
 **WICHTIG:** Report MUSS mit Self-Check-Block BEGINNEN. Jeder Marker mit konkreten Belegen.
 
-**Wenn ein Marker fehlt oder `(SKIPPED)` enthaelt ohne explizite Begruendung:**
-User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step 1 + Step 1.5 ausfuehren".
+**Wenn der Marker fehlt oder `(SKIPPED)` enthaelt ohne explizite Begruendung:**
+User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step 1 ausfuehren".
 
 ```
-=== Project Setup Report v3.3.2 — Self-Check ===
+=== Project Setup Report v3.3.3 — Self-Check ===
 [Step 1 project-scanner] Profile: <z.B. code_app +docs +tests>
   Tech-Stack: <z.B. Python 3.11, pyproject.toml, pytest>
+  Setup-Bereiche (vom project-scanner via test -e/Glob gescannt):
+  - BUILD   → <Exist/Missing + Kurzbefund>
+  - BACKUP  → <Exist/Missing>
+  - TESTS   → <Exist/Missing>
+  - SECRETS → <Exist/Missing>
   Beleg: project-scanner Agent Tool-Call #<N>
-
-[Step 1.5 Per-Bereich-Setup-Analyse] 4 Agents dispatched:
-  - scope=build    → <N> Findings (z.B. "Build-System OK, Linter konfiguriert")
-  - scope=backup   → <N> Findings (z.B. "tools/backup_tools.py fehlt — install vorgeschlagen")
-  - scope=tests    → <N> Findings (z.B. "pytest OK, 464 tests collected")
-  - scope=secrets  → <N> Findings (z.B. ".env nicht in .gitignore — FIX")
-  Beleg: Agent Tool-Calls #<X>, #<Y>, #<Z>, #<W>
 ```
 
-**Pflicht-Format jeder Marker-Zeile:** `<scope/step>` → `<count> <kind>` → `(Beleg: <Tool-Call-Ref>)`.
+**Pflicht-Format:** Profile + alle 4 Setup-Bereiche mit Exist/Missing + `(Beleg: project-scanner Tool-Call #<N>)`.
 
 ---
 
@@ -395,7 +388,7 @@ Project readiness: Good (all critical files present)
 - For CLAUDE.md generation: ALWAYS use project-scanner results, NEVER guess
 - For settings.json: ALWAYS include .env* in deny patterns (security baseline)
 - NEVER include secrets, API keys, or credentials in any generated file
-- **Parallel-Agent-Limit (NEU v3.3.0, Plan D1 + Skill-Review H1):** Step 1.5 dispatcht MAX 4 context-analyzer parallel. project-scanner aus Step 1 ist seriell DAVOR — NICHT in derselben Tool-Call-Message. Step-Order: Step 1 (project-scanner alleine) → warten auf Result → Step 1.5 (4 context-analyzer parallel). Total 5 Agent-Dispatches, aber MAX 4 gleichzeitig.
+- **Ein Agent-Dispatch (v3.3.3):** NUR project-scanner (Step 1) deckt Typ-Erkennung + alle 4 Setup-Bereiche (build/backup/tests/secrets) in EINEM Durchgang ab. Die frueheren 4 separaten context-analyzer-Agents (Step 1.5) waren reine Datei-Existenz-Redundanz und sind entfernt — kein zweiter Dispatch, nichts zum Ueberspringen.
 - **Backup-System Direktive H:** Wird in JEDEM Projekt vorgeschlagen (User-OK Pflicht), nicht typ-abhaengig — "backups schaden nie"
 - **Templates plugin-unabhaengig:** Nach Installation kein Plugin-Bezug — Tools laufen autonom im Projekt. Keine Hardcodes von Plugin-Pfaden in den installierten Files (Direktive C)
 - **Python-Detection vor Backup-Installation:** Wenn `python --version` UND `python3 --version` fehlschlagen: Installation laeuft trotzdem (User-OK gegeben) ABER mit WARN "nicht lauffaehig bis Python da ist"

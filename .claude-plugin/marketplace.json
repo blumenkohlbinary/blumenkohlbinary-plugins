@@ -71,8 +71,8 @@
     },
     {
       "name": "claude-mind-manager",
-      "description": "Claude Mind Manager v3.3.2 - Region-based context management. 7 skills + 2 agents + 1 hook. v3.3.2 (Lean Prompt-Fix): behebt wiederholtes Überspringen des semantischen Agent-Dispatch in mind-update — Token-Kosten-Munition entfernt, 'no agent dispatch'-Identitäts-Widerspruch → directive, Inline-Fallback entkoppelt, Knowledge-Gap deterministisch via Commit-Coverage-Gate (git-log vs Context-Files) verankert. Gleiche Munition in mind-claudemd/mind-memory/mind-files entfernt. v3.3.0/3.3.1: Knowledge-Sync, Multi-Command session-log, /mind-compact, Python backup-system installer. Claude Code CLI only. cygpath required.",
-      "version": "3.3.2",
+      "description": "Claude Mind Manager v3.3.3 - Region-based context management. 7 skills + 2 agents + 1 hook. v3.3.3: mind-files Step 1.5 (4 redundante File-Existenz-Agents) entfernt — project-scanner deckt build/backup/tests/secrets in einem Durchgang ab (Weg B); behebt einen Skip-Bug-Wiederauftritt (eine TODO-Notiz war zur Ausrede geworden). v3.3.2: mind-update Agent-Dispatch-Skip gefixt via Munition-Entfernung + Commit-Coverage-Gate. v3.3.0/3.3.1: Knowledge-Sync, Multi-Command session-log, /mind-compact, Python backup-system installer. Claude Code CLI only. cygpath required.",
+      "version": "3.3.3",
       "author": {
         "name": "blumenkohlbinary"
       },
