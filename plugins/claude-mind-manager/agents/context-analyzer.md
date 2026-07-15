@@ -57,6 +57,28 @@ Based on scope, locate:
 - **custom-context** (NEU v3.3.0): KEINE Discovery — Skill uebergibt CUSTOM_CONTEXT_FILES-Liste im Prompt **als Markdown-Block unter `## Custom Context Files` mit 1 Pfad pro Zeile** (siehe Prompt-Format unten). Agent liest die Files direkt. Falls Block fehlt/leer: "No custom context files passed" zurueckmelden, nichts tun.
 - **all**: All of the above
 
+### Größen-Guard — NIEMALS eine Riesen-Datei blind ganz lesen (NEU v4.1.0)
+
+**Problem:** Dein Kontext-Fenster ist begrenzt. Große Context-Dateien (z.B. `.claude/rules/*.md`
+können 1200-1400 Zeilen / ~30k Tokens sein; ein Projekt hat oft ~118k Tokens Rules gesamt).
+Ein `Read` der ganzen Datei — oder mehrerer großer nacheinander — **überläuft dich → du lieferst
+0 Output** (real passiert). Ein Blind-Read, der dich sprengt, ist SCHLECHTER als ein gezielter.
+
+**Regel (bindend):** Die Größe steht im Prompt — der Skill übergibt pro Datei `wc -l` (Zeilen) UND
+`wc -c` (Bytes). Nutze DIESE Werte (nicht raten; `Glob` liefert nur Pfade, die erste `Read`-Seite nur
+eine Untergrenze). **Ist eine Datei größer als ~600 Zeilen ODER ~60 KB (~15k Tokens): NICHT ganz
+lesen.** Stattdessen:
+1. `Grep` die Datei nach den **im Prompt übergebenen Stichwörtern** (Commit-Coverage-Gaps /
+   Session-Themen / `TOUCHED_RULES`-Kontext) mit `-n` (Zeilennummern).
+2. `Read` NUR die Treffer-Abschnitte gezielt (`offset`/`limit`, ±~40 Zeilen um jeden Treffer).
+3. So prüfst du die session-relevanten Stellen, ohne die ganze Datei ins Fenster zu ziehen.
+
+**Im Finding melden:** `"<datei>: gezielt geprüft (N Abschnitte via Grep), nicht voll gelesen —
+<L> Zeilen gesamt"`. Behaupte NIE, eine große Datei sei voll-semantisch geprüft, wenn du nur
+gezielt gelesen hast — das wäre eine falsche Vollständigkeits-Behauptung.
+
+**Kleine Dateien (≤600 Z.):** ganz lesen wie gehabt.
+
 ### Erwartetes Prompt-Format (Skill -> Agent)
 
 Skills im Knowledge-Sync-Mode senden strukturierten Markdown-Prompt:
@@ -206,6 +228,7 @@ For each suggestion: estimate token savings = (affected_lines × 10)
 - NEVER modify any files
 - NEVER use Bash, Edit, or Write tools
 - NEVER dispatch sub-agents
+- **Größen-Guard (v4.1.0):** NIEMALS eine Datei >~600 Zeilen / ~15k Tokens blind ganz lesen — erst `Grep` nach den Prompt-Stichwörtern, dann NUR die Treffer-Abschnitte per `Read offset/limit` (±40 Z.). Blind-Read großer Files → Overflow → 0 Output. Im Finding "gezielt geprüft, nicht voll gelesen" vermerken; keine falsche Voll-Prüfungs-Behauptung.
 - ALWAYS include file:line for every finding (außer ADD/NEW_FILE wo file:line nicht existiert — dann `(none)`)
 - ALWAYS estimate token savings (lines × 10) for optimization suggestions (default-mode only)
 - **Knowledge-Sync-Mode:** Konkreten Action-Vorschlag pro Finding (Diff bei UPDATE, Append bei ENRICH, Filename + Inhalts-Preview bei NEW_FILE) — der Skill leitet daraus die Edit-Anweisung ab

@@ -71,8 +71,8 @@
     },
     {
       "name": "claude-mind-manager",
-      "description": "Claude Mind Manager v4.0.1 - Region-based context management. 7 skills + 2 agents + 1 hook. v4.0.1: mind-update Step 3.5 dispatcht die 4 Knowledge-Sync-Agents SEQUENZIELL/max 2 gleichzeitig statt als 4er-Parallel-Burst — ein ≥3-Agent-Burst trippt Anthropics server-seitiges Rate-Limit (alle scheitern, 0 Ergebnisse); alle 4 Bereiche bleiben Pflicht, nur gestaffelt. v4.0 'No Dead Tools': mind-files installiert Tools NUR mit glob-getriggerter Companion-Rule (.claude/rules/*.md); Release-Hygiene-Bundle fuer Git-Repos; Versioning-Pack (tools/version.py) fuer Python-Release-Apps (gated). Claude Code CLI only. cygpath required.",
-      "version": "4.0.1",
+      "description": "Claude Mind Manager v4.1.0 - Region-based context management. 7 skills + 2 agents + 1 hook. v4.1.0: skaliert bei großen Contexts — mind-update Step 3.5 liest keine Riesen-Rules-Datei mehr blind (Overflow-Schutz): Datei-Targeting (nur session-berührte Rules) + Größen-Guard im context-analyzer (>600 Z./60KB → grep-gezielt); Report weist deterministisch-only-Files ehrlich aus. Plus grep-iF-UTF-8-Crash-Fix (Fake-GAPs). v4.0.1: Agents sequenziell/≤2 statt 4er-Burst (Server-Rate-Limit). v4.0 'No Dead Tools': Companion-Rules je Tool. Claude Code CLI only. cygpath required.",
+      "version": "4.1.0",
       "author": {
         "name": "blumenkohlbinary"
       },

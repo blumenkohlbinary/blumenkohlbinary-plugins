@@ -348,7 +348,10 @@ git log --oneline -30 | grep -iE '^[0-9a-f]+ (feat|fix|refactor|perf)(\(|:)' | w
   key=$(echo "$subj" | grep -oiE 'dev\.[0-9]+' | head -1)
   [ -z "$key" ] && key=$(echo "$subj" | sed -nE 's/^[a-z]+\(([a-z0-9_-]{3,})\).*/\1/p' | head -1)
   [ -z "$key" ] && key=$(echo "$subj" | tr ' ' '\n' | grep -iE '^[a-z_]{4,}$' | grep -ivE "^($STOP)$" | head -1)
-  if [ -n "$key" ] && ! grep -qiF "$key" CLAUDE.md "$MEMORY_MAIN" 2>/dev/null; then
+  # KEIN -F: grep -iF auf UTF-8 (deutsche Umlaute in MEMORY.md) wirft auf Git-Bash/MSYS
+  # "Aborted (core dumped)" -> non-zero -> falsche GAPs (real 2026-07-15: 24 Fake-GAPs aus
+  # dem Crash). grep -qi (ohne -F) ist verifiziert crash-frei; Keys sind regex-safe. v4.1.0-Fix.
+  if [ -n "$key" ] && ! grep -qi "$key" CLAUDE.md "$MEMORY_MAIN" 2>/dev/null; then
     echo "GAP: $hash '$subj' — Stichwort '$key' fehlt in CLAUDE.md+MEMORY.md"
   fi
 done
@@ -361,6 +364,67 @@ Unsicherheit lieber Step 3.5 trotzdem laufen lassen (Agents finden den semantisc
 - Jeder `GAP:` = **objektives Knowledge-Gap-Finding** (Commit-Hash + Subject + fehlendes Stichwort).
 - Diese Liste geht als konkreter Input an Step 3.5 ("verifiziere/ergaenze diese unreflektierten Commits").
 - **WICHTIG:** Wenn die Commit-Coverage Gaps zeigt, MUSS Step 3.5 laufen — ein nicht-leeres Gap-Set widerlegt jede "alles synchron / ich kenne den Stand"-Annahme.
+
+### 3c.1: Datei-Targeting — welche Rules hat die Session berührt? (v4.1.0 — Skalierung)
+
+**Zweck:** Bei Projekten mit vielen/großen Rules (Zustellplan: ~118k Tokens in 11 Files, 2 davon
+>1200 Zeilen) kann ein einzelner semantischer Agent NICHT alle Rules lesen — er läuft über (0 Output).
+Lösung: der semantische Pass (Step 3.5) prüft nur die **session-berührten** Rules. Diese hier
+deterministisch bestimmen — aus den Commit-Scopes (die mappen auf Datei-Inhalte).
+
+```bash
+# Existenz-Guards (H3/Skill-Review G): ohne .git kein Scope-Signal, ohne rules-Dir nichts zu targeten.
+if [ ! -d .claude/rules ]; then
+  echo "kein .claude/rules/ -> 3c.1 gegenstandslos"; SEM_RULES=""; TARGET_MODE="none"
+else
+  # 1) Größe des gesamten Rules-Satzes — entscheidet, ob Targeting überhaupt nötig ist.
+  RULES_KB=$(( $(cat .claude/rules/*.md 2>/dev/null | wc -c) / 1024 ))
+
+  # 2) Commit-Scopes als Targeting-Signal (nur wenn .git). SCOPE bevorzugen (mappt auf Datei-Inhalt).
+  KEYS=""
+  if [ -d .git ]; then
+    STOP='the|and|for|that|with|from|into|als|der|die|das|und|fix|feat|add|new|update'
+    KEYS=$(git log --oneline -30 | grep -iE '^[0-9a-f]+ (feat|fix|refactor|perf)(\(|:)' | while read -r line; do
+      subj=$(echo "$line" | cut -d' ' -f2-)
+      scope=$(echo "$subj" | sed -nE 's/^[a-z]+\(([a-z0-9_-]{3,})\).*/\1/p' | head -1)
+      key="${scope:-$(echo "$subj" | tr ' ' '\n' | grep -iE '^[a-z_]{4,}$' | grep -ivE "^($STOP)$" | head -1)}"
+      [ -n "$key" ] && echo "$key"
+    done | sort -u)
+  fi
+
+  # 3) Touched-Map: robuster per-Datei-grep OHNE -r und OHNE -F (crashen zusammen auf Git-Bash/MSYS
+  #    bei UTF-8-Rules, verifiziert 2026-07-15). Keys sind regex-safe ([a-z0-9_-]).
+  TOUCHED_RULES=$(for key in $KEYS; do for f in .claude/rules/*.md; do grep -li "$key" "$f" 2>/dev/null; done; done | sort -u)
+
+  # 4) Entscheidungsbaum — KEIN stilles 0 (Skill-Review B):
+  if [ "$RULES_KB" -lt 160 ]; then
+    TARGET_MODE="all"; SEM_RULES=$(ls .claude/rules/*.md)   # klein genug -> alle passen, Targeting unnötig
+    echo "Rules-Satz klein (${RULES_KB}KB) -> semantischer Pass: ALLE Rules"
+  elif [ -n "$TOUCHED_RULES" ]; then
+    TARGET_MODE="targeted"; SEM_RULES="$TOUCHED_RULES"
+    echo "Rules groß (${RULES_KB}KB) -> semantischer Pass NUR session-berührte:"; echo "$SEM_RULES"
+  else
+    TARGET_MODE="unscopable"; SEM_RULES=""
+    echo "WARN: Rules groß (${RULES_KB}KB) ABER kein Commit-Scope-Signal (kein .git / keine passenden Scopes)."
+    echo "      -> semantischer Rules-Pass NICHT scopebar. Report MUSS das als 'deterministisch-only,"
+    echo "         nicht semantisch geprüft' ausweisen + /mind-rules einzeln empfehlen. KEIN stilles 0."
+  fi
+  echo "=== NICHT im semantischen Pass (nur deterministisch: 3e+3e.2) ==="
+  for f in .claude/rules/*.md; do echo "$SEM_RULES" | grep -qxF "$f" || printf "  %s (%s Z.)\n" "$f" "$(wc -l < "$f")"; done
+fi
+```
+
+- **Erring broad = sicher:** ein zu breiter Treffer prüft nur ein paar Files extra; ein *verpasster*
+  wäre schlimm — die `{3,}`/`{4,}`-Guards halten Keys ≥3-4 Zeichen (kein 2-Zeichen-Scope-Explosion).
+- **Targeting ≠ Skip (ehrlich, Skill-Review C):** Der DETERMINISTISCHE Rules-Sicherungsnetz ist
+  **Step 3e (Syntax) + 3e.2 (Content-Drift)** — die laufen über ALLE Project+Global-Rules, PFLICHT,
+  unabhängig vom Targeting. (Das Commit-Coverage-Gate 3c prüft CLAUDE.md+MEMORY, NICHT die Rules.)
+  Das Targeting fokussiert NUR den *semantischen* Re-Read.
+- **Ehrlicher Rest:** „untouched" heißt „diese Session hat die Datei nicht per Commit berührt" —
+  NICHT „da ist garantiert nichts zu ergänzen". Eine ADD-würdige Session-Erkenntnis, die in eine
+  *unberührte* große Rule gehört, fällt aus dem gezielten semantischen Pass → sie wird über 3e.2
+  (falls Versions-/Muster-Drift) ODER über die Report-Offenlegung (`TARGET_MODE`/deterministisch-only
+  + `/mind-rules`-Pointer) sichtbar, nicht stillschweigend geschluckt.
 
 ### 3d: MEMORY.md Budget
 - Count lines in MEMORY.md
@@ -460,7 +524,18 @@ Welle 1: claude-md + memory, Welle 2: rules + custom-context; jede Welle ihr eig
 Tool-Call). Ergebnisse aller 4 einsammeln, dann konsolidieren. Jeder bekommt:
 - Scope: `claude-md` / `memory` / `rules` / `custom-context`
 - Mode: `knowledge-sync`
-- Bereich-Files (Read-only)
+- Bereich-Files (Read-only) — **rules-scope: die `SEM_RULES` aus Step 3c.1** (je nach `TARGET_MODE`:
+  `all` = alle Project-Rules wenn Satz klein; `targeted` = nur session-berührte wenn groß; `unscopable`/
+  `none` = leer). **Plus die Global-Rules `~/.claude/rules/*.md`** — die werden IMMER mit übergeben
+  (wenige, meist klein, immer-aktive Verhaltensregeln), aber **jede EINZELN dem Größen-Guard unterworfen**
+  (große global-Rule → auch grep-gezielt, nicht blind). Ist `SEM_RULES` leer bei `TARGET_MODE=unscopable`:
+  rules-Agent mit "Project-Rules nicht scopebar → deterministisch-only, /mind-rules einzeln" vermerken —
+  **NICHT stillschweigend 0**, und NICHT ersatzweise blind alle großen Rules lesen.
+- **Größen-Guard (v4.1.0):** Für JEDE übergebene Datei Zeilenzahl (`wc -l`) UND Bytes (`wc -c`) aus
+  Step-1-Inventory mitgeben. **>~600 Zeilen ODER >~60 KB → dem Agenten sagen: NICHT ganz lesen,
+  sondern per Stichwort grep-gezielt (±40 Zeilen um Treffer).** (Bytes-Schwelle fängt dichte kurze
+  Files: z.B. data-model.md = 428 Z. aber 67 KB / ~17k Tokens.) Sonst Overflow → 0 Output (real
+  gesehen). Der Agent hat den Guard auch selbst (context-analyzer), das hier ist der Skill-Hinweis.
 - **Die Commit-Coverage-Gaps aus Step 3c** als konkrete Pruef-Punkte ("verifiziere/ergaenze diese unreflektierten Commits in deinem Bereich")
 - Session-Auszug (USER + ASSISTANT_TEXT der letzten 200 Events) — siehe Sampling unten
 
@@ -611,7 +686,7 @@ Agent 1+2 in einem Tool-Call, Welle 2 = Agent 3+4 im nächsten). Alle 4 laufen �
 |---|---|---|---|
 | 1 | `claude-md` | `knowledge-sync` | CLAUDE.md project + global + Session-Auszug aus `$SESSION_SAMPLE_BASH` |
 | 2 | `memory` | `knowledge-sync` | MEMORY.md + Topic-Files aus Step 1 + Session-Auszug |
-| 3 | `rules` | `knowledge-sync` | Project-Rules + Global-Rules aus Step 1 + Session-Auszug |
+| 3 | `rules` | `knowledge-sync` | **`SEM_RULES` (Step 3c.1, je `TARGET_MODE`)** + Global-Rules (immer, je einzeln größen-geguardet) + Session-Auszug — bei großem Satz NICHT alle Project-Rules; jede Datei >600 Z. **ODER >60 KB** mit Größen-Guard (grep-gezielt, nicht ganz lesen) |
 | 4 | `custom-context` | `knowledge-sync` | `CUSTOM_CONTEXT_FILES` aus Step 1.5 + Session-Auszug |
 
 **Skip-Logik pro Agent:**
@@ -838,7 +913,11 @@ ist BUGGY — User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step
   - scope=claude-md      → <A> Findings (U:<x> E:<y> A:<z> NF:<w> I:<v>)
       Beispiel-Belege: [UPDATE] CLAUDE.md:15 "v3.2.2" -> Session v3.3.0
   - scope=memory         → <B> Findings (oder "0 — MEMORY aktuell")
-  - scope=rules          → <C> Findings (Beleg: file:line)
+  - scope=rules          → TARGET_MODE=<all|targeted|unscopable|none> (aus Step 3c.1). DREI Buckets:
+                           (a) voll-semantisch geprüft (klein, ganz gelesen): <liste> → <C> Findings
+                           (b) gezielt-semantisch (touched + oversized >600 Z./>60 KB, grep-gezielt N Abschnitte): <liste>
+                           (c) deterministisch-only (untouched ODER unscopable, nur 3e+3e.2): <liste mit Zeilenzahl>
+                           → Tiefen-Audit einer großen (b/c)-Datei: /mind-rules bzw. /mind-claudemd einzeln darauf
   - scope=custom-context → <D> Findings (oder "SKIPPED: 0 Custom-Context-Files aus Step 1.5")
   Beleg: Agent-Tool-Calls #X, #Y, #Z, #W (nacheinander bzw. 2 Wellen — kein 4er-Burst)
 
