@@ -71,8 +71,8 @@
     },
     {
       "name": "claude-mind-manager",
-      "description": "Claude Mind Manager v4.0.0 - Region-based context management. 7 skills + 2 agents + 1 hook. v4.0 'No Dead Tools': mind-files installiert Tools jetzt NUR mit glob-getriggerter Companion-Rule (.claude/rules/*.md), die sagt WANN sie zu nutzen sind — behebt Tools, die ungenutzt im Projektordner lagen. NEU: Release-Hygiene-Bundle (Conventional Commits + git-Changelog) fuer jedes Git-Repo; Versioning-Pack (tools/version.py: dev.N-Counter, Manifest-Sync mit Dissens-Guard) NUR fuer Python-Release-Apps (gated). v3.3.x: Skip-Bug-Fixes (Munition-Entfernung, Commit-Coverage-Gate, Weg-B-Loeschung). Claude Code CLI only. cygpath required.",
-      "version": "4.0.0",
+      "description": "Claude Mind Manager v4.0.1 - Region-based context management. 7 skills + 2 agents + 1 hook. v4.0.1: mind-update Step 3.5 dispatcht die 4 Knowledge-Sync-Agents SEQUENZIELL/max 2 gleichzeitig statt als 4er-Parallel-Burst — ein ≥3-Agent-Burst trippt Anthropics server-seitiges Rate-Limit (alle scheitern, 0 Ergebnisse); alle 4 Bereiche bleiben Pflicht, nur gestaffelt. v4.0 'No Dead Tools': mind-files installiert Tools NUR mit glob-getriggerter Companion-Rule (.claude/rules/*.md); Release-Hygiene-Bundle fuer Git-Repos; Versioning-Pack (tools/version.py) fuer Python-Release-Apps (gated). Claude Code CLI only. cygpath required.",
+      "version": "4.0.1",
       "author": {
         "name": "blumenkohlbinary"
       },

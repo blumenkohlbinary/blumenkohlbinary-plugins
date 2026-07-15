@@ -3,10 +3,11 @@ name: mind-update
 description: |
   [Mind Manager] Context-Sweep mit ZWEI Pflicht-Teilen: (1) deterministische
   Drift-Erkennung (Versionen, Pfade, Counts, Syntax, Commit-Coverage) inline,
-  (2) Knowledge-Sync — dispatcht IMMER 4 Per-Bereich-Agents parallel (claude-md/
-  memory/rules/custom-context) die Session-Inhalte mit den Context-Files abgleichen
-  und in 5 Klassen klassifizieren (UPDATE/ENRICH/ADD/NEW_FILE/INFO). Auto-Fix fuer
-  sichere Aenderungen, Rueckfrage fuer alles andere.
+  (2) Knowledge-Sync — dispatcht IMMER die 4 Per-Bereich-Agents (claude-md/memory/
+  rules/custom-context), aber SEQUENZIELL bzw. max 2 gleichzeitig, NIE >=3 im selben
+  Tool-Call (Anthropic Server-Rate-Limit). Alle 4 gleichen Session-Inhalte mit den
+  Context-Files ab und klassifizieren in 5 Klassen (UPDATE/ENRICH/ADD/NEW_FILE/INFO).
+  Auto-Fix fuer sichere Aenderungen, Rueckfrage fuer alles andere.
 
   Der Knowledge-Sync ist KEINE optionale Beschleunigungs-Stufe — er ist Teil der
   Identitaet dieses Skills. Nur `--quick` schaltet ihn explizit ab.
@@ -437,14 +438,26 @@ fi
 - >300 lines = INFO: "Moderate context load"
 - <300 lines = OK
 
-## Step 3.5: Per-Bereich Knowledge-Sync (4 parallel Agents)
+## Step 3.5: Per-Bereich Knowledge-Sync (4 Agents, sequenziell/gestaffelt)
 
 **Directive:** Dieser Schritt laeuft IMMER (ausser `QUICK_MODE=yes`). Es gibt keinen
 Inline-Ersatz — der semantische Abgleich Session<->Context laeuft NUR ueber die
 Agents. Wenn Step 3c Commit-Coverage-Gaps gefunden hat, ist "alles synchron / ich
 kenne den Stand" objektiv widerlegt → dispatchen ist Pflicht, nicht Ermessen.
 
-Dispatch 4 `context-analyzer` Agents PARALLEL (alle in 1 Tool-Call-Message). Jeder bekommt:
+**WICHTIG — Methode ≠ Mandat (Anti-Burst, v4.0.1):** Alle 4 Bereiche sind PFLICHT und
+werden IMMER abgedeckt. Aber sie werden **SEQUENZIELL** (einer nach dem anderen) bzw.
+**maximal 2 gleichzeitig** dispatcht — **NIE 3-4 im selben Tool-Call**. Grund: ein Burst
+aus ≥3 gleichzeitigen Agents trippt reproduzierbar Anthropics **server-seitiges
+Rate-Limit** ("Server is temporarily limiting requests — not your usage limit", 429/529)
+→ ALLE Agents scheitern, 0 Ergebnisse (3× gemessen: 2026-06-15/29 + 2026-07-04, schon 3
+gleichzeitig reichten). Das gilt **auch unter Ultracode**. **`sequenziell` heißt NICHT
+`optional`** — alle 4 laufen, nur nicht im selben Tool-Call. Diese Staffelung NIE
+"aus Performance-Gründen" zu einem Parallel-Burst zurückdrehen.
+
+Dispatch die 4 `context-analyzer` Agents **nacheinander** (oder in 2 Wellen à 2 —
+Welle 1: claude-md + memory, Welle 2: rules + custom-context; jede Welle ihr eigener
+Tool-Call). Ergebnisse aller 4 einsammeln, dann konsolidieren. Jeder bekommt:
 - Scope: `claude-md` / `memory` / `rules` / `custom-context`
 - Mode: `knowledge-sync`
 - Bereich-Files (Read-only)
@@ -588,9 +601,11 @@ if [ "$LONG" = "true" ]; then
 fi
 ```
 
-### 4 parallel Agent-Dispatches
+### 4 Agent-Dispatches — sequenziell bzw. in 2 Wellen à 2 (NIE ≥3 gleichzeitig)
 
-Dispatcht in EINER Tool-Call-Message (echtes Parallel — siehe Plan D1: max 4 Agents pro Skill):
+**NICHT alle 4 in EINER Tool-Call-Message** (das wäre der ≥3-Burst, der das Server-Rate-Limit
+trippt — v4.0.1). Stattdessen: **einzeln nacheinander**, ODER in 2 Wellen à 2 (Welle 1 =
+Agent 1+2 in einem Tool-Call, Welle 2 = Agent 3+4 im nächsten). Alle 4 laufen — nur nie 3-4 auf einmal.
 
 | Agent | scope | mode | Input |
 |---|---|---|---|
@@ -600,7 +615,7 @@ Dispatcht in EINER Tool-Call-Message (echtes Parallel — siehe Plan D1: max 4 A
 | 4 | `custom-context` | `knowledge-sync` | `CUSTOM_CONTEXT_FILES` aus Step 1.5 + Session-Auszug |
 
 **Skip-Logik pro Agent:**
-- Agent 4 (`custom-context`) skippen wenn `${#CUSTOM_CONTEXT_FILES[@]} == 0` (Plan EC4)
+- Agent 4 (`custom-context`) skippen wenn `${#CUSTOM_CONTEXT_FILES[@]} == 0` (Plan EC4) — das ist die EINZIGE erlaubte Auslassung; die anderen 3 sind unbedingt Pflicht.
 
 **Prompt-Format pro Agent** (Skill-Review M5 — Serialisierung explizit):
 
@@ -819,13 +834,13 @@ ist BUGGY — User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step
   ... (oder "0 — alle Feature-Commits in Context-Files reflektiert")
   Beleg: git-log + grep Output in Tool-Call #<N>
 
-[Step 3.5 Per-Bereich Knowledge-Sync] 4 Agents dispatched:
+[Step 3.5 Per-Bereich Knowledge-Sync] 4 Agents dispatched (sequenziell/≤2 pro Welle, NIE ≥3):
   - scope=claude-md      → <A> Findings (U:<x> E:<y> A:<z> NF:<w> I:<v>)
       Beispiel-Belege: [UPDATE] CLAUDE.md:15 "v3.2.2" -> Session v3.3.0
   - scope=memory         → <B> Findings (oder "0 — MEMORY aktuell")
   - scope=rules          → <C> Findings (Beleg: file:line)
   - scope=custom-context → <D> Findings (oder "SKIPPED: 0 Custom-Context-Files aus Step 1.5")
-  Beleg: Agent-Tool-Calls #X, #Y, #Z, #W
+  Beleg: Agent-Tool-Calls #X, #Y, #Z, #W (nacheinander bzw. 2 Wellen — kein 4er-Burst)
 
 **Regel (v3.3.2):** Wenn Step 3c K>0 Gaps zeigt, DARF [Step 3.5] nicht "0 dispatched /
 gegenstandslos" sein — die Gaps sind objektiver Gegenbeweis. "Ich kenne den Stand"
@@ -893,7 +908,7 @@ Total-Context-Zeile.
 
 ### Identitaet: dieser Skill dispatcht IMMER (directive, v3.3.2)
 
-**Step 1.5 (Custom-Context-Discovery) + Step 3.5 (4 parallel Agents) + Step 3e.2 (Rules-Inhalts-Check) gehoeren zur Identitaet des Skills** (ausser `QUICK_MODE=yes`).
+**Step 1.5 (Custom-Context-Discovery) + Step 3.5 (4 Agents, sequenziell/≤2 pro Welle) + Step 3e.2 (Rules-Inhalts-Check) gehoeren zur Identitaet des Skills** (ausser `QUICK_MODE=yes`).
 
 - Der semantische Abgleich (Step 3.5) hat **keinen Inline-Ersatz** — er laeuft NUR ueber die Agents. Inline-Reasoning ist kein Substitut.
 - **"Ich kenne den Stand schon / habe es selbst geschrieben" ist KEIN gueltiger Skip-Grund.** Step 3c Commit-Coverage belegt Gaps OBJEKTIV (Commit X steht nachweislich nicht in den Context-Files). Subjektives Wissen schlaegt diese Evidenz nicht.
@@ -907,9 +922,17 @@ Total-Context-Zeile.
 - Prominenter Banner im Report-Header (siehe Step 6)
 - Self-Check-Block markiert jeden Step als `SKIPPED — --quick (User-Wahl)`
 
-### Parallel-Agent-Limit
+### Agent-Parallelitaets-Limit (verschaerft v4.0.1 — Anti-Burst)
 
-- **MAX 4 context-analyzer parallel** (Plan D1). Skills duerfen NICHT andere Skills dispatchen die ihrerseits Agents starten.
+- **NIE ≥3 context-analyzer gleichzeitig.** Die 4 Step-3.5-Agents laufen SEQUENZIELL bzw.
+  in 2 Wellen à 2 (max 2 pro Tool-Call). Grund: ein Burst aus ≥3 gleichzeitigen Agents trippt
+  Anthropics **server-seitiges Rate-Limit** ("Server is temporarily limiting requests — not your
+  usage limit", 429/529) → ALLE scheitern, 0 Ergebnisse. 3× real gemessen (2026-06-15/29 +
+  2026-07-04, schon 3 gleichzeitig reichten). **Gilt auch unter Ultracode** (stehende User-Regel,
+  siehe globale Rule `workflow-agent-rate-limit.md`). **Alle 4 Bereiche bleiben Pflicht** — nur
+  gestaffelt, nicht als Burst. (Frueher stand hier faelschlich "MAX 4 parallel" — das war genau
+  der brechende Burst.)
+- Skills duerfen NICHT andere Skills dispatchen die ihrerseits Agents starten.
 - **Parallel-Bash-Limit (NEU v3.2.2):** Skill startet MAX 2 Bash-Tools parallel,
   niemals 3+. Bei 3+ Calls: zu seriellem Aufruf wechseln ODER kombinieren via `&&`.
   Claude Code's Tool-System cancelled uebermaessige Parallelitaet (siehe Session
