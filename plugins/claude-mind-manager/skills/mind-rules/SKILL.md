@@ -33,8 +33,17 @@ ARGS="${ARGUMENTS:-}"; AUTO_MODE="yes"; DRY_RUN="no"
 echo "$ARGS" | grep -qE '(^|[[:space:]])--(ask|interactive)([[:space:]]|$)' && AUTO_MODE="no"
 echo "$ARGS" | grep -qE '(^|[[:space:]])--dry-run([[:space:]]|$)' && { DRY_RUN="yes"; AUTO_MODE="no"; }
 
-# Laeuft dieser Skill innerhalb von /mind-all? Dann existiert der Snapshot bereits.
-CHAIN="no"; [ -f "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" ] &&   grep -q '^run_started=' "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" 2>/dev/null && CHAIN="yes"
+# Laeuft dieser Skill innerhalb eines AKTIVEN /mind-all? (C1-Fix: drei Bedingungen, nicht nur
+# "Datei existiert" — sonst gilt nach dem ersten /mind-all JEDER spaetere Einzellauf als Kette
+# und editiert ohne Snapshot.)
+CHAIN="no"; _SC="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes"
+if [ -f "$_SC" ]; then
+  _SNAP=$(grep -m1 '^snapshot=' "$_SC" 2>/dev/null | cut -d= -f2-)
+  _START=$(grep -m1 '^run_started=' "$_SC" 2>/dev/null | cut -d= -f2)
+  _AGE=$(( $(date +%s) - ${_START:-0} ))
+  # 1) Snapshot-Pfad eingetragen  2) Verzeichnis existiert wirklich  3) Lauf juenger als 2 h
+  [ -n "$_SNAP" ] && [ -d "$_SNAP" ] && [ "$_AGE" -lt 7200 ] && CHAIN="yes"
+fi
 
 if [ "$DRY_RUN" = "no" ] && [ "$CHAIN" = "no" ]; then
   [ -z "$CLAUDE_PLUGIN_ROOT" ] && { echo "ERROR: \$CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
@@ -46,6 +55,10 @@ fi
 ```
 
 `--ask` = Diff zeigen + Freigabe (Verhalten vor v5.0.0) · `--dry-run` = nichts aendern.
+
+**DESIGN-Befunde werden NIE automatisch angewendet** — markiert eine Rule sich selbst oder
+eine andere als "niemals anfassen"/"by design", nur listen. Gilt auch fuer `migrate` auf
+**globalen** User-Rules (`~/.claude/rules/`): die sind im Snapshot, aber besonders wertvoll.
 **Bei Snapshot-Fehlschlag wird NICHT editiert.**
 
 ## Workflow

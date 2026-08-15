@@ -4,7 +4,8 @@ description: |
   [Mind Manager] Projekt-Setup Vollverwaltung — erkennt Projekttyp, erstellt/prueft/verbessert alle Dateien.
   Scannt Repo fuer Tech-Stack, vergleicht Ist- mit Soll-Zustand basierend auf Projekttyp
   (Python, Node.js, C#, Docs-Only, Plugin, MCP Workspace), zeigt fehlende/verbesserbare Dateien,
-  erstellt mit User-Bestaetigung.
+  erstellt AUTONOM (v5.0.0; Snapshot vorher, '--ask' fragt wie frueher). Bestehende Dateien
+  werden nie ueberschrieben.
 
   Use when the user says "setup project", "check project files", "mind files",
   "scaffold", "init project", "bootstrap project", "check setup",
@@ -27,8 +28,17 @@ ARGS="${ARGUMENTS:-}"; AUTO_MODE="yes"; DRY_RUN="no"
 echo "$ARGS" | grep -qE '(^|[[:space:]])--(ask|interactive)([[:space:]]|$)' && AUTO_MODE="no"
 echo "$ARGS" | grep -qE '(^|[[:space:]])--dry-run([[:space:]]|$)' && { DRY_RUN="yes"; AUTO_MODE="no"; }
 
-# Laeuft dieser Skill innerhalb von /mind-all? Dann existiert der Snapshot bereits.
-CHAIN="no"; [ -f "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" ] &&   grep -q '^run_started=' "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" 2>/dev/null && CHAIN="yes"
+# Laeuft dieser Skill innerhalb eines AKTIVEN /mind-all? (C1-Fix: drei Bedingungen, nicht nur
+# "Datei existiert" — sonst gilt nach dem ersten /mind-all JEDER spaetere Einzellauf als Kette
+# und editiert ohne Snapshot.)
+CHAIN="no"; _SC="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes"
+if [ -f "$_SC" ]; then
+  _SNAP=$(grep -m1 '^snapshot=' "$_SC" 2>/dev/null | cut -d= -f2-)
+  _START=$(grep -m1 '^run_started=' "$_SC" 2>/dev/null | cut -d= -f2)
+  _AGE=$(( $(date +%s) - ${_START:-0} ))
+  # 1) Snapshot-Pfad eingetragen  2) Verzeichnis existiert wirklich  3) Lauf juenger als 2 h
+  [ -n "$_SNAP" ] && [ -d "$_SNAP" ] && [ "$_AGE" -lt 7200 ] && CHAIN="yes"
+fi
 
 if [ "$DRY_RUN" = "no" ] && [ "$CHAIN" = "no" ]; then
   [ -z "$CLAUDE_PLUGIN_ROOT" ] && { echo "ERROR: \$CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
@@ -40,6 +50,9 @@ fi
 ```
 
 `--ask` = Report + Freigabe (Verhalten vor v5.0.0) · `--dry-run` = nichts aendern.
+
+**DESIGN-Befunde werden NIE automatisch angewendet** — vor einem Edit pruefen, ob eine Rule
+die Stelle als "niemals anfassen"/"NIEMALS <datei>"/"by design" markiert; dann nur listen.
 
 **Zwei Dinge bleiben AUCH autonom rueckfragepflichtig** (kein Widerspruch zur Autonomie —
 beide betreffen Fremd-/Bestandsdaten, nicht Befunde):

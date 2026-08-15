@@ -4,7 +4,8 @@ description: |
   [Mind Manager] CLAUDE.md Vollverwaltung — erkennt, erstellt, auditiert, optimiert.
   Wenn keine CLAUDE.md existiert: Projekt scannen und nach Best Practices erstellen.
   Wenn vorhanden: Qualitäts-Score (0-100, A-F), veraltete/fehlende Infos erkennen,
-  Duplikate mit MEMORY.md/Rules finden, Widersprüche aufdecken, dann mit User-OK fixen.
+  Duplikate mit MEMORY.md/Rules finden, Widersprüche aufdecken, dann AUTONOM fixen (v5.0.0;
+  Snapshot vorher, '--ask' fragt wie frueher, '--dry-run' aendert nichts).
 
   Use when the user says "check claude.md", "create claude.md", "optimize claude.md",
   "improve claude.md", "mind claudemd", "audit claude.md", "fix claude.md",
@@ -28,8 +29,17 @@ echo "$ARGS" | grep -qE '(^|[[:space:]])--(ask|interactive)([[:space:]]|$)' && A
 echo "$ARGS" | grep -qE '(^|[[:space:]])--dry-run([[:space:]]|$)' && { DRY_RUN="yes"; AUTO_MODE="no"; }
 
 # Snapshot VOR dem ersten Edit — ausgefuehrter Aufruf, kein Prosa-Versprechen.
-# Laeuft dieser Skill innerhalb von /mind-all? Dann existiert der Snapshot bereits.
-CHAIN="no"; [ -f "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" ] &&   grep -q '^run_started=' "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" 2>/dev/null && CHAIN="yes"
+# Laeuft dieser Skill innerhalb eines AKTIVEN /mind-all? (C1-Fix: drei Bedingungen, nicht nur
+# "Datei existiert" — sonst gilt nach dem ersten /mind-all JEDER spaetere Einzellauf als Kette
+# und editiert ohne Snapshot.)
+CHAIN="no"; _SC="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes"
+if [ -f "$_SC" ]; then
+  _SNAP=$(grep -m1 '^snapshot=' "$_SC" 2>/dev/null | cut -d= -f2-)
+  _START=$(grep -m1 '^run_started=' "$_SC" 2>/dev/null | cut -d= -f2)
+  _AGE=$(( $(date +%s) - ${_START:-0} ))
+  # 1) Snapshot-Pfad eingetragen  2) Verzeichnis existiert wirklich  3) Lauf juenger als 2 h
+  [ -n "$_SNAP" ] && [ -d "$_SNAP" ] && [ "$_AGE" -lt 7200 ] && CHAIN="yes"
+fi
 
 if [ "$DRY_RUN" = "no" ] && [ "$CHAIN" = "no" ]; then
   [ -z "$CLAUDE_PLUGIN_ROOT" ] && { echo "ERROR: \$CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }

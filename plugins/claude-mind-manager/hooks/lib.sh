@@ -196,9 +196,10 @@ mind_snapshot() {
   mkdir -p "$snap" 2>/dev/null || { echo "SNAPSHOT-FEHLER: kann $snap nicht anlegen" >&2; return 1; }
 
   # 1) CLAUDE.md (beide moeglichen Orte)
-  for f in "$project_dir/CLAUDE.md" "$project_dir/.claude/CLAUDE.md"; do
-    [ -f "$f" ] && { cp "$f" "$snap/$(basename "$f")" 2>/dev/null && count=$((count+1)); }
-  done
+  # M1-Fix: beide Orte haben denselben Basenamen -> getrennte Zielnamen, sonst
+  # ueberschreibt der zweite den ersten waehrend count 2 zaehlt (Manifest luegt).
+  [ -f "$project_dir/CLAUDE.md" ] && { cp "$project_dir/CLAUDE.md" "$snap/CLAUDE.md" 2>/dev/null && count=$((count+1)); }
+  [ -f "$project_dir/.claude/CLAUDE.md" ] && { cp "$project_dir/.claude/CLAUDE.md" "$snap/dot-claude-CLAUDE.md" 2>/dev/null && count=$((count+1)); }
   # 2) MEMORY.md + ALLE Topic-Files
   # WICHTIG (Negativkontrolle 2026-08-15): get_memory_dir faellt bei Slug-Mismatch auf das
   # NEUESTE FREMDE Projekt zurueck (rc=1). Ein Snapshot darf NIE fremde Memory sichern —
@@ -224,20 +225,45 @@ mind_snapshot() {
     done
   fi
 
+  # C4-Fix: Frisches Projekt (mind-files' Hauptfall) hat noch KEINEN Context-Satz.
+  # "Nichts zu schuetzen" ist KEIN Fehler — nur "vorhanden aber nicht sicherbar" ist einer.
   if [ "$count" -eq 0 ]; then
-    echo "SNAPSHOT-FEHLER: 0 Dateien gesichert (Context-Satz leer oder unlesbar)" >&2
-    return 1
+    if [ -e "$project_dir/CLAUDE.md" ] || [ -e "$project_dir/.claude/CLAUDE.md" ] ||        [ -d "$project_dir/.claude/rules" ] || { [ -n "$memory_dir" ] && [ -d "$memory_dir" ]; }; then
+      echo "SNAPSHOT-FEHLER: Context-Dateien vorhanden, aber 0 gesichert (Rechte? Platte voll?)" >&2
+      return 1
+    fi
+    echo "# LEER: kein Context-Satz vorhanden (frisches Projekt) — nichts zu sichern" > "$snap/LEER"
+    mind_log INFO "mind_snapshot: LEER (frisches Projekt, nichts zu sichern) -> $snap"
+    echo "$snap"; return 0
   fi
 
-  # 4) MANIFEST mit SHA-256 (Grundlage fuer Restore-Verifikation)
+  # 4) GLOBALE Context-Dateien (C3-Fix): /mind-claudemd global editiert ~/.claude/CLAUDE.md,
+  #    mind-update fixt ~/.claude/rules/*.md, mind-rules migrate schreibt User-Rules um.
+  #    Das ist der wertvollste, am schwersten ersetzbare Kontext — er MUSS ins Netz.
+  if [ -f "$HOME/.claude/CLAUDE.md" ]; then
+    mkdir -p "$snap/global"; cp "$HOME/.claude/CLAUDE.md" "$snap/global/CLAUDE.md" 2>/dev/null && count=$((count+1))
+  fi
+  if [ -d "$HOME/.claude/rules" ]; then
+    mkdir -p "$snap/global/rules"
+    for f in "$HOME/.claude/rules"/*.md; do
+      [ -f "$f" ] && { cp "$f" "$snap/global/rules/" 2>/dev/null && count=$((count+1)); }
+    done
+  fi
+
+  # 5) MANIFEST mit SHA-256 (Grundlage fuer Restore-Verifikation)
   {
     echo "# mind_snapshot MANIFEST"
     echo "# label=$label  ts=$ts  project=$project_dir  files=$count"
     (cd "$snap" && find . -type f ! -name MANIFEST.sha256 -exec sha256sum {} \; 2>/dev/null)
   } > "$snap/MANIFEST.sha256" 2>/dev/null
+  command -v sha256sum >/dev/null 2>&1 || echo "WARN: sha256sum fehlt — MANIFEST ohne Hashes, Restore nicht verifizierbar" >&2
 
   # 5) Rotation
-  ls -td "$snap_root"/*/ 2>/dev/null | tail -n +$((keep + 1)) | xargs rm -rf 2>/dev/null
+  # M2-Fix: KEIN xargs — jeder Pfad hier enthaelt Leerzeichen ("Plugin - Entwicklung").
+  # xargs wortsplittet und feuerte rm -rf auf Fragmente relativ zum CWD.
+  ls -td "$snap_root"/*/ 2>/dev/null | tail -n +$((keep + 1)) | while IFS= read -r d; do
+    [ -n "$d" ] && [ -d "$d" ] && rm -rf "$d"
+  done
 
   mind_log INFO "mind_snapshot: $count Dateien -> $snap"
   echo "$snap"

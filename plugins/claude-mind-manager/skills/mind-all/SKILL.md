@@ -36,10 +36,17 @@ if [ "$DRY_RUN" = "no" ]; then
   echo "Snapshot fuer den gesamten Durchlauf: $SNAPSHOT"
 fi
 
-# Scope-Dedup-Marke fuer diesen Lauf zuruecksetzen (Befund 5)
+# Kettenmarke — NUR wenn ein Snapshot existiert (C2-Fix: im Probelauf keine Marke,
+# sonst behauptet sie ein Netz, das es nicht gibt). Enthaelt den Snapshot-PFAD, damit die
+# Einzel-Skills pruefen koennen ob er wirklich da ist.
 SCOPES_FILE="$PROJ/.claude-mind/analyzed-scopes"
-mkdir -p "$(dirname "$SCOPES_FILE")"; : > "$SCOPES_FILE"
-echo "run_started=$(date +%Y%m%d_%H%M%S)" >> "$SCOPES_FILE"
+if [ "$DRY_RUN" = "no" ]; then
+  mkdir -p "$(dirname "$SCOPES_FILE")"; : > "$SCOPES_FILE"
+  echo "run_started=$(date +%s)"   >> "$SCOPES_FILE"
+  echo "snapshot=$SNAPSHOT"        >> "$SCOPES_FILE"
+else
+  rm -f "$SCOPES_FILE"   # Probelauf hinterlaesst KEINE Marke
+fi
 ```
 
 **EIN Snapshot fuer alle 5** — nicht fuenf einzelne. Damit ist der komplette Durchlauf als
@@ -55,7 +62,7 @@ eine Einheit zurueckrollbar. Die Einzel-Skills erkennen den laufenden `/mind-all
 | 1 | `mind-files` | Legt fehlende Context-Dateien ueberhaupt erst an — die folgenden koennen nur auditieren, was existiert |
 | 2 | `mind-claudemd` | CLAUDE.md ist die Wurzel; Version/Struktur muss stimmen, bevor andere darauf verweisen |
 | 3 | `mind-memory` | MEMORY.md + Topic-Files, haeufig Ziel von claude-md-Auslagerungen |
-| 4 | `mind-rules` | Rules-Syntax/-Inhalt, oft Ziel von Modularisierungen aus Schritt 2 |
+| 4 | `mind-rules check` **+** `migrate` | Rules-Syntax/-Inhalt. **Subcommand PFLICHT:** ohne Argument macht mind-rules nur `list` (zeigt eine Tabelle, fixt nichts) — in der Kette waere das ein Leerlauf |
 | 5 | `mind-update` | **Zuletzt** — der uebergreifende Sweep + Knowledge-Sync; profitiert davon, dass 1-4 sauber sind, und deckt den Rest ab |
 
 **Strikt sequenziell.** Nie zwei Skills gleichzeitig, nie ein Skill parallel zu Agents eines
@@ -66,32 +73,66 @@ gleichzeitig; innerhalb eines Skills gilt dessen eigene Grenze).
 
 Fuer jeden der 5 in der Reihenfolge oben:
 
-1. **Skill-Logik ausfuehren** wie in seiner `SKILL.md` beschrieben — mit den durchgereichten
+1. **ZUERST die SKILL.md des Skills lesen** — `$CLAUDE_PLUGIN_ROOT/skills/<name>/SKILL.md` —
+   und sie dann **vollstaendig** ausfuehren (inkl. Self-Check-Bloecken und Pflicht-Schritten).
+   Nicht aus der Beschreibung improvisieren. **Skill-Logik ausfuehren** wie dort beschrieben — mit den durchgereichten
    Flags (`AUTO_MODE`/`DRY_RUN`). Kein erneuter Snapshot (Step 0 hat ihn).
-2. **Scope-Marke schreiben**, sobald ein Skill einen Bereich semantisch analysiert hat:
+2. **Scope-Marke schreiben — NUR mit Modus-Angabe** (M3-Fix):
    ```bash
-   echo "claude-md=mind-claudemd" >> "$SCOPES_FILE"   # nach mind-claudemd
-   echo "memory=mind-memory"     >> "$SCOPES_FILE"   # nach mind-memory
-   echo "rules=mind-rules"       >> "$SCOPES_FILE"   # nach mind-rules
+   echo "claude-md=mind-claudemd:default" >> "$SCOPES_FILE"   # nach mind-claudemd
+   echo "memory=mind-memory:default"      >> "$SCOPES_FILE"   # nach mind-memory
+   # KEINE rules-Marke: mind-rules hat gar keinen `Agent` in allowed-tools und macht
+   # ueberhaupt keine semantische Analyse — eine rules-Marke wuerde den rules-Agent in
+   # Schritt 5 unterdruecken, ohne dass je einer gelaufen waere.
    ```
 3. **Ergebnis sammeln** (angewendet / DESIGN / offen / Fehler) fuer den Schlussbericht.
 
-**Scope-Dedup in Schritt 5 (Befund 5, spart ~50 % der Subagent-Token):**
-`mind-update` Step 3.5 liest `analyzed-scopes` und **ueberspringt** jeden dort eingetragenen
-Scope. Im Self-Check erscheint dann statt eines Dispatches:
-`scope=claude-md → bereits durch mind-claudemd abgedeckt (analyzed-scopes)`.
-Der Scope `custom-context` ist nie abgedeckt und laeuft immer.
+**Scope-Dedup in Schritt 5 — nur bei GLEICHEM Modus (M3-Fix, kritisch):**
+`mind-claudemd`/`mind-memory` dispatchen den context-analyzer mit **`mode: default`**
+(Quality-Score, Duplikate — **ohne Session-Auszug**). `mind-update` Step 3.5 braucht aber
+**`mode: knowledge-sync`** MIT Session-Auszug — das ist eine **andere Analyse mit anderem
+Ergebnis**. Deshalb: **ein `:default`-Eintrag darf einen `knowledge-sync`-Dispatch NICHT
+unterdruecken.** Uebersprungen wird nur, was mit **demselben Modus** schon lief.
+
+Praktisch heisst das: in der Kette laufen die 4 knowledge-sync-Agents **normal**. Der Dedup
+greift erst, wenn ein Skill kuenftig selbst `knowledge-sync` faehrt.
+
+**Ersparnis ist KEIN Skip-Grund** (M4-Fix): Wenn der Modus nicht uebereinstimmt, wird
+dispatcht — egal was das kostet. Der Knowledge-Sync ist laut `mind-update` Teil der
+Identitaet des Skills, nicht seine Kuer.
 
 **Fehler-Verhalten:** Scheitert ein Skill, laufen die **restlichen weiter**. Der Fehler kommt
 in den Schlussbericht (`FEHLGESCHLAGEN: <skill> — <grund>`). Ein toter Skill darf die Kette
 nicht killen — sonst bleibt der Context halb aktualisiert zurueck.
+
+## Step 2.9: Kettenmarke abraeumen (PFLICHT, C1-Fix)
+
+**Direkt nach dem letzten Skill, VOR dem Bericht:**
+
+```bash
+[ -f "$SCOPES_FILE" ] && mv -f "$SCOPES_FILE" "${SCOPES_FILE}.done" 2>/dev/null
+```
+
+**Warum das kein Beiwerk ist:** Die Einzel-Skills erkennen die Kette an dieser Datei und
+ueberspringen dann ihren eigenen Snapshot. Bleibt sie liegen, haelt sich **jeder spaetere
+Einzellauf** faelschlich fuer einen Kettenlauf und editiert **ohne Netz** — dauerhaft.
+Deshalb: aufraeumen auch dann, wenn ein Skill vorher gescheitert ist (dieser Schritt laeuft
+IMMER, er haengt an keinem Erfolg).
 
 ## Step 3: Konsolidierter Schlussbericht (PFLICHT)
 
 ```
 === /mind-all — Durchlauf abgeschlossen ===
 Modus: autonom | --ask | --dry-run
-Snapshot: <pfad>   (Restore: cp -r "<pfad>"/* zurueck; MANIFEST.sha256 zum Verifizieren)
+Snapshot: <pfad>
+  Restore (Ziele liegen NICHT alle im Projekt!):
+    <pfad>/CLAUDE.md            -> <projekt>/CLAUDE.md
+    <pfad>/dot-claude-CLAUDE.md -> <projekt>/.claude/CLAUDE.md
+    <pfad>/rules/*.md           -> <projekt>/.claude/rules/
+    <pfad>/memory/*.md          -> ~/.claude/projects/<slug>/memory/
+    <pfad>/global/CLAUDE.md     -> ~/.claude/CLAUDE.md
+    <pfad>/global/rules/*.md    -> ~/.claude/rules/
+  Verifikation: cd <pfad> && sha256sum -c MANIFEST.sha256
 
 | # | Skill          | Status | Angewendet | Offen/DESIGN | Fehler |
 |---|----------------|--------|-----------|--------------|--------|
@@ -124,5 +165,8 @@ nicht: jede Aenderung einzeln, jede Auslassung mit Grund, Snapshot-Pfad immer da
 - **Overwrite-Guards und Tool-Bundle-Angebote aus mind-files bleiben aktiv** — Autonomie
   erzeugt keine Ausnahme fuer fremden Bestand.
 - **>5 DEAD-Pfade** in mind-update bleiben gesperrt (Massenloesch-Sicherung).
-- **Ein gescheiterter Skill stoppt die Kette nicht** — Fehler in den Schlussbericht.
+- **Ein gescheiterter Skill stoppt die Kette nicht** — Fehler in den Schlussbericht. Ein
+  `STOP`/`ABBRUCH`/`exit 1` **innerhalb** eines Einzel-Skills beendet NUR diesen Skill
+  (z.B. mind-memory ohne MEMORY.md), nicht den Durchlauf.
+- **Step 2.9 (Kettenmarke abraeumen) laeuft IMMER** — auch nach Fehlern/Abbruch.
 - **Kein `git commit`/`git push`** — `/mind-all` aendert Context-Dateien, nicht die Historie.

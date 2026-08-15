@@ -4,8 +4,9 @@ description: |
   [Mind Manager] MEMORY.md Vollverwaltung — lokalisiert, auditiert, optimiert, bereinigt.
   Findet MEMORY.md + Topic-Files, prueft auf Duplikate, veraltete Eintraege, Budget-Ueberschreitungen,
   fehlplatzierte Inhalte (Instructions die in CLAUDE.md gehoeren), semantische Duplikate.
-  Zeigt Ergebnisse, wartet auf User-OK, dann Fix: deduplizieren, kompaktieren,
-  in Topic-Files auslagern, stale Eintraege entfernen.
+  v5.0.0: wendet Fixes AUTONOM an (deduplizieren, kompaktieren, in Topic-Files auslagern,
+  stale Eintraege entfernen) — Snapshot vorher, Bericht danach. '--ask' fragt wie frueher,
+  '--dry-run' aendert nichts.
 
   Use when the user says "check memory", "optimize memory", "mind memory",
   "clean memory", "audit memory", "fix memory", "memory too long",
@@ -29,8 +30,17 @@ echo "$ARGS" | grep -qE '(^|[[:space:]])--(ask|interactive)([[:space:]]|$)' && A
 echo "$ARGS" | grep -qE '(^|[[:space:]])--dry-run([[:space:]]|$)' && { DRY_RUN="yes"; AUTO_MODE="no"; }
 
 # Snapshot VOR dem ersten Edit — ausgefuehrter Aufruf, kein Prosa-Versprechen.
-# Laeuft dieser Skill innerhalb von /mind-all? Dann existiert der Snapshot bereits.
-CHAIN="no"; [ -f "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" ] &&   grep -q '^run_started=' "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" 2>/dev/null && CHAIN="yes"
+# Laeuft dieser Skill innerhalb eines AKTIVEN /mind-all? (C1-Fix: drei Bedingungen, nicht nur
+# "Datei existiert" — sonst gilt nach dem ersten /mind-all JEDER spaetere Einzellauf als Kette
+# und editiert ohne Snapshot.)
+CHAIN="no"; _SC="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes"
+if [ -f "$_SC" ]; then
+  _SNAP=$(grep -m1 '^snapshot=' "$_SC" 2>/dev/null | cut -d= -f2-)
+  _START=$(grep -m1 '^run_started=' "$_SC" 2>/dev/null | cut -d= -f2)
+  _AGE=$(( $(date +%s) - ${_START:-0} ))
+  # 1) Snapshot-Pfad eingetragen  2) Verzeichnis existiert wirklich  3) Lauf juenger als 2 h
+  [ -n "$_SNAP" ] && [ -d "$_SNAP" ] && [ "$_AGE" -lt 7200 ] && CHAIN="yes"
+fi
 
 if [ "$DRY_RUN" = "no" ] && [ "$CHAIN" = "no" ]; then
   [ -z "$CLAUDE_PLUGIN_ROOT" ] && { echo "ERROR: \$CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }

@@ -7,7 +7,8 @@ description: |
   rules/custom-context), aber SEQUENZIELL bzw. max 2 gleichzeitig, NIE >=3 im selben
   Tool-Call (Anthropic Server-Rate-Limit). Alle 4 gleichen Session-Inhalte mit den
   Context-Files ab und klassifizieren in 5 Klassen (UPDATE/ENRICH/ADD/NEW_FILE/INFO).
-  Auto-Fix fuer sichere Aenderungen, Rueckfrage fuer alles andere.
+  v5.0.0: Befunde werden AUTONOM angewendet (ausser DESIGN); '--ask' fragt wie
+  frueher, '--dry-run' aendert nichts.
 
   Der Knowledge-Sync ist KEINE optionale Beschleunigungs-Stufe — er ist Teil der
   Identitaet dieses Skills. Nur `--quick` schaltet ihn explizit ab.
@@ -41,8 +42,17 @@ ARGS="${ARGUMENTS:-}"; AUTO_MODE="yes"; DRY_RUN="no"
 echo "$ARGS" | grep -qE '(^|[[:space:]])--(ask|interactive)([[:space:]]|$)' && AUTO_MODE="no"
 echo "$ARGS" | grep -qE '(^|[[:space:]])--dry-run([[:space:]]|$)' && { DRY_RUN="yes"; AUTO_MODE="no"; }
 
-# Laeuft dieser Skill innerhalb von /mind-all? Dann existiert der Snapshot bereits.
-CHAIN="no"; [ -f "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" ] &&   grep -q '^run_started=' "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" 2>/dev/null && CHAIN="yes"
+# Laeuft dieser Skill innerhalb eines AKTIVEN /mind-all? (C1-Fix: drei Bedingungen, nicht nur
+# "Datei existiert" — sonst gilt nach dem ersten /mind-all JEDER spaetere Einzellauf als Kette
+# und editiert ohne Snapshot.)
+CHAIN="no"; _SC="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes"
+if [ -f "$_SC" ]; then
+  _SNAP=$(grep -m1 '^snapshot=' "$_SC" 2>/dev/null | cut -d= -f2-)
+  _START=$(grep -m1 '^run_started=' "$_SC" 2>/dev/null | cut -d= -f2)
+  _AGE=$(( $(date +%s) - ${_START:-0} ))
+  # 1) Snapshot-Pfad eingetragen  2) Verzeichnis existiert wirklich  3) Lauf juenger als 2 h
+  [ -n "$_SNAP" ] && [ -d "$_SNAP" ] && [ "$_AGE" -lt 7200 ] && CHAIN="yes"
+fi
 
 if [ "$DRY_RUN" = "no" ] && [ "$CHAIN" = "no" ]; then
   [ -z "$CLAUDE_PLUGIN_ROOT" ] && { echo "ERROR: \$CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
@@ -613,11 +623,16 @@ Tool-Call). Ergebnisse aller 4 einsammeln, dann konsolidieren. Jeder bekommt:
   `scope=<x> → bereits durch <skill> abgedeckt (analyzed-scopes)`.
   ```bash
   SCOPES_FILE="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes"
-  scope_done() { [ -f "$SCOPES_FILE" ] && grep -q "^$1=" "$SCOPES_FILE"; }
+  # nur wenn Scope UND Modus uebereinstimmen:
+  scope_done() { [ -f "$SCOPES_FILE" ] && grep -q "^$1=.*:knowledge-sync$" "$SCOPES_FILE"; }
   # z.B.: scope_done claude-md && echo "skip" || dispatch...
   ```
-  Spart im `/mind-all`-Lauf ~50 % der Subagent-Token (gemessen: ~567k pro Kette, gut die
-  Haelfte war Doppel-Analyse von `claude-md` + `memory`). **Gilt NUR fuer die Kette** — bei
+  **NUR bei gleichem Modus ueberspringen (M3-Fix):** Der Eintrag traegt den Modus
+  (`claude-md=mind-claudemd:default`). `mode: default` ist eine **andere Analyse** als
+  `mode: knowledge-sync` (letztere vergleicht den Session-Auszug). Ein `:default`-Eintrag
+  darf einen `knowledge-sync`-Dispatch **nicht** unterdruecken — sonst faellt der
+  semantische Session-Abgleich still aus, den dieser Skill selbst als nicht-ueberspringbar
+  fuehrt. **Ersparnis ist kein Skip-Grund.** **Gilt NUR fuer die Kette** — bei
   einem einzelnen `/mind-update` ohne vorherige Skills ist die Datei leer/alt und alle
   4 Scopes laufen normal. `custom-context` wird nie uebersprungen (kein anderer Skill deckt ihn ab).
 - Bereich-Files (Read-only) — **rules-scope: die `SEM_RULES` aus Step 3c.1** (je nach `TARGET_MODE`:
@@ -754,8 +769,15 @@ Jedes Finding bekommt eine Klasse aus 9 Optionen (4 Drift + 5 Knowledge-Sync):
 | **NEW_FILE** | Komplett neues Thema, kein passender Container | ASK Default — User bestaetigt Filename + Inhalt |
 | **INFO** (uebergreifend, Drift+Sync) | Hinweis ohne Action (Archive-Vorschlag, Limit-Warnung) | Listen only, kein Action |
 
-**KRITISCHE REGEL:** Wenn ein Finding "ASK" ist und User sagt "behebe alle" /
-"fix all" / "ja mach", gilt das als explizite Erlaubnis — Fix darf erfolgen.
+**v5.0.0 — Modus entscheidet, nicht die Klasse:**
+- `AUTO_MODE=yes` (Default): UPDATE/ENRICH/ADD/NEW_FILE werden **angewendet**, nicht gefragt.
+  Die "ASK Default"-Angaben in den Klassen-Tabellen oben gelten NUR fuer `--ask`.
+- `AUTO_MODE=no` (`--ask`): Klassen-Tabelle wie beschrieben (ASK Default).
+- `DRY_RUN=yes`: nichts anwenden, nur listen.
+- **DESIGN bleibt in JEDEM Modus ausgenommen.**
+
+**KRITISCHE REGEL (weiterhin):** Sagt der User "behebe alle"/"fix all"/"ja mach", ist das
+explizite Erlaubnis — auch fuer ASK-Findings im `--ask`-Modus.
 
 ### 4b: DESIGN-Detection-Heuristik (deterministisch, keine silent dropouts)
 
