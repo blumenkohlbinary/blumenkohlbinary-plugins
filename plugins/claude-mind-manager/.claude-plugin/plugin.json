@@ -1,7 +1,7 @@
 {
   "name": "claude-mind-manager",
-  "version": "4.1.0",
-  "description": "Region-based context management for Claude Code. 7 skills + 2 agents + 1 hook. v4.1.0: skaliert bei großen Contexts — mind-update Step 3.5 liest keine Riesen-Rules-Datei mehr blind (Overflow-Schutz): Datei-Targeting (nur session-berührte Rules via Commit-Scope-Map) + Größen-Guard im context-analyzer (>600 Z./60KB → grep-gezielt statt ganz lesen); Report weist deterministisch-only-Files ehrlich aus. Plus Fix: grep -iF-Crash auf UTF-8 (Fake-GAPs) behoben. v4.0.1: mind-update-Agents sequenziell/≤2 statt 4er-Burst (Server-Rate-Limit). v4.0 'No Dead Tools': Companion-Rules je installiertem Tool. Claude Code CLI only. cygpath required.",
+  "version": "5.0.0",
+  "description": "Region-based context management for Claude Code. 8 skills + 2 agents + 1 hook. v5.0.0 BREAKING — AUTONOM BY DEFAULT: alle mind-Skills wenden gefundene Befunde jetzt selbstaendig an; '--ask' stellt das alte Nachfrage-Verhalten wieder her, '--dry-run' aendert nichts. Sicherheit kommt vom Netz statt von der Rueckfrage: mind_snapshot() sichert vor JEDEM Edit den kompletten Context-Satz (CLAUDE.md + MEMORY + Topic-Files + Rules) mit SHA-256-MANIFEST; Fehlschlag = Abbruch. NEU /mind-all: fuehrt alle 5 Commands sequenziell aus (files -> claudemd -> memory -> rules -> update), EIN Snapshot fuer den ganzen Lauf, Scope-Dedup spart ~50% Subagent-Token, EIN konsolidierter Bericht. Plus 9 verifizierte Bugfixes: Dead-Path-Filter (Web-Adressen wurden als tote Pfade geloescht), Backups feuern wirklich (vorher 0 Aufrufe bei 3 Zusagen), kein 32-MB-Transkript mehr im Projektordner, Memory-Frontmatter-Falschwarnung, KEIN-GIT-Marker, typ-gated Backup-Vorschlag, Session-Sampler als Datei mit deutschen Mustern (+75% Trefferquote). DESIGN-Befunde werden nie automatisch angewendet. Claude Code CLI only. cygpath required.",
   "author": {
     "name": "blumenkohlbinary"
   },

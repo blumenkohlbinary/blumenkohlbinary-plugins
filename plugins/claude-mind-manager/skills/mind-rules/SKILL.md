@@ -22,6 +22,32 @@ Manage, validate, create, and fix Claude Code rule files.
 
 Provide complete management of `.claude/rules/*.md` files including syntax validation, creation, and migration from the buggy `paths:` field to the working `globs:` field.
 
+## Step 0: Modus + Snapshot (PFLICHT, NEU v5.0.0)
+
+**Autonom ist der Standard.** `check`/`migrate` wenden Fixes selbstaendig an (Syntax,
+`paths:`→`globs:`); `create` fragt weiterhin nach Inhalt, weil es ohne Vorgabe nichts
+zu erzeugen gibt.
+
+```bash
+ARGS="${ARGUMENTS:-}"; AUTO_MODE="yes"; DRY_RUN="no"
+echo "$ARGS" | grep -qE '(^|[[:space:]])--(ask|interactive)([[:space:]]|$)' && AUTO_MODE="no"
+echo "$ARGS" | grep -qE '(^|[[:space:]])--dry-run([[:space:]]|$)' && { DRY_RUN="yes"; AUTO_MODE="no"; }
+
+# Laeuft dieser Skill innerhalb von /mind-all? Dann existiert der Snapshot bereits.
+CHAIN="no"; [ -f "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" ] &&   grep -q '^run_started=' "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" 2>/dev/null && CHAIN="yes"
+
+if [ "$DRY_RUN" = "no" ] && [ "$CHAIN" = "no" ]; then
+  [ -z "$CLAUDE_PLUGIN_ROOT" ] && { echo "ERROR: \$CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
+  source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+  SNAPSHOT=$(mind_snapshot "${CLAUDE_PROJECT_DIR:-$(pwd)}" "pre-rules") || {
+    echo "ABBRUCH: Snapshot fehlgeschlagen — es wird NICHTS editiert." >&2; exit 1; }
+  echo "Snapshot: $SNAPSHOT"
+fi
+```
+
+`--ask` = Diff zeigen + Freigabe (Verhalten vor v5.0.0) · `--dry-run` = nichts aendern.
+**Bei Snapshot-Fehlschlag wird NICHT editiert.**
+
 ## Workflow
 
 ### Step 1: Parse Subcommand
@@ -176,6 +202,7 @@ After:
 - ALWAYS use `globs:` in generated rules, NEVER `paths:`
 - ALWAYS show preview before writing new rule files
 - ALWAYS warn about user-level rules with paths: (known to not work)
-- NEVER modify rules without showing the diff first
+- **NEVER modify rules without a successful `mind_snapshot` (Step 0)** — Fehlschlag = Abbruch. (v5.0.0: im Autonom-Modus wird der Diff NACH dem Anwenden im Bericht gezeigt, statt vorher zur Freigabe; bei `--ask` weiter vorher.)
+- **ALWAYS report every applied change** mit `file:line` + before→after + Snapshot-Pfad.
 - Rules without globs: are valid — they always load (document this, don't warn)
 - **"No Dead Tools" (NEU v4.0):** Wird ein Tool ins Projekt installiert, MUSS eine Companion-Rule mit passendem `globs:`-Trigger dazu — sonst liegt das Tool tot im Ordner. Companion-Rule = WANN + WIE + load-bearing Fallen, nicht nur WAS. Ehrlich: Rule = erreichbar, nicht garantiert-genutzt.

@@ -176,3 +176,70 @@ create_backup() {
 
   echo "$count"
 }
+
+# --- mind_snapshot: Voller Context-Satz-Snapshot vor autonomen Edits (NEU v5.0.0) ---
+# Args: $1=project_dir, $2=label (z.B. "pre-mind-all", "pre-claudemd")
+# Returns: Snapshot-Pfad via stdout, Exit 0 = OK / 1 = FEHLGESCHLAGEN (Skill MUSS abbrechen)
+#
+# Warum zusaetzlich zu create_backup: create_backup sichert nur CLAUDE.md/MEMORY.md/Transkript.
+# Die Skills editieren aber auch .claude/rules/*.md und MEMORY-Topic-Files. Im Autonom-Modus
+# (v5.0.0) muss der GESAMTE Context-Satz als EINE revertierbare Einheit gesichert sein.
+mind_snapshot() {
+  local project_dir="$1"
+  local label="${2:-snapshot}"
+  local keep="${MIND_BACKUP_KEEP_COUNT:-5}"
+  local ts snap_root snap memory_dir count=0
+  ts=$(date +%Y%m%d_%H%M%S)
+  snap_root="$project_dir/.claude-mind/snapshots"
+  snap="$snap_root/${ts}_${label}"
+
+  mkdir -p "$snap" 2>/dev/null || { echo "SNAPSHOT-FEHLER: kann $snap nicht anlegen" >&2; return 1; }
+
+  # 1) CLAUDE.md (beide moeglichen Orte)
+  for f in "$project_dir/CLAUDE.md" "$project_dir/.claude/CLAUDE.md"; do
+    [ -f "$f" ] && { cp "$f" "$snap/$(basename "$f")" 2>/dev/null && count=$((count+1)); }
+  done
+  # 2) MEMORY.md + ALLE Topic-Files
+  # WICHTIG (Negativkontrolle 2026-08-15): get_memory_dir faellt bei Slug-Mismatch auf das
+  # NEUESTE FREMDE Projekt zurueck (rc=1). Ein Snapshot darf NIE fremde Memory sichern —
+  # ein spaeterer Restore wuerde die Daten eines anderen Projekts einspielen.
+  local mem_rc
+  memory_dir=$(get_memory_dir "$project_dir" 2>/dev/null); mem_rc=$?
+  if [ "$mem_rc" -ne 0 ]; then
+    mind_log WARN "mind_snapshot: get_memory_dir-Fallback — Memory NICHT gesichert (Fremd-Projekt-Gefahr)"
+    echo "WARN: Memory-Dir nicht eindeutig aufloesbar — Memory aus diesem Snapshot ausgenommen" >&2
+    memory_dir=""
+  fi
+  if [ -n "$memory_dir" ] && [ -d "$memory_dir" ]; then
+    mkdir -p "$snap/memory"
+    for f in "$memory_dir"/*.md; do
+      [ -f "$f" ] && { cp "$f" "$snap/memory/" 2>/dev/null && count=$((count+1)); }
+    done
+  fi
+  # 3) Projekt-Rules (die editieren die Skills ebenfalls)
+  if [ -d "$project_dir/.claude/rules" ]; then
+    mkdir -p "$snap/rules"
+    for f in "$project_dir/.claude/rules"/*.md; do
+      [ -f "$f" ] && { cp "$f" "$snap/rules/" 2>/dev/null && count=$((count+1)); }
+    done
+  fi
+
+  if [ "$count" -eq 0 ]; then
+    echo "SNAPSHOT-FEHLER: 0 Dateien gesichert (Context-Satz leer oder unlesbar)" >&2
+    return 1
+  fi
+
+  # 4) MANIFEST mit SHA-256 (Grundlage fuer Restore-Verifikation)
+  {
+    echo "# mind_snapshot MANIFEST"
+    echo "# label=$label  ts=$ts  project=$project_dir  files=$count"
+    (cd "$snap" && find . -type f ! -name MANIFEST.sha256 -exec sha256sum {} \; 2>/dev/null)
+  } > "$snap/MANIFEST.sha256" 2>/dev/null
+
+  # 5) Rotation
+  ls -td "$snap_root"/*/ 2>/dev/null | tail -n +$((keep + 1)) | xargs rm -rf 2>/dev/null
+
+  mind_log INFO "mind_snapshot: $count Dateien -> $snap"
+  echo "$snap"
+  return 0
+}

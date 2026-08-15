@@ -17,7 +17,38 @@ allowed-tools: Read Glob Grep Edit Write Bash Agent
 
 # MEMORY.md Vollverwaltung
 
-Lokalisieren -> Auditieren -> User-OK -> Fixen.
+Lokalisieren -> Auditieren -> **autonom anwenden** (bzw. Freigabe bei `--ask`) -> Bericht.
+
+## Step 0: Modus + Snapshot (PFLICHT, NEU v5.0.0)
+
+**Autonom ist der Standard.** Dieser Skill wendet gefundene Befunde selbstaendig an.
+
+```bash
+ARGS="${ARGUMENTS:-}"; AUTO_MODE="yes"; DRY_RUN="no"
+echo "$ARGS" | grep -qE '(^|[[:space:]])--(ask|interactive)([[:space:]]|$)' && AUTO_MODE="no"
+echo "$ARGS" | grep -qE '(^|[[:space:]])--dry-run([[:space:]]|$)' && { DRY_RUN="yes"; AUTO_MODE="no"; }
+
+# Snapshot VOR dem ersten Edit — ausgefuehrter Aufruf, kein Prosa-Versprechen.
+# Laeuft dieser Skill innerhalb von /mind-all? Dann existiert der Snapshot bereits.
+CHAIN="no"; [ -f "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" ] &&   grep -q '^run_started=' "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" 2>/dev/null && CHAIN="yes"
+
+if [ "$DRY_RUN" = "no" ] && [ "$CHAIN" = "no" ]; then
+  [ -z "$CLAUDE_PLUGIN_ROOT" ] && { echo "ERROR: \$CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
+  source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+  SNAPSHOT=$(mind_snapshot "${CLAUDE_PROJECT_DIR:-$(pwd)}" "pre-memory") || {
+    echo "ABBRUCH: Snapshot fehlgeschlagen — es wird NICHTS editiert." >&2; exit 1; }
+  echo "Snapshot: $SNAPSHOT"
+fi
+```
+
+| Modus | Aufruf | Verhalten |
+|---|---|---|
+| **autonom (Default)** | `/mind-memory` | Befunde werden angewendet, danach Bericht |
+| **interaktiv** | `/mind-memory --ask` | Report → Freigabe → anwenden (Verhalten vor v5.0.0) |
+| **Probelauf** | `/mind-memory --dry-run` | zeigt alles, aendert nichts |
+
+**Bei Snapshot-Fehlschlag wird NICHT editiert.** **DESIGN-Befunde nie automatisch.**
+**Geloeschter Inhalt** wird im Bericht woertlich ausgewiesen (`Entfernt: <zeile>`).
 
 ## Step 1: MEMORY.md lokalisieren
 
@@ -137,7 +168,9 @@ Projected: 178 -> 145 lines (-33), well within budget
 Apply all? [Yes / Select / Skip]
 ```
 
-**STOP HERE. Warte auf User-Bestaetigung.**
+**Nur bei `AUTO_MODE=no` (`--ask`): STOP HERE, warte auf User-Bestaetigung.**
+**Bei `AUTO_MODE=yes` (Default): NICHT stoppen** — Fixes anwenden (außer DESIGN), danach
+Step 7 mit Angewendet-Block. Bei `DRY_RUN=yes`: nur zeigen. Geloeschte Zeilen woertlich melden.
 
 ## Step 6: Fixes anwenden (nach User-OK)
 
@@ -180,7 +213,10 @@ Topic files: 3 (was 2, created api-patterns.md)
 ## Hard Constraints
 
 - NEVER delete entries without showing what will be lost
-- NEVER apply changes without User-Bestaetigung (Step 5 MUST stop and wait)
+- **NEVER apply without a successful `mind_snapshot` (Step 0)** — Snapshot fehlgeschlagen = keine Edits, Abbruch. (Ersetzt v5.0.0 die alte Regel "NEVER apply without User-Bestaetigung".)
+- **NEVER auto-apply DESIGN findings** — nur listen.
+- **ALWAYS report every applied change** mit `file:line` + before→after; **geloeschte Zeilen woertlich** (`Entfernt: <zeile>`) + Snapshot-Pfad + Restore-Einzeiler.
+- Bei `--ask`: Step 5 stoppt und wartet (altes Verhalten). Bei `--dry-run`: nichts aendern.
 - ALWAYS backup MEMORY.md before first edit (cp to .claude-mind/backups/)
 - ALWAYS use Edit tool (not Write) for modifications — preserves surrounding content
 - ALWAYS show before/after line counts

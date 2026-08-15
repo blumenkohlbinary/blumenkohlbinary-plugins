@@ -18,6 +18,35 @@ allowed-tools: Read Glob Grep Write Bash Agent
 
 Projekttyp erkennen -> Soll-Zustand definieren -> Ist pruefen -> User-OK -> Erstellen/Verbessern.
 
+## Step 0: Modus + Snapshot (PFLICHT, NEU v5.0.0)
+
+**Autonom ist der Standard.** Fehlende Dateien werden erstellt, verbesserbare verbessert.
+
+```bash
+ARGS="${ARGUMENTS:-}"; AUTO_MODE="yes"; DRY_RUN="no"
+echo "$ARGS" | grep -qE '(^|[[:space:]])--(ask|interactive)([[:space:]]|$)' && AUTO_MODE="no"
+echo "$ARGS" | grep -qE '(^|[[:space:]])--dry-run([[:space:]]|$)' && { DRY_RUN="yes"; AUTO_MODE="no"; }
+
+# Laeuft dieser Skill innerhalb von /mind-all? Dann existiert der Snapshot bereits.
+CHAIN="no"; [ -f "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" ] &&   grep -q '^run_started=' "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" 2>/dev/null && CHAIN="yes"
+
+if [ "$DRY_RUN" = "no" ] && [ "$CHAIN" = "no" ]; then
+  [ -z "$CLAUDE_PLUGIN_ROOT" ] && { echo "ERROR: \$CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
+  source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+  SNAPSHOT=$(mind_snapshot "${CLAUDE_PROJECT_DIR:-$(pwd)}" "pre-files") || {
+    echo "ABBRUCH: Snapshot fehlgeschlagen — es wird NICHTS editiert." >&2; exit 1; }
+  echo "Snapshot: $SNAPSHOT"
+fi
+```
+
+`--ask` = Report + Freigabe (Verhalten vor v5.0.0) · `--dry-run` = nichts aendern.
+
+**Zwei Dinge bleiben AUCH autonom rueckfragepflichtig** (kein Widerspruch zur Autonomie —
+beide betreffen Fremd-/Bestandsdaten, nicht Befunde):
+- **Ueberschreiben existierender Dateien** (Overwrite-Guards in Step 5/5b/5c): weiter SKIP + melden.
+- **Tool-Bundles** (Backup/Release-Hygiene/Versioning-Pack): installieren veraendert die
+  Projekt-Struktur dauerhaft → bleibt ein Angebot, wird im Bericht als offener Punkt gelistet.
+
 ## Step 1: Projekttyp erkennen + Setup-Bereiche scannen (project-scanner)
 
 Dispatch **project-scanner** agent (ein Dispatch — er hat Read/Glob/Grep/Bash und
@@ -202,7 +231,11 @@ Create: 1 file | Improve: 0 files | OK: 0 files
 Proceed? [Yes / Select / Skip]
 ```
 
-**STOP HERE. Warte auf User-Bestaetigung.**
+**Nur bei `AUTO_MODE=no` (`--ask`): STOP HERE, warte auf User-Bestaetigung.**
+**Bei `AUTO_MODE=yes` (Default): NICHT stoppen** — fehlende Dateien erstellen, verbesserbare
+verbessern, danach Step 6 mit Angewendet-Block. **Ausgenommen bleiben** (Step 0): Ueberschreiben
+existierender Dateien + Tool-Bundle-Installation → als offene Punkte listen.
+Bei `DRY_RUN=yes`: nur zeigen.
 
 ## Step 5: Dateien erstellen/verbessern (nach User-OK)
 
@@ -514,7 +547,9 @@ Project readiness: Good (all critical files present)
 
 ## Hard Constraints
 
-- NEVER overwrite existing files without user confirmation
+- **NEVER overwrite existing files without user confirmation** — gilt WEITER auch im Autonom-Modus (v5.0.0). Autonomie heißt: fehlende Dateien anlegen + eigene Befunde anwenden — NICHT fremden Bestand überschreiben. Overwrite-Guards (Step 5/5b/5c) bleiben aktiv: SKIP + melden.
+- **NEVER apply without a successful `mind_snapshot` (Step 0)** — Snapshot fehlgeschlagen = keine Edits, Abbruch.
+- **ALWAYS report every created/changed file** + Snapshot-Pfad + Restore-Einzeiler; Tool-Bundles bleiben Angebot (Step 0).
 - NEVER create files without showing preview content first
 - ALWAYS show what would be created/changed before doing it
 - ALWAYS use Write for new files, Edit for modifications
@@ -523,7 +558,13 @@ Project readiness: Good (all critical files present)
 - For settings.json: ALWAYS include .env* in deny patterns (security baseline)
 - NEVER include secrets, API keys, or credentials in any generated file
 - **Ein Agent-Dispatch (v3.3.3):** NUR project-scanner (Step 1) deckt Typ-Erkennung + alle 4 Setup-Bereiche (build/backup/tests/secrets) in EINEM Durchgang ab. Die frueheren 4 separaten context-analyzer-Agents (Step 1.5) waren reine Datei-Existenz-Redundanz und sind entfernt — kein zweiter Dispatch, nichts zum Ueberspringen.
-- **Backup-System Direktive H:** Wird in JEDEM Projekt vorgeschlagen (User-OK Pflicht), nicht typ-abhaengig — "backups schaden nie"
+- **Backup-System Direktive H (v5.0.0 typ-gated, Befund 8):** Vorschlag nur bei Primary
+  `code_app`/`library`/`plugin`/`mcp`/`scripts`. Bei **`workspace`/`docs`/`data`/`config`**
+  NICHT anbieten, sondern **INFO**: "reiner Doku-/Datenordner — PreCompact-Hook + globale
+  Backups decken das ab; Python-Tools waeren hier totes Gewicht". Zusaetzlich: enthaelt die
+  Projekt-CLAUDE.md eine Abhaengigkeits-/Tool-Sperre (z.B. "zero dependencies", "keine
+  Fremd-Tools"), **melden statt vorschlagen**. Grund: "backups schaden nie" stimmt, aber ein
+  nie genutztes Tool im Ordner ist genau der Dead-Tool-Fall, den v4.0 abgeschafft hat.
 - **Templates plugin-unabhaengig:** Nach Installation kein Plugin-Bezug — Tools laufen autonom im Projekt. Keine Hardcodes von Plugin-Pfaden in den installierten Files (Direktive C)
 - **Python-Detection vor Backup-Installation:** Wenn `python --version` UND `python3 --version` fehlschlagen: Installation laeuft trotzdem (User-OK gegeben) ABER mit WARN "nicht lauffaehig bis Python da ist"
 - **"No Dead Tools"-Invariante (NEU v4.0, KERN):** JEDES Tool das dieser Skill ins Projekt installiert (`tools/backup_tools.py`, `tools/update_changelog.py`, `tools/version.py`, …) MUSS zusammen mit einer glob-getriggerten Companion-`.claude/rules/*.md` installiert werden, die Claude sagt WANN + WIE er's nutzt + 1 Pointer-Zeile in CLAUDE.md. **Kein Tool-Install ohne Rule** — sonst liegt das Tool tot im Ordner (`docs/*.md` ist Menschen-Doku, wird nicht auto-geladen). Ehrlich: die Rule macht das Tool *erreichbar*, nicht garantiert-genutzt (Prosa-Enforcement) — aber totes `.py` -> geladene Anweisung ist eine echte Verbesserung.

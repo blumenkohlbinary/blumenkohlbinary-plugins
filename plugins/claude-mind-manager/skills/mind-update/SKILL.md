@@ -31,6 +31,38 @@ KEINEN Inline-Ersatz dafuer: der semantische Abgleich Session<->Context laeuft N
 ueber die dispatchten Agents. "Ich kenne den Stand schon" ist kein gueltiger Grund
 ihn zu ueberspringen — siehe Step 3c Commit-Coverage, die Gaps objektiv belegt.
 
+## Step 0: Modus + Snapshot (PFLICHT, NEU v5.0.0)
+
+**Autonom ist der Standard.** Drift-Fixes UND Knowledge-Sync-Befunde werden selbstaendig
+angewendet (frueher: alles ASK-Default).
+
+```bash
+ARGS="${ARGUMENTS:-}"; AUTO_MODE="yes"; DRY_RUN="no"
+echo "$ARGS" | grep -qE '(^|[[:space:]])--(ask|interactive)([[:space:]]|$)' && AUTO_MODE="no"
+echo "$ARGS" | grep -qE '(^|[[:space:]])--dry-run([[:space:]]|$)' && { DRY_RUN="yes"; AUTO_MODE="no"; }
+
+# Laeuft dieser Skill innerhalb von /mind-all? Dann existiert der Snapshot bereits.
+CHAIN="no"; [ -f "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" ] &&   grep -q '^run_started=' "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" 2>/dev/null && CHAIN="yes"
+
+if [ "$DRY_RUN" = "no" ] && [ "$CHAIN" = "no" ]; then
+  [ -z "$CLAUDE_PLUGIN_ROOT" ] && { echo "ERROR: \$CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
+  source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+  SNAPSHOT=$(mind_snapshot "${CLAUDE_PROJECT_DIR:-$(pwd)}" "pre-update") || {
+    echo "ABBRUCH: Snapshot fehlgeschlagen — es wird NICHTS editiert." >&2; exit 1; }
+  echo "Snapshot: $SNAPSHOT"
+fi
+```
+
+| Modus | Aufruf | Verhalten |
+|---|---|---|
+| **autonom (Default)** | `/mind-update` | AUTO/DEAD/UPDATE/ENRICH/ADD/NEW_FILE werden angewendet |
+| **interaktiv** | `/mind-update --ask` | Report → Freigabe (Verhalten vor v5.0.0) |
+| **Probelauf** | `/mind-update --dry-run` | zeigt alles, aendert nichts |
+| **nur Drift** | `/mind-update --quick` | ohne Knowledge-Sync (unveraendert) |
+
+**Nie automatisch:** DESIGN-Befunde · **>5 DEAD-Pfade** (Massenloesch-Sicherung, Step 3b).
+**Bei Snapshot-Fehlschlag wird NICHT editiert.**
+
 ## Step 1: Alle Context-Dateien lesen (project + global + topic-files)
 
 Read all context files directly via Read/Bash (dies ist der Datei-Lese-Schritt;
@@ -43,7 +75,10 @@ skippen.**
 3. **MEMORY.md** (project): Compute hash, read `$MEMORY_DIR/MEMORY.md`
 4. **MEMORY-Topic-Files** (NEU v3.2.1): Glob `$MEMORY_DIR/*.md` MINUS `MEMORY.md`
    selbst (z.B. `lessons.md`, `topic-bugfixes.md` — Topic-Files sind Markdown
-   ohne YAML-Frontmatter, werden via Reference-Links aus MEMORY.md geladen)
+   **MIT** YAML-Frontmatter (`name`, `description`, `metadata.type`); das ist das
+   aktuelle Harness-Format. **v5.0.0-Korrektur:** frueher stand hier "ohne
+   Frontmatter", woraus Step 3e eine Falschwarnung fuer JEDE korrekt formatierte
+   Datei ableitete)
 5. **Rules** (project): Glob `.claude/rules/*.md`
 6. **Rules** (global): Glob `~/.claude/rules/*.md`
 
@@ -315,14 +350,52 @@ paths = set(re.findall(pattern, claude_md_content))
 - `pyproject.toml` — Top-Level-Datei ohne Pfad-Prefix (separate Version-Check
   in Step 3a behandelt das ohnehin)
 
-**Verifikation pro Pfad:**
-- `test -e "$path"` via Bash
-- Bei DEAD-Status: Finding mit Klasse DEAD (siehe Step 4)
+**VOR-FILTER (PFLICHT, NEU v5.0.0) — vor jedem `test -e` anwenden.**
 
-**Sanity-Check:**
-- Bei >5 Findings: User-Frage "Sehen False-Positives aus?" — vermutlich noch
-  Algorithmus-Probleme
-- Bei 1-5 Findings: Auto-Fix erlaubt (mit Read-vor-Edit pro Step 4)
+Ein `test -e` kann nur beantworten "existiert als Datei" — NICHT "ist ueberhaupt ein
+Dateipfad". Web-Adressen ohne Protokoll, abgekuerzte Beispiele und Platzhalter fallen
+sonst als DEAD durch und werden **autonom geloescht**. Real gemessen: 5 echte Treffer,
+**5 Fehltreffer** (`asus.com/…/helpdesk_qvl_memory`, `testufo.com/frameskipping`,
+`/releases/44/`, `/releases/test/`, ein relativ geschriebener existierender Pfad).
+
+```bash
+# Klassifikation pro extrahiertem String -> SKIP | UNSURE | CHECK
+classify_path() {
+  local p="$1"
+  # 1) SKIP: Web-Adresse ohne Protokoll (Domain + TLD am Anfang oder nach /)
+  echo "$p" | grep -qiE '(^|/)([a-z0-9-]+\.)+(com|de|org|net|io|dev|ai|co|eu|info)(/|$)' && { echo SKIP; return; }
+  # 2) SKIP: Protokoll explizit
+  echo "$p" | grep -qiE '^(https?|ftp|mailto|file)://' && { echo SKIP; return; }
+  # 3) SKIP: abgekuerztes Beispiel oder Platzhalter
+  case "$p" in
+    *'…'*|*'...'*|*'<'*'>'*|*'{'*'}'*|*'$'*|*'*'*) echo SKIP; return;;
+  esac
+  # 4) UNSURE: fuehrender / ohne Laufwerk/MSYS-Wurzel -> auf Windows meist URL-Fragment
+  case "$p" in
+    /[a-z]/*|/) : ;;                       # /c/... = MSYS-Laufwerk -> pruefbar
+    /*) echo UNSURE; return;;
+  esac
+  echo CHECK
+}
+```
+
+**Verifikation pro Pfad:**
+- Nur `CHECK`-Strings gehen in `test -e`. **Relative Pfade gegen `$CLAUDE_PROJECT_DIR`
+  aufloesen**, nicht gegen das aktuelle CWD — ein Fehltreffer der Messung war ein real
+  existierender, relativ geschriebener Pfad, der nur vom falschen Verzeichnis aus fehlte:
+  `[ -e "$CLAUDE_PROJECT_DIR/$p" ] || [ -e "$p" ]`.
+- `SKIP` → gar kein Finding (keine Dateipfade).
+- `UNSURE` → Finding Klasse **INFO**, wird **nie** angewendet (nur gelistet).
+- `CHECK` + nicht auffindbar → Finding Klasse DEAD.
+
+**Massenloesch-Sicherung (gilt AUCH im Autonom-Modus):**
+- **≤5 DEAD-Findings:** werden angewendet. **Jede geloeschte Zeile wandert WOERTLICH in den
+  Report** (`Entfernt: <zeile>`) — zusammen mit dem Snapshot aus Step 0 ist jede Loeschung
+  nachlesbar und rueckholbar.
+- **>5 DEAD-Findings:** **NICHT** anwenden, auch nicht autonom. Als Block listen mit
+  Begruendung *"ungewoehnlich viele tote Pfade — Verdacht auf Filter-Fehler, bitte pruefen"*.
+  Grund: Autonomie multipliziert einen Algorithmus-Fehler; ein einzelner Fehlgriff ist
+  reparabel, ein Massenschnitt durch alle Context-Dateien nicht zumutbar.
 
 ### 3c: Commit-Coverage-Gate (deterministisch — objektiver Knowledge-Gap)
 
@@ -332,6 +405,13 @@ in keiner Context-Datei steht, IST das ein Gap — unabhaengig davon was Claude
 zu wissen glaubt. Diese Findings speisen Step 3.5 mit konkreten Pruef-Punkten.
 
 - Nur wenn `.git/` existiert.
+- **KEIN Git (v5.0.0, Befund 7): NICHT stillschweigend ueberspringen.** Der Self-Check MUSS
+  dann diese Zeile enthalten:
+  `[Step 3c] KEIN GIT — kein objektives Gate verfuegbar; alle Befunde beruhen allein auf
+  semantischem Abgleich`. Gleiches gilt fuer Step 3c.1 (Datei-Targeting faellt aus → es
+  greift der Groessen-Guard). Grund: 3c ist laut diesem Skill "der DETERMINISTISCHE Kern",
+  der die "ich kenne den Stand"-Ausrede entwertet. Faellt er weg, ist die Beweislage eine
+  andere — der Bericht darf das nicht verschweigen.
 - `git log --oneline -30` (oder seit letztem doc-beruehrenden Commit).
 - Pro `feat:`/`fix:`/`refactor:`/`perf:` Commit: Scope + Subject-Stichworte gegen
   **CLAUDE.md UND MEMORY.md** greppen.
@@ -441,7 +521,10 @@ fi
 - Project rules mit `paths:` = WARNING (auto-fixable via mind-rules migrate)
 - **MEMORY-Topic-Files NICHT auf `paths:`/`globs:` pruefen** — sind Markdown ohne
   YAML-Frontmatter, sollen das auch nicht haben. Wenn doch eines welche hat:
-  WARNING "Topic-File hat unerwartete Frontmatter".
+  **Frontmatter ist der SOLLZUSTAND (v5.0.0-Korrektur).** Pruefen statt warnen:
+  `name` + `description` + `metadata.type` vorhanden UND
+  `type` aus {user, feedback, project, reference}. **WARNING nur bei Verstoss**
+  (fehlendes Feld / unbekannter type) — NICHT dafuer, dass Frontmatter da ist.
 
 ```bash
 # Project rules — Syntax-Check (paths: vs globs:)
@@ -524,6 +607,19 @@ Welle 1: claude-md + memory, Welle 2: rules + custom-context; jede Welle ihr eig
 Tool-Call). Ergebnisse aller 4 einsammeln, dann konsolidieren. Jeder bekommt:
 - Scope: `claude-md` / `memory` / `rules` / `custom-context`
 - Mode: `knowledge-sync`
+- **Scope-Dedup (NEU v5.0.0, Befund 5):** Vor jedem Dispatch `.claude-mind/analyzed-scopes`
+  pruefen. Steht der Scope dort (von `/mind-all` durch einen vorherigen Skill eingetragen),
+  **NICHT erneut dispatchen** — im Self-Check ausweisen als
+  `scope=<x> → bereits durch <skill> abgedeckt (analyzed-scopes)`.
+  ```bash
+  SCOPES_FILE="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes"
+  scope_done() { [ -f "$SCOPES_FILE" ] && grep -q "^$1=" "$SCOPES_FILE"; }
+  # z.B.: scope_done claude-md && echo "skip" || dispatch...
+  ```
+  Spart im `/mind-all`-Lauf ~50 % der Subagent-Token (gemessen: ~567k pro Kette, gut die
+  Haelfte war Doppel-Analyse von `claude-md` + `memory`). **Gilt NUR fuer die Kette** — bei
+  einem einzelnen `/mind-update` ohne vorherige Skills ist die Datei leer/alt und alle
+  4 Scopes laufen normal. `custom-context` wird nie uebersprungen (kein anderer Skill deckt ihn ab).
 - Bereich-Files (Read-only) — **rules-scope: die `SEM_RULES` aus Step 3c.1** (je nach `TARGET_MODE`:
   `all` = alle Project-Rules wenn Satz klein; `targeted` = nur session-berührte wenn groß; `unscopable`/
   `none` = leer). **Plus die Global-Rules `~/.claude/rules/*.md`** — die werden IMMER mit übergeben
@@ -547,117 +643,24 @@ aus der Mitte. 3-Stufen-Algorithmus:
 ```bash
 # Python-Helper extrahiert relevante Events aus aktueller JSONL
 # (gleicher Code wie mind-compact Step 3, hier zur Wiederverwendung)
-SAMPLE_BASH="/tmp/mind_update_sample.py"
+SAMPLER="$CLAUDE_PLUGIN_ROOT/references/session_sampler.py"   # v5.0.0: ausgeliefert, KEIN Heredoc
+# Frueher wurde das Skript zur Laufzeit per Heredoc nach /tmp geschrieben — auf Windows/Git-Bash
+# unzuverlaessig (Pfade mit '&', Leerzeichen, Umlauten). Jetzt liegt es im Plugin.
+[ -f "$SAMPLER" ] || { echo "ERROR: session_sampler.py fehlt: $SAMPLER" >&2; exit 1; }
 
-if ! command -v cygpath &>/dev/null; then
-  echo "ERROR: cygpath nicht verfuegbar — mind-update Step 3.5 benoetigt cygpath" >&2
-  exit 1
-fi
-SAMPLE_WIN=$(cygpath -w "$SAMPLE_BASH")
+# cygpath ist Pflicht (Windows-Pfade fuer den Python-Aufruf)
+command -v cygpath >/dev/null 2>&1 || { echo "ERROR: cygpath nicht verfuegbar" >&2; exit 1; }
+SAMPLER_WIN=$(cygpath -w "$SAMPLER")
 
-# JSONL der aktuellen Session finden (gleicher Code wie mind-session-log Step 2)
-# H3-Fix Skill-Review: Guard wiederholen, falls Step 3.5 in fresh bash invocation laeuft
-if [ -z "$CLAUDE_PLUGIN_ROOT" ] || [ ! -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
-  echo "ERROR: \$CLAUDE_PLUGIN_ROOT nicht gesetzt oder lib.sh nicht gefunden" >&2
-  exit 1
-fi
+# JSONL der aktuellen Session finden (Slug via lib.sh)
+[ -z "$CLAUDE_PLUGIN_ROOT" ] && { echo "ERROR: \$CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
 source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
 SLUG=$(hash_project_dir)
 PROJECTS_DIR="$HOME/.claude/projects/$SLUG"
 [ ! -d "$PROJECTS_DIR" ] && PROJECTS_DIR=$(ls -td "$HOME"/.claude/projects/*/ 2>/dev/null | head -1 | sed 's|/$||')
 JSONL=$(ls -t "$PROJECTS_DIR"/*.jsonl 2>/dev/null | grep -v '/subagents/' | head -1)
+[ -z "$JSONL" ] && { echo "ERROR: kein Session-JSONL in $PROJECTS_DIR" >&2; exit 1; }
 JSONL_WIN=$(cygpath -w "$JSONL")
-
-# Sample-Script (Heredoc)
-cat > "$SAMPLE_BASH" << 'PYEOF'
-#!/usr/bin/env python3
-"""Session-Auszug fuer mind-update Step 3.5 — 3-stufiges Sampling.
-
-Stage 1 Pre-Filter: Events mit Decision/Bug/Architecture/Constraint-Markern
-Stage 2 Stratified: bei >300 Pre-Filtered -> 5 Buckets, Top-60 nach Score
-Stage 3 Hint: bei >1000 Total -> User-Hinweis (im Skill-Output)
-"""
-import json, re, sys
-from pathlib import Path
-
-JSONL_PATH = sys.argv[1]
-OUT_PATH = sys.argv[2]
-
-# Pre-Filter Patterns (gleicher Geist wie mind-compact)
-RELEVANT_PATTERNS = [
-    re.compile(r'\b(decision|architekt|pattern|wir entscheiden|wir nutzen|wir machen)\b', re.IGNORECASE),
-    re.compile(r'\b(bug|error|fail|crash|fix|tool_use_error|cancelled)\b', re.IGNORECASE),
-    re.compile(r'\b(MUST|NEVER|niemals|immer|wichtig|kein push)\b', re.IGNORECASE),
-    re.compile(r'\bversion\s+(?:v?\d+\.\d+|\d+\.\d+\.\d+)', re.IGNORECASE),
-    re.compile(r'\b(install|deploy|release|commit|push|merge)\b', re.IGNORECASE),
-]
-
-# Self-Exclusion: aktueller mind-update Run
-SELF = re.compile(r'<command-name>/(?:[^/<]+:)?mind-update</command-name>')
-
-EXCLUDE_FROM = None
-for lineno, line in enumerate(open(JSONL_PATH, encoding='utf-8'), 1):
-    if SELF.search(line):
-        EXCLUDE_FROM = lineno
-
-events = []  # (lineno, role, text, score)
-total = 0
-
-with open(JSONL_PATH, encoding='utf-8') as f:
-    for lineno, line in enumerate(f, 1):
-        if EXCLUDE_FROM and lineno >= EXCLUDE_FROM:
-            continue
-        try:
-            obj = json.loads(line.strip())
-        except json.JSONDecodeError:
-            continue
-        if obj.get('isSidechain') or obj.get('type') == 'queue-operation':
-            continue
-        msg = obj.get('message', {}) or {}
-        content = msg.get('content')
-        text = ""
-        role = ""
-        if obj.get('type') == 'user' and isinstance(content, str):
-            text, role = content, "USER"
-        elif obj.get('type') == 'assistant' and isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get('type') == 'text':
-                    text += block.get('text', '') + "\n"
-            role = "ASSISTANT"
-        if not text:
-            continue
-        total += 1
-        # Stage 1: Pre-Filter Score = Anzahl gematchter Patterns
-        score = sum(1 for p in RELEVANT_PATTERNS if p.search(text))
-        if score > 0:
-            events.append((lineno, role, text[:500], score))  # text auf 500 chars limit
-
-# Stage 2: Stratified bei >300 Pre-Filtered
-if len(events) > 300:
-    events.sort(key=lambda x: x[0])  # by line_no
-    bucket_size = len(events) // 5
-    buckets = [events[i*bucket_size:(i+1)*bucket_size] for i in range(5)]
-    buckets[-1] = events[4*bucket_size:]  # rest in letzten Bucket
-    # Top-60 pro Bucket nach Score
-    selected = []
-    for b in buckets:
-        b.sort(key=lambda x: -x[3])  # score desc
-        selected.extend(b[:60])
-    events = selected
-
-# Stage 3 wird im Skill-Output gehandhabt (Hinweis bei total > 1000)
-
-# Output JSON
-out = {
-    "total_events": total,
-    "filtered_events": len(events),
-    "long_session_hint": total > 1000,
-    "self_exclusion_line": EXCLUDE_FROM,
-    "sample": [{"line": l, "role": r, "text": t} for (l, r, t, _) in events]
-}
-Path(OUT_PATH).write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding='utf-8')
-print(f"OK: {total} total -> {len(events)} sampled")
-PYEOF
 
 # Python-Path
 if [ -x ".venv/Scripts/python.exe" ]; then PYTHON=".venv/Scripts/python.exe"
@@ -666,7 +669,7 @@ else PYTHON="python"; fi
 
 SESSION_SAMPLE_BASH="/tmp/mind_update_session.json"
 SESSION_SAMPLE_WIN=$(cygpath -w "$SESSION_SAMPLE_BASH")
-"$PYTHON" "$SAMPLE_WIN" "$JSONL_WIN" "$SESSION_SAMPLE_WIN"
+"$PYTHON" "$SAMPLER_WIN" "$JSONL_WIN" "$SESSION_SAMPLE_WIN"
 
 # Hinweis bei sehr langer Session
 TOTAL=$(grep -oE '"total_events":\s*[0-9]+' "$SESSION_SAMPLE_BASH" | grep -oE '[0-9]+')
@@ -1016,8 +1019,9 @@ Total-Context-Zeile.
   niemals 3+. Bei 3+ Calls: zu seriellem Aufruf wechseln ODER kombinieren via `&&`.
   Claude Code's Tool-System cancelled uebermaessige Parallelitaet (siehe Session
   2026-05-29 Log 4 Tool 5+7 `Cancelled: parallel tool call ... errored`).
-- Auto-fix ONLY safe changes: version numbers, dead paths, paths: -> globs: migration
-- ASK for everything else: compression, adding git commits, removing content
+- **Autonom-Modus (v5.0.0, Default):** angewendet werden AUTO · DEAD (≤5) · UPDATE · ENRICH · ADD · NEW_FILE. **NIE automatisch:** DESIGN · **>5 DEAD-Pfade** (Massenloesch-Sicherung Step 3b). Bei `--ask` gilt die alte Aufteilung (nur sichere Fixes auto, Rest fragen).
+- **NEVER apply without a successful `mind_snapshot` (Step 0)** — Fehlschlag = Abbruch, keine Edits.
+- **ALWAYS report every applied change** mit `file:line` + before→after; **geloeschte Pfad-Zeilen woertlich** (`Entfernt: <zeile>`) + Snapshot-Pfad + Restore-Einzeiler.
 - ALWAYS show what was auto-fixed in the report
 - ALWAYS show before/after line counts
 - ALWAYS backup files before editing (cp to .claude-mind/backups/)

@@ -16,7 +16,39 @@ allowed-tools: Read Glob Grep Edit Write Bash Agent
 
 # CLAUDE.md Vollverwaltung
 
-Erkennen → Erstellen oder Auditieren → User-OK → Fixen.
+Erkennen → Erstellen oder Auditieren → **autonom anwenden** (bzw. Freigabe bei `--ask`) → Bericht.
+
+## Step 0: Modus + Snapshot (PFLICHT, NEU v5.0.0)
+
+**Autonom ist der Standard.** Dieser Skill wendet gefundene Befunde selbstaendig an.
+
+```bash
+ARGS="${ARGUMENTS:-}"; AUTO_MODE="yes"; DRY_RUN="no"
+echo "$ARGS" | grep -qE '(^|[[:space:]])--(ask|interactive)([[:space:]]|$)' && AUTO_MODE="no"
+echo "$ARGS" | grep -qE '(^|[[:space:]])--dry-run([[:space:]]|$)' && { DRY_RUN="yes"; AUTO_MODE="no"; }
+
+# Snapshot VOR dem ersten Edit — ausgefuehrter Aufruf, kein Prosa-Versprechen.
+# Laeuft dieser Skill innerhalb von /mind-all? Dann existiert der Snapshot bereits.
+CHAIN="no"; [ -f "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" ] &&   grep -q '^run_started=' "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/analyzed-scopes" 2>/dev/null && CHAIN="yes"
+
+if [ "$DRY_RUN" = "no" ] && [ "$CHAIN" = "no" ]; then
+  [ -z "$CLAUDE_PLUGIN_ROOT" ] && { echo "ERROR: \$CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
+  source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+  SNAPSHOT=$(mind_snapshot "${CLAUDE_PROJECT_DIR:-$(pwd)}" "pre-claudemd") || {
+    echo "ABBRUCH: Snapshot fehlgeschlagen — es wird NICHTS editiert." >&2; exit 1; }
+  echo "Snapshot: $SNAPSHOT"
+fi
+```
+
+| Modus | Aufruf | Verhalten |
+|---|---|---|
+| **autonom (Default)** | `/mind-claudemd` | Befunde werden angewendet, danach Bericht |
+| **interaktiv** | `/mind-claudemd --ask` | Report → Freigabe → anwenden (Verhalten vor v5.0.0) |
+| **Probelauf** | `/mind-claudemd --dry-run` | zeigt alles, aendert nichts |
+
+**Bei Snapshot-Fehlschlag wird NICHT editiert** — lieber kein Lauf als ein Lauf ohne Netz.
+**DESIGN-Befunde werden NIE automatisch angewendet** (Stellen, die eine Regel als
+"niemals anfassen" markiert) — nur gelistet.
 
 ## Step 1: Scope bestimmen
 
@@ -152,7 +184,9 @@ Apply:
   [skip]    — Nichts aendern
 ```
 
-**STOP HERE. Warte auf User-Bestätigung.**
+**Nur bei `AUTO_MODE=no` (`--ask`): STOP HERE, warte auf User-Bestätigung.**
+**Bei `AUTO_MODE=yes` (Default): NICHT stoppen** — Findings anwenden (außer DESIGN),
+danach Step 6 mit Angewendet-Block. Bei `DRY_RUN=yes`: Liste zeigen, nichts ändern.
 
 **Disambiguation-Regel:** Bei vagen Antworten ("ja", "ok", "update", "los") IMMER
 die `safe` Variante wählen (keine Modularization, keine Datei-Restruktur). Dem
@@ -218,7 +252,10 @@ Token savings: ~270
 
 ## Hard Constraints
 
-- NEVER apply changes without User-Bestätigung (Step 4d MUST stop and wait)
+- **NEVER apply without a successful `mind_snapshot` (Step 0)** — Snapshot fehlgeschlagen = keine Edits, Abbruch. (Ersetzt v5.0.0 die alte Regel "NEVER apply without User-Bestätigung": Sicherheit kommt jetzt vom Netz, nicht von der Rückfrage.)
+- **NEVER auto-apply DESIGN findings** — das sind Stellen, die eine Regel als "niemals anfassen" markiert; sie zu überschreiben bricht die Sperre des Users. Nur listen.
+- **ALWAYS report every applied change** mit `file:line` + before→after + Snapshot-Pfad + Restore-Einzeiler.
+- Bei `--ask`: Step 4d stoppt und wartet (altes Verhalten). Bei `--dry-run`: nichts ändern.
 - NEVER delete information without showing what will be lost
 - ALWAYS show before/after for every edit
 - ALWAYS backup CLAUDE.md before first edit (cp to .claude-mind/backups/)
