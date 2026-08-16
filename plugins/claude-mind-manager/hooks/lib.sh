@@ -95,14 +95,23 @@ mind_check_tools_have_rules() {
     rulehit=""
     for r in "$project_dir/.claude/rules"/*.md; do
       [ -f "$r" ] || continue
-      grep -q -- "$base" "$r" 2>/dev/null || continue
+      # ⛔ FIX v5.2.2 — hier stand nur:  grep -q -- "$base" "$r"  … && break
+      # Das nahm JEDE Nennung des Dateinamens und brach beim ERSTEN Treffer ab. Gemessen im
+      # /mind-all-Lauf 2026-08-16: fuer mutation_guard.py schlug architecture.md an — eine
+      # blosse Aufzaehlung in einer Versions-Historie, alphabetisch vor backup-usage.md — und
+      # die Pruefung meldete PASS, obwohl die Companion-Rule das Tool gar nicht nennt.
+      # Ein gruener Nachweis ueber einen Zufallstreffer ist kein Nachweis.
+      # Jetzt: die AUFRUFFORM "tools/<name>" verlangen. Eine Nutzungs-Rule nennt den Aufrufpfad
+      # ("python tools/backup_tools.py verify …"), eine Historie nennt nur den Namen.
+      grep -q -- "tools/$base" "$r" 2>/dev/null || continue
       head -12 "$r" | grep -qi '^globs:' || continue    # ohne Globs triggert die Rule nie
-      rulehit=$(basename "$r"); break
+      # KEIN break: alle Treffer sammeln, damit Mehrdeutigkeit sichtbar wird statt verdeckt.
+      rulehit="${rulehit}${rulehit:+, }$(basename "$r")"
     done
     if [ -n "$rulehit" ]; then
       echo "  PASS  $base  ->  .claude/rules/$rulehit"
     else
-      echo "  FAIL  $base  ->  KEINE glob-getriggerte Rule nennt dieses Tool (totes Tool)"
+      echo "  FAIL  $base  ->  KEINE glob-getriggerte Rule nennt 'tools/$base' (totes Tool)"
       rc=1
     fi
   done

@@ -1,5 +1,5 @@
 ---
-description: Projekt-Backup-System nutzen vor riskanten Datei-Operationen (tools/backup_tools.py + rollback.py)
+description: Projekt-Backup-System nutzen vor riskanten Datei-Operationen (tools/backup_tools.py + tools/rollback.py + tools/mutation_guard.py)
 globs: ["**/*"]
 ---
 
@@ -39,6 +39,35 @@ python tools/backup_tools.py gfs .claude-mind/backups --apply    # führt aus
 - GFS-Cleanup ist **default `--dry-run`** — Löschen NUR mit `--apply`.
 - Vor jedem `restore` macht `rollback.py` einen **Pre-Rollback-Snapshot** → du kannst jeden Rollback rückgängig machen.
 - Details: `docs/BACKUP_USAGE.md`.
+
+## `tools/mutation_guard.py` — Sicherheits-Checks VOR der Mutation
+
+Ergänzt die Backups um drei Prüfungen, die *vor* dem Eingriff laufen. Nutze sie, wenn ein
+Schritt fremde Daten anfassen könnte oder über Symlinks laufen kann:
+
+```bash
+# 1. Fingerabdruck vor/nach der Mutation — erkennt, ob ein LAUFENDES Programm dazwischenschreibt
+python tools/mutation_guard.py fingerprint <pfad> > /tmp/fp_before.json
+#   ... Mutation ...
+python tools/mutation_guard.py fingerprint <pfad> > /tmp/fp_after.json
+
+# 2. Symlink-Pruefung — verhindert, dass cp/mv ueber einen Symlink aus dem Projekt herausschreibt
+python tools/mutation_guard.py check-symlinks <pfad>
+
+# 3. Test-Gate — fuehrt BACKUP_TEST_CMD aus, exit 0 = weitermachen erlaubt
+python tools/mutation_guard.py test-gate
+```
+
+⚠ **`test-gate` startet `BACKUP_TEST_CMD` mit `shell=True`** (bewusst, damit Pipes und `&&` im
+Kommando funktionieren). Das heißt: **`.backuprc` ist ausführbarer Code.** Nie eine `.backuprc`
+aus fremder Quelle übernehmen, ohne sie gelesen zu haben. Ist `BACKUP_TEST_CMD` leer, wird das
+Gate übersprungen — der Normalfall in Projekten ohne Tests.
+
+> **Warum dieser Abschnitt existiert:** Bis v5.2.1 installierte der Backup-Installer drei Tools,
+> aber diese Rule beschrieb nur zwei. `mutation_guard.py` war installiert, in
+> `docs/BACKUP_USAGE.md` dokumentiert — und trotzdem **nicht glob-getriggert erreichbar**, also
+> genau das „tote Tool", das die Kern-Invariante des Plugins verbietet. Aufgefallen erst, als
+> `mind_check_tools_have_rules()` in v5.2.2 genau genug wurde, um es zu sehen.
 
 ## Zwei Backup-Schichten — kein Widerspruch
 

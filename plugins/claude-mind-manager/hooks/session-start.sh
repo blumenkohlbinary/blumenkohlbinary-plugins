@@ -35,6 +35,33 @@ if [ -d "$PROJ" ]; then
 fi
 
 OPEN="$PROJ/.claude-mind/rescued/OPEN"
+
+# --- Legacy-Merker uebernehmen (NEU v5.2.2) ---
+# Wer von v5.1.0/v5.2.0 aktualisiert und dabei eine OFFENE Rettung liegen hat, hatte bis eben
+# einen stillen Waisen: dort hiess der Merker PENDING bzw. PENDING.announced, die v5.2.1-Hooks
+# suchen aber nur OPEN — sie schwiegen, und die Rettung wurde nie eingespeist.
+# Belegt am 2026-08-16 im eigenen Projekt: 412 KB / 555 Beitraege lagen unangetastet da, bis
+# ein Handaufruf sie fand. Das ist genau der Fehler, den v5.2.1 beseitigen sollte — nur eine
+# Version versetzt. Deshalb wird hier EINMALIG und idempotent umgeschrieben.
+if [ ! -f "$OPEN" ]; then
+  _RD="$PROJ/.claude-mind/rescued"
+  for _leg in "$_RD/PENDING" "$_RD/PENDING.announced"; do
+    [ -f "$_leg" ] || continue
+    _lp=$(grep -m1 '^path=' "$_leg" 2>/dev/null | cut -d= -f2-)
+    # Zeigt der Merker ins Leere (Rettung wegrotiert)? Dann gibt es nichts zu holen —
+    # eine Schuld ohne Beleg waere schlimmer als keine.
+    [ -n "$_lp" ] && [ -f "$_lp" ] || { mv -f "$_leg" "${_leg}.stale" 2>/dev/null; continue; }
+    {
+      cat "$_leg"
+      [ -f "$_RD/RESUME.md" ] && echo "resume=$_RD/RESUME.md"   # alter fester Name
+      echo "compactions=1"
+      echo "blocks=0"
+    } > "$OPEN" 2>/dev/null
+    mv -f "$_leg" "${_leg}.migrated" 2>/dev/null
+    break
+  done
+fi
+
 [ -f "$OPEN" ] || exit 0
 
 SID=""

@@ -661,8 +661,17 @@ Tool-Call). Ergebnisse aller 4 einsammeln, dann konsolidieren. Jeder bekommt:
     > die eine neue Rettung erzeugt, die den naechsten Zwangslauf ausloest. Ein `Read` darauf im
     > Hauptfluss ist **Abbruchgrund**.
   - `live`: der Sampler-Auszug wie bisher (USER + ASSISTANT_TEXT, 3-stufiges Sampling).
-- **Im Self-Check MUSS die Quelle stehen** (`Session-Quelle: gerettet <pfad>` bzw. `live`) —
-  sonst ist nicht erkennbar, ob der Sync auf dem vollen Chat oder auf Resten lief.
+  - **`gerettet+live` (NEU v5.2.2, der Normalfall nach einer Kompaktierung): BEIDE.** Dem
+    Agenten werden **zwei** Quellen genannt — der Rettungspfad (vollstaendig, aber nur bis zur
+    Kompaktierung) **und** der Live-Sampler-Auszug (deckt die Zeit danach ab).
+    > **Warum das keine Doppelung ist:** Die Rettung endet zwangslaeufig am
+    > Kompaktierungs-Zeitpunkt. Der Lauf, den der Stop-Hook danach erzwingt, soll aber gerade
+    > die Arbeit einspeisen, die seitdem passiert ist. Mit nur einer der beiden Quellen fehlt
+    > entweder die Tiefe (live ist gesampelt) oder die Aktualitaet (Rettung ist alt).
+- **Im Self-Check MUSS die Quelle stehen** (`Session-Quelle: gerettet+live <pfad>` bzw.
+  `gerettet <pfad>` bzw. `live`) — sonst ist nicht erkennbar, ob der Sync auf dem vollen Chat,
+  auf Resten oder auf beidem lief. **`gerettet` allein nach einer Kompaktierung ist ab v5.2.2
+  ein Befund, kein Normalzustand.**
 
 ### Session-Auszug-Sampling (Plan-EC2: 3-stufiger Algorithmus)
 
@@ -684,10 +693,22 @@ RESCUED=""
 [ -f "$_MU_OPEN" ] && RESCUED=$(grep -m1 '^path=' "$_MU_OPEN" 2>/dev/null | cut -d= -f2-)
 [ -n "$RESCUED" ] && [ ! -f "$RESCUED" ] && RESCUED=""
 [ -z "$RESCUED" ] && RESCUED=$(ls -t "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/rescued"/*_chat.md 2>/dev/null | head -1)
+
+# ⛔ FIX v5.2.2 — hier stand ein ENTWEDER-ODER, und das war ein Konstruktionsfehler.
+# Die Rettung enthaelt per Definition nur, was VOR der Kompaktierung war. Alles, was danach
+# gearbeitet wird, steht ausschliesslich im Live-Transkript. Wer nur die Rettung nimmt, ist
+# blind fuer die juengste Arbeitsphase — und genau die ist der Grund, warum der Stop-Hook den
+# Lauf ueberhaupt erzwingt.
+# BELEGT am 2026-08-16 im eigenen Projekt: die Rettung endete 17:40:15, der gesamte
+# v5.2.1-Bau lag danach. Der rules-Agent fand NULL Treffer fuer "stop.sh", "OPEN",
+# "Flut-Sperre", "listeverbesserungen" — er konnte sie nicht finden, sie waren nicht drin.
+# Der Sync haette die Arbeit, wegen der er lief, komplett verpasst.
+# Deshalb jetzt: BEIDE Quellen, wenn beide da sind.
 if [ -n "$RESCUED" ] && [ -s "$RESCUED" ]; then
-  SESSION_SOURCE="gerettet"
+  SESSION_SOURCE="gerettet+live"
   # NUR ZAEHLEN, NICHT LESEN (Kontext-Flut-Sperre v5.2.1)
   echo "Session-Quelle: gerettet -> $RESCUED ($(grep -c '^## \[' "$RESCUED") Beitraege)"
+  echo "                + live    -> Sampler ueber das laufende Transkript (deckt die Zeit NACH der Rettung ab)"
 else
   SESSION_SOURCE="live"
   echo "Session-Quelle: live (kein geretteter Chat vorhanden)"

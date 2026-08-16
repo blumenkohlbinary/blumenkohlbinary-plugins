@@ -69,7 +69,11 @@ fi
 
 if [ -n "$RESCUED" ] && [ -s "$RESCUED" ]; then
   # NUR ZAEHLEN, NICHT LESEN — siehe Sperre unten
-  echo "Session-Quelle: gerettet -> $RESCUED ($(grep -c '^## \[' "$RESCUED") Beitraege)"
+  # v5.2.2: BEIDE Quellen. Die Rettung endet am Kompaktierungs-Zeitpunkt; alles danach steht
+  # nur im Live-Transkript — und genau das ist die Arbeit, wegen der der Lauf erzwungen wird.
+  echo "Session-Quelle: gerettet+live"
+  echo "  gerettet -> $RESCUED ($(grep -c '^## \[' "$RESCUED") Beitraege, bis zur Kompaktierung)"
+  echo "  live     -> Sampler ueber das laufende Transkript (die Zeit danach)"
   [ -n "$COMPACTIONS" ] && [ "$COMPACTIONS" -gt 1 ] 2>/dev/null && \
     echo "ACHTUNG: $COMPACTIONS Kompaktierungen seit dem letzten Sync — bereits verschleppt."
 else
@@ -286,10 +290,10 @@ nicht: jede Aenderung einzeln, jede Auslassung mit Grund, Snapshot-Pfad immer da
 - **Strikt sequenziell** — nie zwei Skills gleichzeitig (Anti-Burst).
 - **Reihenfolge ist fest:** files → claudemd → memory → rules → update.
 - **DESIGN-Befunde werden nie automatisch angewendet** (in keinem der 5).
-- **Geretteter Chat schlaegt Live-Transkript** (v5.1.0): liegt eine Rettungsdatei vor, ist sie
-  die Session-Quelle — und der Bericht MUSS das ausweisen. Nach einer Kompaktierung waere das
-  Live-Transkript nur noch die Zusammenfassung; ein Sync darauf verpasst genau das, was
-  gerettet werden sollte.
+- **Geretteter Chat UND Live-Transkript (v5.2.2, korrigiert v5.1.0):** Liegt eine Rettung vor,
+  sind **beide** die Session-Quelle, und der Bericht MUSS beide ausweisen. Die Rettung deckt
+  alles bis zur Kompaktierung ab, das Live-Transkript die Zeit danach — und das ist die Arbeit,
+  wegen der der Stop-Hook den Lauf erzwingt. **`gerettet` allein ist ab v5.2.2 ein Befund.**
 - **Overwrite-Guards und Tool-Bundle-Angebote aus mind-files bleiben aktiv** — Autonomie
   erzeugt keine Ausnahme fuer fremden Bestand.
 - **>5 DEAD-Pfade** in mind-update bleiben gesperrt (Massenloesch-Sicherung).
