@@ -29,13 +29,23 @@ fi
 
 mv -f "$PENDING" "${PENDING}.announced" 2>/dev/null
 
+RESUME_FILE="$(dirname "$PENDING")/RESUME.md"
+RESUME_TXT=""
+[ -f "$RESUME_FILE" ] && RESUME_TXT=$(sed -n '/^## /,$p' "$RESUME_FILE" | head -40)
+
 MSG="[Mind Manager] Aus der vorigen Sitzung liegt ein geretteter Chat vor (vor einer Kompaktierung gesichert):
   Datei:      ${RESCUE_PATH}
   Beitraege:  ${RESCUE_N:-?}
 
-AUFTRAG: /mind-all mit dieser Datei als Session-Quelle ausfuehren, damit die Erkenntnisse
-der letzten Sitzung in CLAUDE.md / MEMORY.md / Rules landen. Im Bericht als
-'Session-Quelle: gerettet <pfad>' ausweisen."
+--- WORAN ZULETZT GEARBEITET WURDE (aus dem Protokoll gezogen) ---
+${RESUME_TXT:-(kein Auftrags-Merker vorhanden)}
+--- Ende Auftrags-Merker ---
+
+REIHENFOLGE: Steht oben ein Auftrag, der noch nicht erledigt ist, hat ER Vorrang — dann erst
+weiterarbeiten und den Sync danach nachholen. Sonst: /mind-all mit der Rettungsdatei als
+Session-Quelle ausfuehren ('Session-Quelle: gerettet <pfad>' im Bericht), damit die
+Erkenntnisse der letzten Sitzung in CLAUDE.md / MEMORY.md / Rules landen — und den Auftrag
+danach wieder aufnehmen."
 
 if command -v jq >/dev/null 2>&1; then
   jq -nc --arg ctx "$MSG" \

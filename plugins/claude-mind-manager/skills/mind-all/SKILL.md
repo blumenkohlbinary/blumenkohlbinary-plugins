@@ -61,6 +61,14 @@ else
 fi
 ```
 
+**Unterbrochener Auftrag (NEU v5.2.0):** Existiert `.claude-mind/rescued/RESUME.md`, wurde
+dieser Lauf durch eine Kompaktierung ausgeloest und der davor laufende Auftrag ist dort
+gesichert. **Jetzt lesen** — er wird am Ende zurueckgegeben:
+```bash
+RESUME_FILE="$PROJ/.claude-mind/rescued/RESUME.md"
+[ -f "$RESUME_FILE" ] && { echo "Unterbrochener Auftrag gefunden:"; sed -n "/^## /,\$p" "$RESUME_FILE" | head -30; }
+```
+
 **EIN Snapshot fuer alle 5** — nicht fuenf einzelne. Damit ist der komplette Durchlauf als
 eine Einheit zurueckrollbar. Die Einzel-Skills erkennen den laufenden `/mind-all` an der
 `analyzed-scopes`-Datei und legen **keinen** zweiten Snapshot an.
@@ -166,6 +174,16 @@ NICHT angewendet (bewusst):
 Scope-Dedup: <k> Agent-Dispatches gespart (bereits abgedeckte Scopes)
 ```
 
+```
+⏭ FORTSETZUNG — hier war die Arbeit unterbrochen:
+   <Auftragstext aus RESUME.md — woertlich, nicht zusammengefasst>
+   -> Jetzt wieder aufnehmen. Dieser Sync war ein EINSCHUB, kein Abschluss.
+```
+*(ohne RESUME.md: `⏭ Fortsetzung: kein unterbrochener Auftrag protokolliert.`)*
+
+Nach erfolgreichem Lauf: `RESUME.md` → `RESUME.done.md` umbenennen (kein Dauer-Nachhaken).
+Die Rettungsdatei `*_chat.md` **bleibt** liegen.
+
 **Der Bericht ist die einzige Stelle, an der du siehst was passiert ist** — deshalb luegt er
 nicht: jede Aenderung einzeln, jede Auslassung mit Grund, Snapshot-Pfad immer dabei.
 
@@ -186,4 +204,8 @@ nicht: jede Aenderung einzeln, jede Auslassung mit Grund, Snapshot-Pfad immer da
   `STOP`/`ABBRUCH`/`exit 1` **innerhalb** eines Einzel-Skills beendet NUR diesen Skill
   (z.B. mind-memory ohne MEMORY.md), nicht den Durchlauf.
 - **Step 2.9 (Kettenmarke abraeumen) laeuft IMMER** — auch nach Fehlern/Abbruch.
+- **`/mind-all` ist NIE ein Auftragsende (v5.2.0).** Nennt `RESUME.md` einen unterbrochenen
+  Auftrag, MUSS der Schlussbericht mit der `⏭ FORTSETZUNG`-Zeile enden und die Arbeit danach
+  wieder aufgenommen werden. Ein Context-Sync ist ein Einschub — er erledigt nichts, was der
+  Nutzer beauftragt hat.
 - **Kein `git commit`/`git push`** — `/mind-all` aendert Context-Dateien, nicht die Historie.

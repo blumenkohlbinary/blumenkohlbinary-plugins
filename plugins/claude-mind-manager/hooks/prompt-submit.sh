@@ -46,15 +46,31 @@ fi
 # zweite Ankuendigung als eine Endlosschleife bei jeder Folgenachricht.
 mv -f "$PENDING" "${PENDING}.announced" 2>/dev/null
 
+# Gesicherten Auftrag mitgeben (v5.2.0) — er ueberlebt die Kompaktierung damit im Kontext,
+# unabhaengig davon wie gut die automatische Zusammenfassung war.
+RESUME_FILE="$(dirname "$PENDING")/RESUME.md"
+RESUME_TXT=""
+[ -f "$RESUME_FILE" ] && RESUME_TXT=$(sed -n '/^## /,$p' "$RESUME_FILE" | head -40)
+
 MSG="[Mind Manager] Der Kontext wurde soeben kompaktiert. Der VOLLSTAENDIGE Chat davor wurde gerettet:
   Datei:      ${RESCUE_PATH}
   Beitraege:  ${RESCUE_N:-?}   (gerettet ${RESCUE_TS:-?})
+  Auftrags-Merker: ${RESUME_FILE}
 
-Der Live-Kontext enthaelt nur noch die Zusammenfassung — diese Datei ist die vollstaendige Quelle.
-AUFTRAG: Fuehre jetzt /mind-all aus. Der Knowledge-Sync MUSS diese Datei als Session-Quelle
-verwenden (nicht das kompaktierte Transkript) und im Bericht 'Session-Quelle: gerettet <pfad>'
-ausweisen. Wenn der Nutzer gerade etwas anderes will: erst seine Frage beantworten, den Auftrag
-danach nachholen und ihn dabei erwaehnen — nicht stillschweigend fallenlassen."
+--- WORAN GEARBEITET WURDE (aus dem Protokoll gezogen, nicht erinnert) ---
+${RESUME_TXT:-(kein Auftrags-Merker vorhanden)}
+--- Ende Auftrags-Merker ---
+
+REIHENFOLGE — der laufende Auftrag hat VORRANG, der Sync ist der Einschub:
+1. Laeuft der Auftrag oben noch? -> WEITERARBEITEN. Der Context-Sync ist NICHT dringend:
+   die Rettungsdatei bleibt liegen und laeuft nicht weg. Kontextknappheit ist kein Abbruchgrund.
+2. Ist der Auftrag durch (oder lief keiner)? -> /mind-all ausfuehren; der Knowledge-Sync MUSS
+   die Rettungsdatei als Session-Quelle nehmen (nicht das kompaktierte Transkript) und im
+   Bericht 'Session-Quelle: gerettet <pfad>' ausweisen.
+3. Nach dem Sync: den Auftrag oben WIEDER AUFNEHMEN und das ausdruecklich sagen.
+   /mind-all ist nie ein Auftragsende.
+Will der Nutzer gerade etwas anderes: seine Frage zuerst, das hier danach — aber nicht
+stillschweigend fallenlassen."
 
 # JSON-Ausgabe (Context Injection ist fuer UserPromptSubmit dokumentiert).
 # Ohne jq: plain-text stdout wirkt laut Referenz ebenfalls als Kontext.

@@ -99,7 +99,102 @@ def dump_full(jsonl_path, out_path):
     return len(rows)
 
 
+"""--- Dauerauftrags-Marker (v5.2.0) ---
+Formulierungen, die einen laufenden Auftrag ueber die Kompaktierung hinweg signalisieren.
+Ein erkannter Marker heisst: der Sync ist NACHRANGIG, die Arbeit hat Vorrang.
+"""
+STANDING_ORDER_PATTERNS = [
+    re.compile(r'arbeite\s+autonom|mach\s+(komplett\s+)?autonom|autonom\s+weiter', re.I),
+    re.compile(r'mach\s+(weiter|durch)|nicht\s+stoppen|weiterarbeiten', re.I),
+    re.compile(r'bis\s+(sp(ae|ä)ter|es\s+fertig|alles\s+fertig|du\s+fertig)', re.I),
+    re.compile(r'ich\s+bin\s+(nicht\s+da|weg)|bin\s+gleich\s+wieder', re.I),
+    re.compile(r'laufender?\s+auftrag|dauerauftrag', re.I),
+]
+
+
+def dump_orders(jsonl_path, out_path, keep=5, min_len=30, max_chars=800):
+    """Die letzten substanziellen USER-Auftraege sichern (v5.2.0).
+
+    Warum deterministisch und nicht 'Claude merkt es sich': Der PreCompact-Hook hat das
+    Transkript. Er kann die Auftraege HERAUSZIEHEN, bevor sie wegkompaktiert werden — das
+    haengt an keiner Entscheidung eines Modells.
+
+    min_len filtert Bestaetigungen ('ok', 'ja mach', 'passt') — das sind keine Auftraege.
+    """
+    import datetime
+    users = []
+    with open(jsonl_path, encoding='utf-8', errors='replace') as f:
+        for line in f:
+            try:
+                obj = json.loads(line.strip())
+            except json.JSONDecodeError:
+                continue
+            if obj.get('isSidechain') or obj.get('type') != 'user':
+                continue
+            c = (obj.get('message') or {}).get('content')
+            if not isinstance(c, str):
+                continue
+            txt = c.strip()
+            # Harness-Rauschen raus: Slash-Command-Wrapper, Hook-/Systemblöcke
+            if txt.startswith('<') or '<command-name>' in txt or '<local-command' in txt:
+                continue
+            if len(txt) < min_len:
+                continue
+            users.append(txt)
+
+    recent = users[-keep:][::-1]          # juengste zuerst
+    # BELEG statt Behauptung (Fehlalarm-Fix): den GEFUNDENEN WORTLAUT sammeln, nicht nur
+    # "erkannt: ja". Gemessen 2026-08-16: ein einmaliges "mach weiter" loeste faelschlich
+    # "DAUERAUFTRAG ERKANNT" aus. Mit Zitat kann der Leser selbst urteilen.
+    hits = []
+    for u in users[-15:]:
+        for p in STANDING_ORDER_PATTERNS:
+            m = p.search(u)
+            if m and m.group(0).lower() not in [h.lower() for h in hits]:
+                hits.append(m.group(0))
+    standing = hits[:3]
+
+    out = ["# Unterbrochener Auftrag (vor der Kompaktierung gesichert)",
+           "",
+           f"- Gesichert: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+           f"- Quelle: `{jsonl_path}`",
+           ""]
+    if standing:
+        zitate = " · ".join(f'"{h}"' for h in standing)
+        out += ["## Moeglicher Dauerauftrag — BELEG (kein Urteil)",
+                "",
+                f"Im Verlauf stehen diese Formulierungen: {zitate}",
+                "",
+                "Das KANN ein durchgehender Auftrag sein — oder eine einmalige Fortsetzungs-",
+                "Anweisung (ein blosses \"mach weiter\" loeste hier schon einen Fehlalarm aus).",
+                "**Pruefe am Auftragstext unten, ob wirklich noch etwas laeuft.** Wenn ja:",
+                "der laufende Auftrag hat Vorrang vor dem Context-Sync.", ""]
+    out += ["## Zuletzt beauftragt (juengste zuerst)", ""]
+    if recent:
+        for i, u in enumerate(recent, 1):
+            t = u if len(u) <= max_chars else u[:max_chars] + " […]"
+            out.append(f"{i}. {t}")
+            out.append("")
+    else:
+        out += ["_keine substanzielle Nutzer-Anweisung im Verlauf gefunden_", ""]
+    out += ["---",
+            "> Vollstaendiger Wortlaut: die Chat-Rettung `*_chat.md` im selben Ordner."]
+
+    Path(out_path).write_text("\n".join(out), encoding='utf-8')
+    print(f"OK-ORDERS: {len(recent)} Auftraege gesichert"
+          f"{' | DAUERAUFTRAG erkannt' if standing else ''} -> {out_path}")
+    return len(recent)
+
+
 def main(argv):
+    # --orders: Auftrags-Sicherung (v5.2.0)
+    if len(argv) > 1 and argv[1] == "--orders":
+        if len(argv) < 4:
+            print("usage: session_sampler.py --orders <transcript.jsonl> <out.md>", file=sys.stderr)
+            return 2
+        dump_orders(argv[2], argv[3])
+        return 0
+
     # --full: Voll-Rettung (v5.1.0)
     if len(argv) > 1 and argv[1] == "--full":
         if len(argv) < 4:

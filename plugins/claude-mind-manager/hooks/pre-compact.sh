@@ -68,6 +68,18 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
         echo "trigger=$TRIGGER"
       } > "$RESCUE_DIR/PENDING" 2>/dev/null
       rm -f "$RESCUE_DIR/PENDING.announced" 2>/dev/null   # neue Rettung -> neu ankuendigen
+      # --- Auftrags-Sicherung (NEU v5.2.0) ---
+      # Der laufende Auftrag wird HERAUSGEZOGEN, bevor er wegkompaktiert wird — deterministisch
+      # aus dem Transkript, nicht aus dem Gedaechtnis eines Modells. Ohne das steht nach der
+      # Kompaktierung zwar der Chat zur Verfuegung, aber niemand weiss mehr, woran gearbeitet wurde.
+      if command -v cygpath >/dev/null 2>&1; then RR_WIN=$(cygpath -w "$RESCUE_DIR/RESUME.md"); else RR_WIN="$RESCUE_DIR/RESUME.md"; fi
+      if "$RPY" "$RS_WIN" --orders "$RT_WIN" "$RR_WIN" >/dev/null 2>&1 && [ -s "$RESCUE_DIR/RESUME.md" ]; then
+        rm -f "$RESCUE_DIR/RESUME.done.md" 2>/dev/null
+        mind_log "orders saved -> $RESCUE_DIR/RESUME.md"
+      else
+        mind_log WARN "Auftrags-Sicherung fehlgeschlagen (Chat-Rettung ist trotzdem da)"
+      fi
+
       mind_log "chat rescued: ${RESCUE_N:-?} Beitraege -> $RESCUE_FILE"
       echo "[Mind Manager] Chat gerettet: ${RESCUE_N:-?} Beitraege -> ${RESCUE_FILE##*/}"
       # Rotation (KEIN xargs — Pfade enthalten Leerzeichen)
