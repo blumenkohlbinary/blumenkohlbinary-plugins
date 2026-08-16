@@ -648,7 +648,13 @@ Tool-Call). Ergebnisse aller 4 einsammeln, dann konsolidieren. Jeder bekommt:
   Files: z.B. data-model.md = 428 Z. aber 67 KB / ~17k Tokens.) Sonst Overflow → 0 Output (real
   gesehen). Der Agent hat den Guard auch selbst (context-analyzer), das hier ist der Skill-Hinweis.
 - **Die Commit-Coverage-Gaps aus Step 3c** als konkrete Pruef-Punkte ("verifiziere/ergaenze diese unreflektierten Commits in deinem Bereich")
-- Session-Auszug (USER + ASSISTANT_TEXT der letzten 200 Events) — siehe Sampling unten
+- Session-Auszug — **Quelle je `SESSION_SOURCE`:**
+  - `gerettet`: **die Rettungsdatei** `.claude-mind/rescued/<ts>_chat.md` (vollstaendiger Chat
+    vor der Kompaktierung, ungekuerzt). Bei >600 Zeilen/60 KB gilt der Groessen-Guard des
+    Agenten — er greppt gezielt statt blind zu lesen.
+  - `live`: der Sampler-Auszug wie bisher (USER + ASSISTANT_TEXT, 3-stufiges Sampling).
+- **Im Self-Check MUSS die Quelle stehen** (`Session-Quelle: gerettet <pfad>` bzw. `live`) —
+  sonst ist nicht erkennbar, ob der Sync auf dem vollen Chat oder auf Resten lief.
 
 ### Session-Auszug-Sampling (Plan-EC2: 3-stufiger Algorithmus)
 
@@ -658,6 +664,20 @@ aus der Mitte. 3-Stufen-Algorithmus:
 ```bash
 # Python-Helper extrahiert relevante Events aus aktueller JSONL
 # (gleicher Code wie mind-compact Step 3, hier zur Wiederverwendung)
+# --- QUELLEN-WAHL (NEU v5.1.0): geretteter Chat schlaegt Live-Sampling ---
+# Nach einer Kompaktierung enthaelt das Live-Transkript nur noch die Zusammenfassung.
+# Der PreCompact-Hook hat den VOLLEN Chat vorher nach .claude-mind/rescued/ gerettet —
+# DAS ist dann die richtige Quelle. Ohne diese Wahl wuerde der Knowledge-Sync nach jeder
+# Kompaktierung auf Resten arbeiten und genau das verpassen, wofuer er da ist.
+RESCUED=$(ls -t "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/rescued"/*_chat.md 2>/dev/null | head -1)
+if [ -n "$RESCUED" ] && [ -s "$RESCUED" ]; then
+  SESSION_SOURCE="gerettet"
+  echo "Session-Quelle: gerettet -> $RESCUED ($(grep -c '^## \[' "$RESCUED") Beitraege)"
+else
+  SESSION_SOURCE="live"
+  echo "Session-Quelle: live (kein geretteter Chat vorhanden)"
+fi
+
 SAMPLER="$CLAUDE_PLUGIN_ROOT/references/session_sampler.py"   # v5.0.0: ausgeliefert, KEIN Heredoc
 # Frueher wurde das Skript zur Laufzeit per Heredoc nach /tmp geschrieben — auf Windows/Git-Bash
 # unzuverlaessig (Pfade mit '&', Leerzeichen, Umlauten). Jetzt liegt es im Plugin.
@@ -935,6 +955,7 @@ ist BUGGY — User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step
   Beleg: git-log + grep Output in Tool-Call #<N>
 
 [Step 3.5 Per-Bereich Knowledge-Sync] 4 Agents dispatched (sequenziell/≤2 pro Welle, NIE ≥3):
+  Session-Quelle: <gerettet <pfad> (N Beitraege) | live>
   - scope=claude-md      → <A> Findings (U:<x> E:<y> A:<z> NF:<w> I:<v>)
       Beispiel-Belege: [UPDATE] CLAUDE.md:15 "v3.2.2" -> Session v3.3.0
   - scope=memory         → <B> Findings (oder "0 — MEMORY aktuell")

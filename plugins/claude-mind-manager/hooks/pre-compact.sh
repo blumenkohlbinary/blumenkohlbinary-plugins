@@ -34,6 +34,58 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
   } > "$POINTER_DIR/transcript-pointer.txt" 2>/dev/null
 fi
 
+# --- VOLL-RETTUNG des Gespraechs (NEU v5.1.0) ---
+# Warum hier: PreCompact feuert genau am Auto-Kompaktierungs-Schwellwert (Standard ~850K).
+# Gleich danach ist der Gespraechsverlauf im Live-Kontext weg. Das Transkript auf Platte bleibt
+# zwar vollstaendig, ist aber zu gross zum Lesen (12 MB Roh-JSONL). Der reine Gespraechs-Anteil
+# sind ~350-400 KB — genau das retten wir, lesbar und ungekuerzt.
+# Das ist der DETERMINISTISCHE Teil: er haengt an keiner Entscheidung eines Modells.
+RESCUE_DIR="$PROJECT_DIR/.claude-mind/rescued"
+RESCUE_KEEP="${MIND_RESCUE_KEEP_COUNT:-3}"
+if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
+  SAMPLER="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/references/session_sampler.py"
+  if [ -f "$SAMPLER" ]; then
+    mkdir -p "$RESCUE_DIR" 2>/dev/null
+    RTS=$(date +%Y%m%d-%H%M%S)
+    RESCUE_FILE="$RESCUE_DIR/${RTS}_chat.md"
+    # Python-Pfad (venv bevorzugt, wie im Skill)
+    if [ -x ".venv/Scripts/python.exe" ]; then RPY=".venv/Scripts/python.exe"
+    elif command -v python3 >/dev/null 2>&1; then RPY="python3"
+    else RPY="python"; fi
+    # cygpath fuer Windows-Pfade, sonst direkt
+    if command -v cygpath >/dev/null 2>&1; then
+      RS_WIN=$(cygpath -w "$SAMPLER"); RT_WIN=$(cygpath -w "$TRANSCRIPT_PATH"); RO_WIN=$(cygpath -w "$RESCUE_FILE")
+    else
+      RS_WIN="$SAMPLER"; RT_WIN="$TRANSCRIPT_PATH"; RO_WIN="$RESCUE_FILE"
+    fi
+    if RESCUE_OUT=$("$RPY" "$RS_WIN" --full "$RT_WIN" "$RO_WIN" 2>&1) && [ -s "$RESCUE_FILE" ]; then
+      RESCUE_N=$(echo "$RESCUE_OUT" | grep -oE '[0-9]+ Beitraege' | grep -oE '[0-9]+' | head -1)
+      # PENDING-Merker: wird vom UserPromptSubmit-Hook gelesen und EINMAL angekuendigt
+      {
+        echo "path=$RESCUE_FILE"
+        echo "events=${RESCUE_N:-?}"
+        echo "ts=$RTS"
+        echo "trigger=$TRIGGER"
+      } > "$RESCUE_DIR/PENDING" 2>/dev/null
+      rm -f "$RESCUE_DIR/PENDING.announced" 2>/dev/null   # neue Rettung -> neu ankuendigen
+      mind_log "chat rescued: ${RESCUE_N:-?} Beitraege -> $RESCUE_FILE"
+      echo "[Mind Manager] Chat gerettet: ${RESCUE_N:-?} Beitraege -> ${RESCUE_FILE##*/}"
+      # Rotation (KEIN xargs — Pfade enthalten Leerzeichen)
+      ls -t "$RESCUE_DIR"/*_chat.md 2>/dev/null | tail -n +$((RESCUE_KEEP + 1)) | while IFS= read -r f; do
+        [ -n "$f" ] && [ -f "$f" ] && rm -f "$f"
+      done
+    else
+      # Rettung fehlgeschlagen: KEIN PENDING-Merker (lieber keine Marke als eine ins Leere).
+      # Der Hook laeuft trotzdem weiter — die Backups sind wichtiger als der Extrakt.
+      mind_log WARN "chat rescue fehlgeschlagen: ${RESCUE_OUT:0:200}"
+      echo "[Mind Manager] WARN: Chat-Rettung fehlgeschlagen (Backups sind trotzdem da)"
+      rm -f "$RESCUE_FILE" 2>/dev/null
+    fi
+  else
+    mind_log WARN "session_sampler.py nicht gefunden: $SAMPLER"
+  fi
+fi
+
 # --- Report ---
 if [ -n "$BACKED_UP" ] && [ "$BACKED_UP" -gt 0 ]; then
   mind_log "pre-compact backup: ${BACKED_UP} files (trigger: ${TRIGGER})"

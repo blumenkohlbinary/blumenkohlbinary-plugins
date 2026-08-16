@@ -49,6 +49,18 @@ else
 fi
 ```
 
+**Geretteter Chat (NEU v5.1.0):** Existiert `.claude-mind/rescued/*_chat.md`, wurde der
+Kontext zuvor kompaktiert und der volle Chat gerettet. Dann ist **diese Datei** die
+Session-Quelle fuer den Knowledge-Sync in Schritt 5 — nicht das kompaktierte Live-Transkript.
+```bash
+RESCUED=$(ls -t "$PROJ/.claude-mind/rescued"/*_chat.md 2>/dev/null | head -1)
+if [ -n "$RESCUED" ] && [ -s "$RESCUED" ]; then
+  echo "Session-Quelle: gerettet -> $RESCUED ($(grep -c '^## \[' "$RESCUED") Beitraege)"
+else
+  echo "Session-Quelle: live"
+fi
+```
+
 **EIN Snapshot fuer alle 5** — nicht fuenf einzelne. Damit ist der komplette Durchlauf als
 eine Einheit zurueckrollbar. Die Einzel-Skills erkennen den laufenden `/mind-all` an der
 `analyzed-scopes`-Datei und legen **keinen** zweiten Snapshot an.
@@ -124,6 +136,7 @@ IMMER, er haengt an keinem Erfolg).
 ```
 === /mind-all — Durchlauf abgeschlossen ===
 Modus: autonom | --ask | --dry-run
+Session-Quelle: gerettet <pfad> (<N> Beitraege)  |  live
 Snapshot: <pfad>
   Restore (Ziele liegen NICHT alle im Projekt!):
     <pfad>/CLAUDE.md            -> <projekt>/CLAUDE.md
@@ -162,6 +175,10 @@ nicht: jede Aenderung einzeln, jede Auslassung mit Grund, Snapshot-Pfad immer da
 - **Strikt sequenziell** — nie zwei Skills gleichzeitig (Anti-Burst).
 - **Reihenfolge ist fest:** files → claudemd → memory → rules → update.
 - **DESIGN-Befunde werden nie automatisch angewendet** (in keinem der 5).
+- **Geretteter Chat schlaegt Live-Transkript** (v5.1.0): liegt eine Rettungsdatei vor, ist sie
+  die Session-Quelle — und der Bericht MUSS das ausweisen. Nach einer Kompaktierung waere das
+  Live-Transkript nur noch die Zusammenfassung; ein Sync darauf verpasst genau das, was
+  gerettet werden sollte.
 - **Overwrite-Guards und Tool-Bundle-Angebote aus mind-files bleiben aktiv** — Autonomie
   erzeugt keine Ausnahme fuer fremden Bestand.
 - **>5 DEAD-Pfade** in mind-update bleiben gesperrt (Massenloesch-Sicherung).

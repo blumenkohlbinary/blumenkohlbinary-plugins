@@ -4,7 +4,14 @@
 NEU v5.0.0 (Befund 9): Ausgelieferte DATEI statt Heredoc nach /tmp.
 Grund: der Heredoc-Weg schrieb das Skript zur Laufzeit nach /tmp und war auf
 Windows/Git-Bash unzuverlaessig (Pfade mit '&', Leerzeichen, Umlauten).
-Aufruf:  python session_sampler.py <transcript.jsonl> <out.json>
+Zwei Modi:
+  python session_sampler.py <transcript.jsonl> <out.json>            # Sampling (Step 3.5)
+  python session_sampler.py --full <transcript.jsonl> <out.md>       # VOLL-RETTUNG (v5.1.0)
+
+--full (NEU v5.1.0): rettet das GESAMTE Gespraech vor einer Kompaktierung — kein Pre-Filter,
+kein 300er-Deckel, keine 500-Zeichen-Kuerzung. Nur USER+ASSISTANT-Text, chronologisch, als
+lesbares Markdown. Tool-Aufrufe/-Ergebnisse bleiben draussen: die sind das Volumen (12 MB
+Roh-JSONL vs ~350 KB reines Gespraech), nicht der Inhalt.
 
 Stage 1 Pre-Filter : Events mit Entscheidungs-/Fehler-/Architektur-/Constraint-Markern
 Stage 2 Stratified : bei >300 Treffern -> 5 Buckets, Top-60 je Bucket nach Score
@@ -45,7 +52,61 @@ RELEVANT_PATTERNS = [
 USER_WEIGHT = 2
 
 
+def dump_full(jsonl_path, out_path):
+    """Voll-Rettung: jedes USER/ASSISTANT-Text-Event, ungekuerzt, chronologisch."""
+    import datetime
+    rows, n_user, n_asst = [], 0, 0
+    with open(jsonl_path, encoding='utf-8', errors='replace') as f:
+        for lineno, line in enumerate(f, 1):
+            try:
+                obj = json.loads(line.strip())
+            except json.JSONDecodeError:
+                continue
+            if obj.get('isSidechain') or obj.get('type') == 'queue-operation':
+                continue
+            msg = obj.get('message', {}) or {}
+            content = msg.get('content')
+            text, role = "", ""
+            if obj.get('type') == 'user' and isinstance(content, str):
+                text, role = content, "USER"
+            elif obj.get('type') == 'assistant' and isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get('type') == 'text':
+                        text += block.get('text', '') + "\n"
+                role = "ASSISTANT"
+            if not text.strip():
+                continue
+            ts = obj.get('timestamp', '')
+            rows.append((lineno, role, ts, text.rstrip()))
+            if role == "USER": n_user += 1
+            else: n_asst += 1
+
+    out = ["# Geretteter Chat (Voll-Rettung vor Kompaktierung)",
+           "",
+           f"- Quelle: `{jsonl_path}`",
+           f"- Beitraege: {len(rows)}  ({n_user} USER / {n_asst} ASSISTANT)",
+           f"- Gerettet: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+           "",
+           "> Vollstaendig und ungekuerzt. Tool-Aufrufe/-Ergebnisse sind bewusst nicht enthalten.",
+           "", "---", ""]
+    for lineno, role, ts, text in rows:
+        out.append(f"## [{lineno}] {role}" + (f" — {ts}" if ts else ""))
+        out.append("")
+        out.append(text)
+        out.append("")
+    Path(out_path).write_text("\n".join(out), encoding='utf-8')
+    print(f"OK-FULL: {len(rows)} Beitraege ({n_user} USER / {n_asst} ASSISTANT) -> {out_path}")
+    return len(rows)
+
+
 def main(argv):
+    # --full: Voll-Rettung (v5.1.0)
+    if len(argv) > 1 and argv[1] == "--full":
+        if len(argv) < 4:
+            print("usage: session_sampler.py --full <transcript.jsonl> <out.md>", file=sys.stderr)
+            return 2
+        return 0 if dump_full(argv[2], argv[3]) > 0 else 1
+
     if len(argv) < 3:
         print("usage: session_sampler.py <transcript.jsonl> <out.json>", file=sys.stderr)
         return 2
