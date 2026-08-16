@@ -1,0 +1,20 @@
+# Zeilenenden fuer Shell-Skripte festnageln.
+#
+# WARUM (gemessen 2026-08-16): Auf diesem Rechner steht core.autocrlf=true — Git speichert
+# intern LF, schreibt beim Auschecken aber CRLF in den Arbeitsbaum. Die Plugin-Hooks werden
+# von dort in den Claude-Code-Cache kopiert und dort von bash ausgefuehrt.
+# Ein Shell-Skript mit CRLF ist eine Zeitbombe:
+#   "#!/bin/bash\r"  -> der Interpreter "/bin/bash\r" existiert nicht
+#   "EOF\r"          -> beendet kein Heredoc ("unexpected EOF while looking for matching EOF")
+#
+# Beim v5.2.1-Release ist genau das passiert: ein "git stash pop" hat den Arbeitsbaum
+# angefasst, autocrlf hat alle Hooks auf CRLF gedreht, und die Kopie im Cache war CRLF.
+# MSYS2-Bash hat es in dem Fall noch verkraftet — inklusive des Heredoc-Pfads in
+# mind_snapshot. Darauf zu bauen waere aber Glueck, kein Bau: es haengt an der bash-Variante
+# des Nutzers, und der Fehler kaeme kryptisch und weit weg von der Ursache.
+#
+# "text eol=lf" ueberstimmt core.autocrlf — fuer jeden, der dieses Repo klont.
+*.sh text eol=lf
+
+# Bewusst NICHT aufgenommen: *.py — Python liest CRLF problemlos, und jede zusaetzliche
+# Regel erzwingt beim naechsten Checkout eine Neunormalisierung weiterer Dateien.
