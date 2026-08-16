@@ -40,6 +40,14 @@ if [ -f "$_SC" ]; then
   [ -n "$_SNAP" ] && [ -d "$_SNAP" ] && [ "$_AGE" -lt 7200 ] && CHAIN="yes"
 fi
 
+# Hook-Gesundheit (NEU v5.2.1) — laeuft in JEDEM Modus, auch im Probelauf und in der Kette.
+# Kein Abbruchgrund; aber ein toter Hook MUSS im Bericht stehen, sonst haelt der naechste
+# Befundlauf ein totes Netz fuer ein gespanntes (genau so entstand die Befundliste 2026-08-16).
+if [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
+  source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+  mind_hook_health "${CLAUDE_PROJECT_DIR:-$(pwd)}" || HOOK_WARN="ja"
+fi
+
 if [ "$DRY_RUN" = "no" ] && [ "$CHAIN" = "no" ]; then
   [ -z "$CLAUDE_PLUGIN_ROOT" ] && { echo "ERROR: \$CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
   source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
@@ -533,18 +541,33 @@ User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step 1 ausfuehren"
   - TESTS   → <Exist/Missing>
   - SECRETS → <Exist/Missing>
   - RELEASE → <Git? Versions-Signal? Python? — entscheidet Pack-Angebot>
-  No-Dead-Tools-Nachweis (1:1 Tool -> Companion-Rule, pro TATSAECHLICH installiertem Tool):
-  - tools/backup_tools.py     -> .claude/rules/backup-usage.md    [geschrieben / n.a.]
-  - tools/update_changelog.py -> .claude/rules/release-hygiene.md [geschrieben / n.a.]
-  - tools/version.py          -> .claude/rules/release-build.md   [geschrieben / n.a.]
+  No-Dead-Tools-Nachweis — GEMESSEN, nicht behauptet (v5.2.1):
+  <woertliche Ausgabe von mind_check_tools_have_rules, eine Zeile je Tool>
   Beleg: project-scanner Agent Tool-Call #<N>
 ```
 
-**Pflicht-Format:** Profile + alle 5 Setup-Bereiche mit Exist/Missing + No-Dead-Tools-Nachweis
-+ `(Beleg: project-scanner Tool-Call #<N>)`. **Jedes installierte Tool MUSS in der Tabelle
-seine exakte `.claude/rules/*.md` als `[geschrieben]` nachweisen** (nicht installierte Tools =
-`n.a.`). Ein installiertes Tool ohne `[geschrieben]`-Rule = No-Dead-Tools-Invariante verletzt,
-User darf zurueckweisen.
+**Der Nachweis wird AUSGEFUEHRT, nicht aufgeschrieben (NEU v5.2.1):**
+```bash
+source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+mind_check_tools_have_rules "${CLAUDE_PROJECT_DIR:-$(pwd)}"; TOOLCHECK_RC=$?
+```
+Die **woertliche Ausgabe** kommt in den Block — nicht paraphrasiert, nicht gekuerzt. Bei
+`TOOLCHECK_RC=1` MUSS der Report das als **verletzte Invariante** ausweisen und die fehlende
+Rule nachtragen.
+
+**Warum das den alten Prosa-Block ersetzt:** Bis v5.2.0 stand hier eine Tabelle, die der Skill
+selbst ausfuellte — also eine Behauptung ueber die eigene Arbeit. Gemeldet 2026-08-16 als
+„Self-Check-Block nicht durchsetzbar", und das war berechtigt. `mind_check_tools_have_rules`
+prueft stattdessen am Dateisystem: Nennt eine `.claude/rules/*.md` das Tool **namentlich**, und
+hat sie **`globs:`** im Frontmatter (ohne die triggert sie nie)? Die Pruefung kann scheitern —
+ein Tool ohne Rule ergibt nachweislich `FAIL`.
+
+> ⚠ **Was sie NICHT belegt:** dass die Rule je gelesen oder befolgt wird. Gemessen wird die
+> **Erreichbarkeit**, nicht die Wirkung. Dieser Rest bleibt Prosa und wird nicht als mehr
+> ausgegeben, als er ist.
+
+**Pflicht-Format:** Profile + alle 5 Setup-Bereiche mit Exist/Missing + die **ausgefuehrte**
+Nachweis-Ausgabe + `(Beleg: project-scanner Tool-Call #<N>)`.
 
 ---
 

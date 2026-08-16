@@ -108,7 +108,11 @@ STANDING_ORDER_PATTERNS = [
     re.compile(r'mach\s+(weiter|durch)|nicht\s+stoppen|weiterarbeiten', re.I),
     re.compile(r'bis\s+(sp(ae|ä)ter|es\s+fertig|alles\s+fertig|du\s+fertig)', re.I),
     re.compile(r'ich\s+bin\s+(nicht\s+da|weg)|bin\s+gleich\s+wieder', re.I),
-    re.compile(r'laufender?\s+auftrag|dauerauftrag', re.I),
+    # v5.2.1 ENTFERNT: r'laufender?\s+auftrag|dauerauftrag'
+    # Das sind META-Woerter — sie stehen in einer FRAGE ueber Dauerauftraege genauso wie in
+    # einem. Gemessen 2026-08-16: der Nutzer fragte "was ist wenn er in einem dauerauftrag
+    # ist", und RESUME.md meldete daraufhin "Moeglicher Dauerauftrag". Was bleibt, sind
+    # ANWEISUNGEN im Imperativ — die sagt niemand beilaeufig ueber sich selbst.
 ]
 
 
@@ -137,6 +141,15 @@ def dump_orders(jsonl_path, out_path, keep=5, min_len=30, max_chars=800):
             txt = c.strip()
             # Harness-Rauschen raus: Slash-Command-Wrapper, Hook-/Systemblöcke
             if txt.startswith('<') or '<command-name>' in txt or '<local-command' in txt:
+                continue
+            # ⛔ SELBST-KONTAMINATION (Fix v5.2.1, gemessen 2026-08-16)
+            # Die eigenen Hooks speisen Text als Nutzer-Kontext ein — darin steht woertlich
+            # "WEITERARBEITEN" und "Laeuft der Auftrag oben noch?". Beim naechsten Lauf las der
+            # Marker-Scan genau das zurueck und meldete "Moeglicher Dauerauftrag". Das Plugin
+            # zitierte sich selbst und hielt es fuer einen Befund — eine Rueckkopplung, die mit
+            # jeder Kompaktierung stabiler geworden waere.
+            # Eigene Einspeisungen sind KEINE Nutzer-Auftraege und fliegen komplett raus.
+            if '[Mind Manager]' in txt or 'Auftrags-Merker' in txt:
                 continue
             if len(txt) < min_len:
                 continue

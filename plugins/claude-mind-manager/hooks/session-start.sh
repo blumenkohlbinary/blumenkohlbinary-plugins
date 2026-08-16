@@ -1,10 +1,14 @@
 #!/bin/bash
-# Claude Mind Manager — SessionStart Hook (NEU v5.1.0)
+# Claude Mind Manager — SessionStart Hook (v5.1.0, umgebaut v5.2.1)
 #
 # ZWEITES NETZ zu prompt-submit.sh: Wenn der Nutzer nach einer Kompaktierung nicht
 # weiterschreibt, sondern Claude Code neu startet, feuert UserPromptSubmit erst spaeter —
-# SessionStart aber sofort. Beide lesen denselben PENDING-Merker; wer zuerst kommt,
-# benennt ihn um, der andere schweigt dann. Keine Doppel-Ankuendigung.
+# SessionStart aber sofort. Beide lesen dieselbe Schuld (OPEN); wer zuerst kommt, setzt die
+# Sitzungs-Sperre, der andere schweigt dann. Keine Doppel-Ankuendigung in einer Sitzung.
+#
+# v5.2.1: Die Schuld wird NICHT MEHR beim Ankuendigen geloescht (siehe prompt-submit.sh).
+# OPEN bleibt liegen, bis /mind-all wirklich lief — in jeder neuen Sitzung wird also erneut
+# darauf hingewiesen. Erzwungen wird der Sync von hooks/stop.sh.
 #
 # Gleiche Regel wie beim Geschwister-Hook: im Normalfall NICHTS ausgeben.
 
@@ -16,26 +20,54 @@ if [ -z "$PROJ" ] && command -v jq >/dev/null 2>&1; then
 fi
 [ -z "$PROJ" ] && PROJ="$(pwd)"
 
-PENDING="$PROJ/.claude-mind/rescued/PENDING"
-[ -f "$PENDING" ] || exit 0
+# Lebenszeichen (v5.2.1) — belegt, dass die Hooks dieser Sitzung ueberhaupt laufen.
+# Bewusst hier und nicht in prompt-submit.sh: dort waere es ein Schreibzugriff pro Nachricht
+# in einem Ordner, der per rclone hochgeladen wird.
+if [ -d "$PROJ" ]; then
+  mkdir -p "$PROJ/.claude-mind" 2>/dev/null
+  {
+    echo "ts=$(date +%Y%m%d-%H%M%S)"
+    echo "epoch=$(date +%s)"
+    echo "event=SessionStart"
+    echo "version=$([ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && basename "$CLAUDE_PLUGIN_ROOT" || echo unbekannt)"
+    echo "root=${CLAUDE_PLUGIN_ROOT:-}"
+  } > "$PROJ/.claude-mind/hook-heartbeat" 2>/dev/null
+fi
 
-RESCUE_PATH=$(grep -m1 '^path='   "$PENDING" 2>/dev/null | cut -d= -f2-)
-RESCUE_N=$(grep    -m1 '^events=' "$PENDING" 2>/dev/null | cut -d= -f2-)
+OPEN="$PROJ/.claude-mind/rescued/OPEN"
+[ -f "$OPEN" ] || exit 0
+
+SID=""
+command -v jq >/dev/null 2>&1 && SID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+[ -z "$SID" ] && SID="nosession"
+SEEN="${OPEN}.seen-${SID}"
+[ -f "$SEEN" ] && exit 0
+
+RESCUE_PATH=$(grep -m1 '^path='        "$OPEN" 2>/dev/null | cut -d= -f2-)
+RESUME_FILE=$(grep -m1 '^resume='      "$OPEN" 2>/dev/null | cut -d= -f2-)
+RESCUE_N=$(grep    -m1 '^events='      "$OPEN" 2>/dev/null | cut -d= -f2-)
+COMPACTIONS=$(grep -m1 '^compactions=' "$OPEN" 2>/dev/null | cut -d= -f2-)
 
 if [ -z "$RESCUE_PATH" ] || [ ! -f "$RESCUE_PATH" ]; then
-  rm -f "$PENDING" 2>/dev/null
+  rm -f "$OPEN" "${OPEN}.seen-"* 2>/dev/null
   exit 0
 fi
 
-mv -f "$PENDING" "${PENDING}.announced" 2>/dev/null
+: > "$SEEN" 2>/dev/null
 
-RESUME_FILE="$(dirname "$PENDING")/RESUME.md"
 RESUME_TXT=""
-[ -f "$RESUME_FILE" ] && RESUME_TXT=$(sed -n '/^## /,$p' "$RESUME_FILE" | head -40)
+[ -n "$RESUME_FILE" ] && [ -f "$RESUME_FILE" ] && RESUME_TXT=$(sed -n '/^## /,$p' "$RESUME_FILE" | head -40)
 
-MSG="[Mind Manager] Aus der vorigen Sitzung liegt ein geretteter Chat vor (vor einer Kompaktierung gesichert):
+NACHHOL=""
+if [ -n "$COMPACTIONS" ] && [ "$COMPACTIONS" -gt 1 ] 2>/dev/null; then
+  NACHHOL="
+  ⚠ ${COMPACTIONS} Kompaktierungen seit dem letzten Sync — er wurde schon einmal verschleppt."
+fi
+
+MSG="[Mind Manager] Aus einer vorigen Sitzung liegt eine OFFENE Sync-Schuld vor (vor einer
+Kompaktierung gesichert):
   Datei:      ${RESCUE_PATH}
-  Beitraege:  ${RESCUE_N:-?}
+  Beitraege:  ${RESCUE_N:-?}${NACHHOL}
 
 --- WORAN ZULETZT GEARBEITET WURDE (aus dem Protokoll gezogen) ---
 ${RESUME_TXT:-(kein Auftrags-Merker vorhanden)}
@@ -43,9 +75,13 @@ ${RESUME_TXT:-(kein Auftrags-Merker vorhanden)}
 
 REIHENFOLGE: Steht oben ein Auftrag, der noch nicht erledigt ist, hat ER Vorrang — dann erst
 weiterarbeiten und den Sync danach nachholen. Sonst: /mind-all mit der Rettungsdatei als
-Session-Quelle ausfuehren ('Session-Quelle: gerettet <pfad>' im Bericht), damit die
-Erkenntnisse der letzten Sitzung in CLAUDE.md / MEMORY.md / Rules landen — und den Auftrag
-danach wieder aufnehmen."
+Session-Quelle ausfuehren ('Session-Quelle: gerettet <pfad>' im Bericht) und den Auftrag
+danach wieder aufnehmen.
+
+⛔ Die Rettungsdatei NIE im Hauptkontext lesen (kein Read, kein cat) — nur den Pfad an einen
+Subagenten geben oder zaehlend zugreifen (grep -c, wc).
+
+Die Schuld bleibt bestehen, bis /mind-all gelaufen ist."
 
 if command -v jq >/dev/null 2>&1; then
   jq -nc --arg ctx "$MSG" \

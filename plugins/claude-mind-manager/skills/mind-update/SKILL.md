@@ -652,6 +652,14 @@ Tool-Call). Ergebnisse aller 4 einsammeln, dann konsolidieren. Jeder bekommt:
   - `gerettet`: **die Rettungsdatei** `.claude-mind/rescued/<ts>_chat.md` (vollstaendiger Chat
     vor der Kompaktierung, ungekuerzt). Bei >600 Zeilen/60 KB gilt der Groessen-Guard des
     Agenten — er greppt gezielt statt blind zu lesen.
+    > ⛔ **KONTEXT-FLUT-SPERRE (NEU v5.2.1):** Dem Agenten wird der **PFAD** uebergeben, nie der
+    > Inhalt. Im **Hauptkontext** wird `*_chat.md` **nie** gelesen — kein `Read`, kein `cat`,
+    > kein `sed`/`head` auf den Inhalt; erlaubt sind nur zaehlende Aufrufe (`grep -c`, `wc`).
+    > **Warum das eine Invariante ist:** Der Lauf wird per Stop-Hook direkt nach einer
+    > Kompaktierung erzwungen. Die Datei ist mehrere hundert KB (gemessen 417 KB / 555 Beitraege);
+    > wer sie in den frisch geleerten Kontext liest, loest sofort die naechste Kompaktierung aus,
+    > die eine neue Rettung erzeugt, die den naechsten Zwangslauf ausloest. Ein `Read` darauf im
+    > Hauptfluss ist **Abbruchgrund**.
   - `live`: der Sampler-Auszug wie bisher (USER + ASSISTANT_TEXT, 3-stufiges Sampling).
 - **Im Self-Check MUSS die Quelle stehen** (`Session-Quelle: gerettet <pfad>` bzw. `live`) —
   sonst ist nicht erkennbar, ob der Sync auf dem vollen Chat oder auf Resten lief.
@@ -669,9 +677,16 @@ aus der Mitte. 3-Stufen-Algorithmus:
 # Der PreCompact-Hook hat den VOLLEN Chat vorher nach .claude-mind/rescued/ gerettet —
 # DAS ist dann die richtige Quelle. Ohne diese Wahl wuerde der Knowledge-Sync nach jeder
 # Kompaktierung auf Resten arbeiten und genau das verpassen, wofuer er da ist.
-RESCUED=$(ls -t "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/rescued"/*_chat.md 2>/dev/null | head -1)
+# v5.2.1: Vorrang hat der Zeiger aus der offenen Schuld (OPEN) — er nennt genau die Rettung,
+# fuer die der Sync noch aussteht. Fehlt OPEN (aeltere Version): neueste Datei per Zeitstempel.
+_MU_OPEN="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/rescued/OPEN"
+RESCUED=""
+[ -f "$_MU_OPEN" ] && RESCUED=$(grep -m1 '^path=' "$_MU_OPEN" 2>/dev/null | cut -d= -f2-)
+[ -n "$RESCUED" ] && [ ! -f "$RESCUED" ] && RESCUED=""
+[ -z "$RESCUED" ] && RESCUED=$(ls -t "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/rescued"/*_chat.md 2>/dev/null | head -1)
 if [ -n "$RESCUED" ] && [ -s "$RESCUED" ]; then
   SESSION_SOURCE="gerettet"
+  # NUR ZAEHLEN, NICHT LESEN (Kontext-Flut-Sperre v5.2.1)
   echo "Session-Quelle: gerettet -> $RESCUED ($(grep -c '^## \[' "$RESCUED") Beitraege)"
 else
   SESSION_SOURCE="live"

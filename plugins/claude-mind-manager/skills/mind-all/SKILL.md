@@ -30,6 +30,11 @@ echo "$ARGS" | grep -qE '(^|[[:space:]])--dry-run([[:space:]]|$)' && { DRY_RUN="
 source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
 PROJ="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
+# Hook-Gesundheit (NEU v5.2.1) — meldet den stillen Hook-Tod nach einem Plugin-Update.
+# Kein Abbruchgrund: /mind-all laeuft auch ohne Hooks. Aber es MUSS im Bericht stehen,
+# sonst haelt der naechste Befundlauf ein totes Netz fuer ein gespanntes.
+mind_hook_health "$PROJ" || HOOK_WARN="ja"
+
 if [ "$DRY_RUN" = "no" ]; then
   SNAPSHOT=$(mind_snapshot "$PROJ" "pre-mind-all") || {
     echo "ABBRUCH: Snapshot fehlgeschlagen — KEIN Skill wird gestartet." >&2; exit 1; }
@@ -49,25 +54,43 @@ else
 fi
 ```
 
-**Geretteter Chat (NEU v5.1.0):** Existiert `.claude-mind/rescued/*_chat.md`, wurde der
-Kontext zuvor kompaktiert und der volle Chat gerettet. Dann ist **diese Datei** die
-Session-Quelle fuer den Knowledge-Sync in Schritt 5 — nicht das kompaktierte Live-Transkript.
+**Geretteter Chat (v5.1.0) + offene Schuld (v5.2.1):** Existiert `.claude-mind/rescued/OPEN`,
+steht ein Sync aus. `OPEN` nennt die Rettungsdatei und den gesicherten Auftrag.
 ```bash
-RESCUED=$(ls -t "$PROJ/.claude-mind/rescued"/*_chat.md 2>/dev/null | head -1)
+OPEN="$PROJ/.claude-mind/rescued/OPEN"
+RESCUED=""; RESUME_FILE=""; COMPACTIONS=""
+if [ -f "$OPEN" ]; then
+  RESCUED=$(grep     -m1 '^path='        "$OPEN" | cut -d= -f2-)
+  RESUME_FILE=$(grep -m1 '^resume='      "$OPEN" | cut -d= -f2-)
+  COMPACTIONS=$(grep -m1 '^compactions=' "$OPEN" | cut -d= -f2-)
+fi
+# Rueckfall, falls OPEN fehlt (Rettung aus einer aelteren Version)
+[ -z "$RESCUED" ] && RESCUED=$(ls -t "$PROJ/.claude-mind/rescued"/*_chat.md 2>/dev/null | head -1)
+
 if [ -n "$RESCUED" ] && [ -s "$RESCUED" ]; then
+  # NUR ZAEHLEN, NICHT LESEN — siehe Sperre unten
   echo "Session-Quelle: gerettet -> $RESCUED ($(grep -c '^## \[' "$RESCUED") Beitraege)"
+  [ -n "$COMPACTIONS" ] && [ "$COMPACTIONS" -gt 1 ] 2>/dev/null && \
+    echo "ACHTUNG: $COMPACTIONS Kompaktierungen seit dem letzten Sync — bereits verschleppt."
 else
   echo "Session-Quelle: live"
 fi
+# Der Auftrags-Merker ist KLEIN (wenige KB) und wird gelesen — er wird am Ende zurueckgegeben.
+[ -n "$RESUME_FILE" ] && [ -f "$RESUME_FILE" ] && \
+  { echo "Unterbrochener Auftrag gefunden:"; sed -n "/^## /,\$p" "$RESUME_FILE" | head -30; }
 ```
 
-**Unterbrochener Auftrag (NEU v5.2.0):** Existiert `.claude-mind/rescued/RESUME.md`, wurde
-dieser Lauf durch eine Kompaktierung ausgeloest und der davor laufende Auftrag ist dort
-gesichert. **Jetzt lesen** — er wird am Ende zurueckgegeben:
-```bash
-RESUME_FILE="$PROJ/.claude-mind/rescued/RESUME.md"
-[ -f "$RESUME_FILE" ] && { echo "Unterbrochener Auftrag gefunden:"; sed -n "/^## /,\$p" "$RESUME_FILE" | head -30; }
-```
+> ⛔ **KONTEXT-FLUT-SPERRE (NEU v5.2.1, Hard Constraint).** Die Rettungsdatei `*_chat.md` wird
+> **NIE im Hauptkontext gelesen** — kein `Read`, kein `cat`, kein `head`/`sed` auf ihren Inhalt.
+> Sie ist mehrere hundert KB gross (gemessen: 417 KB / 555 Beitraege). Erlaubt sind ausschliesslich:
+> **(i)** den **Pfad** an einen Subagenten uebergeben (der hat eigenen Kontext und einen
+> Groessen-Guard) und **(ii)** zaehlende Shell-Aufrufe (`grep -c`, `wc`).
+>
+> **Warum das eine Invariante ist und keine Empfehlung:** Dieser Lauf wird per Stop-Hook direkt
+> nach einer Kompaktierung erzwungen. Wer die Datei in den frisch geleerten Kontext liest,
+> loest sofort die naechste Kompaktierung aus — die eine neue Rettung erzeugt, die den naechsten
+> Zwangslauf ausloest. Ein `Read` auf `*_chat.md` im Hauptfluss ist ein **Abbruchgrund**, kein
+> Schoenheitsfehler.
 
 **EIN Snapshot fuer alle 5** — nicht fuenf einzelne. Damit ist der komplette Durchlauf als
 eine Einheit zurueckrollbar. Die Einzel-Skills erkennen den laufenden `/mind-all` an der
@@ -139,11 +162,75 @@ Einzellauf** faelschlich fuer einen Kettenlauf und editiert **ohne Netz** — da
 Deshalb: aufraeumen auch dann, wenn ein Skill vorher gescheitert ist (dieser Schritt laeuft
 IMMER, er haengt an keinem Erfolg).
 
+## Step 2.95: `listeverbesserungen.md` fortschreiben (PFLICHT, NEU v5.2.1)
+
+**Jeder** `/mind-all`-Lauf haengt einen Abschnitt an `<projekt>/listeverbesserungen.md` an —
+auch ein Handaufruf ohne Kompaktierung, auch ein Lauf ohne einen einzigen Fund.
+
+```bash
+LISTE="$PROJ/listeverbesserungen.md"
+[ -f "$LISTE" ] || printf '# Verbesserungsliste\n\nAngehaengt von /mind-all. Neueste Abschnitte stehen UNTEN.\n' > "$LISTE"
+# Abschnitt anhaengen (>> — niemals ueberschreiben)
+```
+
+Aufbau je Lauf — **angehaengt**, nie vorangestellt (Anhaengen kann eine bestehende Datei nicht
+beschaedigen, Umschreiben schon):
+
+```markdown
+## <JJJJ-MM-TT HH:MM> — /mind-all  (Ausloeser: Kompaktierung <manual|auto> | Handaufruf)
+
+### Probleme in diesem Lauf
+- <was scheiterte: Agent ohne Ergebnis, Snapshot fehlgeschlagen, Datei unlesbar,
+  Groessen-Guard gegriffen, Hook-Herzschlag veraltet, jq/cygpath fehlt, Skill abgebrochen …>
+
+### Verbesserungsvorschlaege
+- <konkret, mit Datei und Stelle — kein "koennte man mal">
+
+### Nicht angewendet (und warum)
+- <DESIGN-Befunde / >5 tote Pfade / --dry-run / Overwrite-Guard / fehlende Freigabe>
+```
+
+**Regeln, ohne die die Liste Dekoration waere:**
+- `- (keine)` ist eine **zulaessige** Antwort. Ein **leerer** Abschnitt ist es nicht — ein Lauf
+  ohne Eintrag gilt als nicht protokolliert.
+- **Ein gescheiterter Agent ist ein PROBLEM, kein "unauffaellig".** Ein Null-Ergebnis heisst
+  „ungeprueft", nicht „nichts gefunden" (`~/.claude/rules/workflow-agent-rate-limit.md`).
+  Wer hier „(keine)" schreibt, obwohl ein Agent starb, macht den ganzen Mechanismus wertlos.
+- Auch **eigene** Fehlgriffe gehoeren hinein (falsche Annahme, verworfener Zwischenstand) —
+  die Liste ist ein Arbeitsprotokoll, keine Erfolgsmeldung.
+- Im **`--dry-run`** wird die Datei **nicht** geschrieben; der Bericht sagt das ausdruecklich.
+
+## Step 2.96: Schuld begleichen (PFLICHT, NEU v5.2.1)
+
+Erst **nach** einem tatsaechlich gelaufenen Sync (nicht im Probelauf, nicht nach Abbruch von
+mind-update) wird die offene Schuld entfernt — sonst blockt der Stop-Hook zu Recht weiter:
+
+```bash
+if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" = "ja" ]; then
+  OPEN="$PROJ/.claude-mind/rescued/OPEN"
+  if [ -f "$OPEN" ]; then
+    RF=$(grep -m1 '^resume=' "$OPEN" | cut -d= -f2-)
+    [ -n "$RF" ] && [ -f "$RF" ] && mv -f "$RF" "${RF%.md}.done.md" 2>/dev/null
+    rm -f "$OPEN" "${OPEN}.seen-"* 2>/dev/null
+    echo "Sync-Schuld beglichen: OPEN entfernt."
+  fi
+fi
+```
+
+**Die Rettungsdatei `*_chat.md` bleibt liegen** — sie ist das Archiv und rotiert ueber
+`MIND_RESCUE_KEEP_COUNT`. Entfernt wird nur die **Schuld**, nicht der Beleg.
+
+**Wenn der Sync NICHT lief** (Abbruch, Probelauf, mind-update gescheitert): `OPEN` bleibt, und
+der Schlussbericht sagt **ausdruecklich**, dass die Schuld offen bleibt und der Stop-Hook
+weiter nachhaken wird. Stillschweigendes Liegenlassen ist die eine Sache, die hier nicht
+passieren darf — genau daran ist v5.2.0 gescheitert.
+
 ## Step 3: Konsolidierter Schlussbericht (PFLICHT)
 
 ```
 === /mind-all — Durchlauf abgeschlossen ===
 Modus: autonom | --ask | --dry-run
+Hook-Gesundheit: OK (Herzschlag vor <N> min, Version <v>)  |  <Warnung woertlich>
 Session-Quelle: gerettet <pfad> (<N> Beitraege)  |  live
 Snapshot: <pfad>
   Restore (Ziele liegen NICHT alle im Projekt!):
@@ -179,9 +266,15 @@ Scope-Dedup: <k> Agent-Dispatches gespart (bereits abgedeckte Scopes)
    <Auftragstext aus RESUME.md — woertlich, nicht zusammengefasst>
    -> Jetzt wieder aufnehmen. Dieser Sync war ein EINSCHUB, kein Abschluss.
 ```
-*(ohne RESUME.md: `⏭ Fortsetzung: kein unterbrochener Auftrag protokolliert.`)*
+*(ohne Auftrags-Merker: `⏭ Fortsetzung: kein unterbrochener Auftrag protokolliert.`)*
 
-Nach erfolgreichem Lauf: `RESUME.md` → `RESUME.done.md` umbenennen (kein Dauer-Nachhaken).
+Dazu gehoeren zwei Pflichtzeilen (v5.2.1):
+```
+Verbesserungsliste: <projekt>/listeverbesserungen.md — <N> Probleme, <M> Vorschlaege angehaengt
+Sync-Schuld: beglichen (OPEN entfernt)  |  BLEIBT OFFEN — <grund>, Stop-Hook hakt weiter nach
+```
+
+Umbenannt wird nach erfolgreichem Lauf `<ts>_RESUME.md` → `<ts>_RESUME.done.md` (Step 2.96).
 Die Rettungsdatei `*_chat.md` **bleibt** liegen.
 
 **Der Bericht ist die einzige Stelle, an der du siehst was passiert ist** — deshalb luegt er
@@ -204,7 +297,18 @@ nicht: jede Aenderung einzeln, jede Auslassung mit Grund, Snapshot-Pfad immer da
   `STOP`/`ABBRUCH`/`exit 1` **innerhalb** eines Einzel-Skills beendet NUR diesen Skill
   (z.B. mind-memory ohne MEMORY.md), nicht den Durchlauf.
 - **Step 2.9 (Kettenmarke abraeumen) laeuft IMMER** — auch nach Fehlern/Abbruch.
-- **`/mind-all` ist NIE ein Auftragsende (v5.2.0).** Nennt `RESUME.md` einen unterbrochenen
+- ⛔ **KONTEXT-FLUT-SPERRE (v5.2.1):** `*_chat.md` wird **nie** im Hauptkontext gelesen — kein
+  `Read`, kein `cat`. Nur Pfad-Uebergabe an Subagenten und zaehlende Aufrufe (`grep -c`, `wc`).
+  Ein `Read` darauf im Hauptfluss ist **Abbruchgrund**: dieser Lauf wird per Stop-Hook direkt
+  nach einer Kompaktierung erzwungen, und ein voller Kontext loest sofort die naechste aus —
+  die eine neue Rettung erzeugt, die den naechsten Zwangslauf ausloest.
+- **`listeverbesserungen.md` ist Pflicht (v5.2.1)** — jeder Lauf haengt an. „(keine)" ist
+  erlaubt, ein leerer Abschnitt nicht. Ein gestorbener Agent ist ein **Problem**, kein
+  „unauffaellig".
+- **Die Schuld wird nur bei tatsaechlich gelaufenem Sync entfernt (v5.2.1).** Bleibt sie offen,
+  MUSS der Bericht das sagen — stillschweigendes Liegenlassen ist genau der Fehler, an dem
+  v5.2.0 gescheitert ist.
+- **`/mind-all` ist NIE ein Auftragsende (v5.2.0).** Nennt der Auftrags-Merker einen unterbrochenen
   Auftrag, MUSS der Schlussbericht mit der `⏭ FORTSETZUNG`-Zeile enden und die Arbeit danach
   wieder aufgenommen werden. Ein Context-Sync ist ein Einschub — er erledigt nichts, was der
   Nutzer beauftragt hat.
