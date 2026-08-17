@@ -377,8 +377,24 @@ classify_path() {
   # 2) SKIP: Protokoll explizit
   echo "$p" | grep -qiE '^(https?|ftp|mailto|file)://' && { echo SKIP; return; }
   # 3) SKIP: abgekuerztes Beispiel oder Platzhalter
+  #    v5.3.1: *'['*']('* ergaenzt — Markdown-Link-Syntax. `[name](../../references/file.md)`
+  #    enthielt KEINES der anderen Zeichen, wurde also CHECK -> nicht gefunden -> DEAD ->
+  #    und bei <=5 Findings AUTONOM GELOESCHT. Genau diese Zeile steht in der CLAUDE.md
+  #    dieses Projekts (Referenz-Loading-Konvention). Gemessen 2026-08-17.
   case "$p" in
-    *'…'*|*'...'*|*'<'*'>'*|*'{'*'}'*|*'$'*|*'*'*) echo SKIP; return;;
+    *'…'*|*'...'*|*'<'*'>'*|*'{'*'}'*|*'$'*|*'*'*|*'['*']('*) echo SKIP; return;;
+  esac
+  # 3b) SKIP: Slash-Command (NEU v5.3.1) — fuehrender /, GENAU ein Segment, mit Bindestrich.
+  #     `/mind-all`, `/deep-review` sind Befehlsnamen, keine Pfade. Sie landeten bisher auf
+  #     UNSURE und erzeugten 8 INFO-Findings Rauschen in genau dem Projekt, das sie baut.
+  #     ⛔ Kriterium bewusst ENG: NICHT "ein Segment ohne Punkt" — das verschluckte /etc,
+  #     /tmp, /usr, /var, /opt. Ein Bindestrich trennt Befehlsnamen sauber von
+  #     Unix-Wurzelverzeichnissen; Mehrsegmentiges wie /tmp/mind-manager.log faellt vorher raus.
+  #     EHRLICHER PREIS: ein wirklich toter Pfad der Form /foo-bar wird nicht mehr gelistet.
+  #     Vertretbar, weil fuehrende-/-Pfade ohnehin nie angewendet, sondern nur gemeldet werden.
+  case "$p" in
+    */*/*) : ;;                            # mehr als ein Segment -> kein Befehlsname
+    /*-*)  echo SKIP; return;;
   esac
   # 4) UNSURE: fuehrender / ohne Laufwerk/MSYS-Wurzel -> auf Windows meist URL-Fragment
   case "$p" in

@@ -27,6 +27,19 @@
 # stdin defensiv konsumieren (der Aufrufer pipet JSON herein)
 INPUT=$(cat 2>/dev/null)
 
+# --- Protokoll (NEU v5.3.1) ---------------------------------------------------
+# Eigener Logger statt lib.sh: dieser Hook laeuft bei JEDER Nachricht und soll schlank
+# bleiben — ein `source lib.sh` je Tastendruck waere Startkosten fuer nichts. Gleiches
+# Muster wie hooks/stop.sh.
+#
+# WARUM ueberhaupt (gemessen 2026-08-17): Dieser Hook und session-start.sh hatten zusammen
+# NULL Log-Aufrufe. Auf die Frage "der Compact lief, warum ist nichts passiert?" liess sich
+# nicht beantworten, ob, wann und von welchem Hook die Schuld gemeldet wurde — erschliessbar
+# war es nur ueber den Zeitstempel von OPEN.seen-<sid>. Das Log, das die Frage beantworten
+# sollte, schwieg.
+MIND_LOG_FILE="/tmp/mind-manager.log"
+_slog() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1 prompt-submit: ${*:2}" >> "$MIND_LOG_FILE" 2>/dev/null; }
+
 # Projekt-Dir: env-Var bevorzugt (dokumentiert), sonst aus dem JSON, sonst CWD
 PROJ="${CLAUDE_PROJECT_DIR:-}"
 if [ -z "$PROJ" ] && command -v jq >/dev/null 2>&1; then
@@ -44,7 +57,9 @@ SID=""
 command -v jq >/dev/null 2>&1 && SID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 [ -z "$SID" ] && SID="nosession"
 SEEN="${OPEN}.seen-${SID}"
-[ -f "$SEEN" ] && exit 0
+# Bewusstes Schweigen — der WICHTIGERE der beiden Eintraege: genau dieser Zustand sah in der
+# Fehlersuche vom 17.08.2026 aus wie "der Hook hat gar nicht gefeuert".
+[ -f "$SEEN" ] && { _slog INFO "still: Schuld besteht, aber in dieser Sitzung schon gemeldet (sid=$SID)"; exit 0; }
 
 RESCUE_PATH=$(grep -m1 '^path='        "$OPEN" 2>/dev/null | cut -d= -f2-)
 RESUME_FILE=$(grep -m1 '^resume='      "$OPEN" 2>/dev/null | cut -d= -f2-)
@@ -54,6 +69,7 @@ COMPACTIONS=$(grep -m1 '^compactions=' "$OPEN" 2>/dev/null | cut -d= -f2-)
 
 # Merker zeigt ins Leere (z.B. wegrotiert)? Dann aufraeumen statt luegen.
 if [ -z "$RESCUE_PATH" ] || [ ! -f "$RESCUE_PATH" ]; then
+  _slog INFO "OPEN zeigte ins Leere -> entfernt, nichts gemeldet"
   rm -f "$OPEN" "${OPEN}.seen-"* 2>/dev/null
   exit 0
 fi
@@ -99,6 +115,7 @@ Die Schuld bleibt bestehen, bis /mind-all gelaufen ist — sie verfaellt nicht m
 
 # JSON-Ausgabe (Context Injection ist fuer UserPromptSubmit dokumentiert).
 # Ohne jq: plain-text stdout wirkt laut Referenz ebenfalls als Kontext.
+_slog INFO "Schuld gemeldet (events=${RESCUE_N:-?}, compactions=${COMPACTIONS:-?}, sid=$SID) -> $RESCUE_PATH"
 if command -v jq >/dev/null 2>&1; then
   jq -nc --arg ctx "$MSG" \
     '{hookSpecificOutput:{hookEventName:"UserPromptSubmit", additionalContext:$ctx}}'

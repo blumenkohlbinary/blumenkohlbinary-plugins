@@ -14,6 +14,17 @@
 
 INPUT=$(cat 2>/dev/null)
 
+# --- Protokoll (NEU v5.3.1) ---------------------------------------------------
+# Eigener Logger statt lib.sh — gleiches Muster wie hooks/stop.sh und prompt-submit.sh.
+#
+# WARUM (gemessen 2026-08-17): Dieser Hook und prompt-submit.sh hatten zusammen NULL
+# Log-Aufrufe. Die Frage "der Compact lief, warum ist nichts passiert?" war deshalb nur
+# ueber den Zeitstempel von OPEN.seen-<sid> beantwortbar — das Log, das sie beantworten
+# sollte, schwieg. Ein Hook, der etwas Wichtiges tut oder bewusst unterlaesst, muss beides
+# hinterlassen.
+MIND_LOG_FILE="/tmp/mind-manager.log"
+_slog() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1 session-start: ${*:2}" >> "$MIND_LOG_FILE" 2>/dev/null; }
+
 PROJ="${CLAUDE_PROJECT_DIR:-}"
 if [ -z "$PROJ" ] && command -v jq >/dev/null 2>&1; then
   PROJ=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
@@ -58,6 +69,7 @@ if [ ! -f "$OPEN" ]; then
       echo "blocks=0"
     } > "$OPEN" 2>/dev/null
     mv -f "$_leg" "${_leg}.migrated" 2>/dev/null
+    _slog INFO "Legacy-Merker uebernommen: $(basename "$_leg") -> OPEN (Rettung: $_lp)"
     break
   done
 fi
@@ -68,7 +80,9 @@ SID=""
 command -v jq >/dev/null 2>&1 && SID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 [ -z "$SID" ] && SID="nosession"
 SEEN="${OPEN}.seen-${SID}"
-[ -f "$SEEN" ] && exit 0
+# Bewusstes Schweigen — der WICHTIGERE der beiden Eintraege: genau dieser Zustand sah in der
+# Fehlersuche vom 17.08.2026 aus wie "der Hook hat gar nicht gefeuert".
+[ -f "$SEEN" ] && { _slog INFO "still: Schuld besteht, aber in dieser Sitzung schon gemeldet (sid=$SID)"; exit 0; }
 
 RESCUE_PATH=$(grep -m1 '^path='        "$OPEN" 2>/dev/null | cut -d= -f2-)
 RESUME_FILE=$(grep -m1 '^resume='      "$OPEN" 2>/dev/null | cut -d= -f2-)
@@ -76,11 +90,13 @@ RESCUE_N=$(grep    -m1 '^events='      "$OPEN" 2>/dev/null | cut -d= -f2-)
 COMPACTIONS=$(grep -m1 '^compactions=' "$OPEN" 2>/dev/null | cut -d= -f2-)
 
 if [ -z "$RESCUE_PATH" ] || [ ! -f "$RESCUE_PATH" ]; then
+  _slog INFO "OPEN zeigte ins Leere -> entfernt, nichts gemeldet"
   rm -f "$OPEN" "${OPEN}.seen-"* 2>/dev/null
   exit 0
 fi
 
 : > "$SEEN" 2>/dev/null
+_slog INFO "Schuld gemeldet (events=${RESCUE_N:-?}, compactions=${COMPACTIONS:-?}, sid=$SID) -> $RESCUE_PATH"
 
 RESUME_TXT=""
 [ -n "$RESUME_FILE" ] && [ -f "$RESUME_FILE" ] && RESUME_TXT=$(sed -n '/^## /,$p' "$RESUME_FILE" | head -40)
