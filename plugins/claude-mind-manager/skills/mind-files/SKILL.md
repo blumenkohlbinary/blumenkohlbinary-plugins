@@ -90,8 +90,12 @@ Zusaetzlich (PFLICHT, via `test -e`/Glob konkret pruefen — Exist/Missing pro P
            `pyproject.toml` mit `[project] version` / `VERSION`-Datei / `package.json` version)?
            **Python vorhanden** (`python`/`python3` im PATH ODER `.venv/`)? — noetig fuers
            Gating des Versioning-Packs (Step 5c: NUR Python-Release-App).
+- DOCS:    `docs/`-Verzeichnis vorhanden? **Anzahl `.md`-Dateien** ausserhalb von
+           vendor-/Beispiel-Ordnern (`node_modules`, `vendor`, `Beispiele`, `.venv`) —
+           als ZAHL zurueckgeben, nicht als "viele". Python vorhanden (s. RELEASE)?
+           — noetig fuers Gating des Doku-Gates (Step 5d).
 
-Gib die 5 Bereiche als eigene Exist-vs-Missing-Sektion zurueck."
+Gib die 6 Bereiche als eigene Exist-vs-Missing-Sektion zurueck."
 ```
 
 > **v3.3.3 (Weg B):** Frueher liefen hier 4 zusaetzliche `context-analyzer`-Agents
@@ -524,6 +528,52 @@ Nicht-Git-Repo waere update_changelog.py selbst ein totes Tool). Zwei Faelle:
   gesetzt und das Tool fehlt, **degradiert version.py sauber**: WARN "update_changelog.py nicht
   gefunden - Changelog uebersprungen", der Bump/Tag laeuft normal durch (kein Abbruch).
 
+### Step 5d: Doku-Gate installieren (NEU v5.3.0 — Projekte mit nennenswerter Doku)
+
+**Wozu:** `coverage_gate.py` beantwortet die Frage „ist beim Uebertragen wirklich alles
+angekommen?" **messend statt schaetzend** — Quelldateien rein, Zieldokument rein, belegte
+Pruefpunkte raus. Relevant, sobald Wissen aus mehreren Dateien in ein Dokument wandert
+(Referenzen -> Leitfaden, Recherche -> Notiz, Rohmaterial -> Doku).
+
+**Gating (alle Bedingungen aus dem project-scanner-Report, sonst NICHT anbieten):**
+1. **Python vorhanden** (`python`/`python3`/`.venv` — Bereich RELEASE/DOCS), UND
+2. **nennenswerte Doku-Flaeche**: `docs/`-Verzeichnis existiert **ODER** ≥ 10 `.md`-Dateien
+   ausserhalb vendor-/Beispiel-Ordnern (Bereich DOCS).
+
+Fehlt Python -> **gar nicht anbieten** (totes Tool, genau der Fall den v4.0 abgeschafft hat).
+Unter 10 Markdown-Dateien und ohne `docs/` gibt es schlicht nichts zu messen — dann **INFO**
+statt Angebot: *"zu wenig Doku-Flaeche, das Gate haette hier keinen Gegenstand"*.
+
+**Immer detect-and-OFFER, nie erzwungen.** User bestaetigt.
+
+```bash
+# nur ausfuehren wenn Gating erfuellt UND User bestaetigt
+mkdir -p "$CLAUDE_PROJECT_DIR/tools" "$CLAUDE_PROJECT_DIR/.claude/rules"
+
+# 1. coverage_gate.py (stdlib-only, keine Fremd-Abhaengigkeit, kein Netzzugriff)
+if [ -f "$CLAUDE_PROJECT_DIR/tools/coverage_gate.py" ]; then
+  echo "SKIP: tools/coverage_gate.py existiert bereits (User fragen ob ueberschreiben)"
+else
+  cp "$CLAUDE_PLUGIN_ROOT/references/doc-templates/coverage_gate.py" \
+     "$CLAUDE_PROJECT_DIR/tools/coverage_gate.py"
+fi
+
+# 2. Companion-Rule wissenstransfer-pruefen.md (PFLICHT, Overwrite-Guard)
+if [ -f "$CLAUDE_PROJECT_DIR/.claude/rules/wissenstransfer-pruefen.md" ]; then
+  echo "SKIP: .claude/rules/wissenstransfer-pruefen.md existiert bereits (User fragen)"
+else
+  cp "$CLAUDE_PLUGIN_ROOT/references/rule-templates/wissenstransfer-pruefen.md" \
+     "$CLAUDE_PROJECT_DIR/.claude/rules/wissenstransfer-pruefen.md"
+fi
+```
+
+Dann **1 Pointer-Zeile** in `CLAUDE.md`: `- Wissenstransfer messen: \`python tools/coverage_gate.py <ziel.md> <quelle...>\` — siehe \`.claude/rules/wissenstransfer-pruefen.md\``
+
+⚠ **Was im Angebot dazugesagt werden MUSS** (sonst wird das Gate ueberschaetzt): es misst
+**Erwaehnung, nicht inhaltliche Treue**, und die **absolute Prozentzahl ist wertlos** — nur der
+Zuwachs zwischen Vorher- und Nachher-Stand traegt eine Aussage. Beides steht in der Rule; wer
+das Bundle anbietet, nennt es auch im Report.
+
 ## Step 6: Report — PFLICHT-Self-Check-Block am Anfang (v4.0)
 
 **WICHTIG:** Report MUSS mit Self-Check-Block BEGINNEN. Jeder Marker mit konkreten Belegen.
@@ -541,6 +591,7 @@ User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step 1 ausfuehren"
   - TESTS   → <Exist/Missing>
   - SECRETS → <Exist/Missing>
   - RELEASE → <Git? Versions-Signal? Python? — entscheidet Pack-Angebot>
+  - DOCS    → <`docs/`? Anzahl .md ausserhalb vendor? Python? — entscheidet Doku-Gate (5d)>
   No-Dead-Tools-Nachweis — GEMESSEN, nicht behauptet (v5.2.1):
   <woertliche Ausgabe von mind_check_tools_have_rules, eine Zeile je Tool>
   Beleg: project-scanner Agent Tool-Call #<N>
@@ -566,7 +617,7 @@ ein Tool ohne Rule ergibt nachweislich `FAIL`.
 > **Erreichbarkeit**, nicht die Wirkung. Dieser Rest bleibt Prosa und wird nicht als mehr
 > ausgegeben, als er ist.
 
-**Pflicht-Format:** Profile + alle 5 Setup-Bereiche mit Exist/Missing + die **ausgefuehrte**
+**Pflicht-Format:** Profile + alle 6 Setup-Bereiche mit Exist/Missing + die **ausgefuehrte**
 Nachweis-Ausgabe + `(Beleg: project-scanner Tool-Call #<N>)`.
 
 ---
@@ -603,6 +654,7 @@ Project readiness: Good (all critical files present)
   nie genutztes Tool im Ordner ist genau der Dead-Tool-Fall, den v4.0 abgeschafft hat.
 - **Templates plugin-unabhaengig:** Nach Installation kein Plugin-Bezug — Tools laufen autonom im Projekt. Keine Hardcodes von Plugin-Pfaden in den installierten Files (Direktive C)
 - **Python-Detection vor Backup-Installation:** Wenn `python --version` UND `python3 --version` fehlschlagen: Installation laeuft trotzdem (User-OK gegeben) ABER mit WARN "nicht lauffaehig bis Python da ist"
-- **"No Dead Tools"-Invariante (NEU v4.0, KERN):** JEDES Tool das dieser Skill ins Projekt installiert (`tools/backup_tools.py`, `tools/update_changelog.py`, `tools/version.py`, …) MUSS zusammen mit einer glob-getriggerten Companion-`.claude/rules/*.md` installiert werden, die Claude sagt WANN + WIE er's nutzt + 1 Pointer-Zeile in CLAUDE.md. **Kein Tool-Install ohne Rule** — sonst liegt das Tool tot im Ordner (`docs/*.md` ist Menschen-Doku, wird nicht auto-geladen). Ehrlich: die Rule macht das Tool *erreichbar*, nicht garantiert-genutzt (Prosa-Enforcement) — aber totes `.py` -> geladene Anweisung ist eine echte Verbesserung.
+- **"No Dead Tools"-Invariante (NEU v4.0, KERN):** JEDES Tool das dieser Skill ins Projekt installiert (`tools/backup_tools.py`, `tools/rollback.py`, `tools/mutation_guard.py`, `tools/update_changelog.py`, `tools/version.py`, `tools/coverage_gate.py`) MUSS zusammen mit einer glob-getriggerten Companion-`.claude/rules/*.md` installiert werden, die Claude sagt WANN + WIE er's nutzt + 1 Pointer-Zeile in CLAUDE.md. **Kein Tool-Install ohne Rule** — sonst liegt das Tool tot im Ordner (`docs/*.md` ist Menschen-Doku, wird nicht auto-geladen). Ehrlich: die Rule macht das Tool *erreichbar*, nicht garantiert-genutzt (Prosa-Enforcement) — aber totes `.py` -> geladene Anweisung ist eine echte Verbesserung.
 - **Versioning-Pack-Gating (NEU v4.0):** `version.py` + `release-build.md` NUR bei Python + Release-App (Primary `code_app`) + Build/Version-Signal anbieten. **Nie wo Python fehlt** — sonst waere version.py selbst ein totes Tool. Immer OFFER, nie erzwungen.
 - **update_changelog.py-Ownership (NEU v4.0):** gehoert ins Release-Hygiene-Bundle (Step 5b, `test -d .git`), NICHT ins Backup-Bundle. Nie ohne `release-hygiene.md`.
+- **Doku-Gate-Gating (NEU v5.3.0):** `coverage_gate.py` + `wissenstransfer-pruefen.md` NUR bei **Python vorhanden** UND (`docs/` existiert ODER ≥10 `.md` ausserhalb vendor-Ordnern). **Nie wo Python fehlt** — sonst waere das Gate selbst ein totes Tool. Zu wenig Doku-Flaeche → INFO statt Angebot, nicht stillschweigend installieren. Immer OFFER, nie erzwungen. **Und im Angebot dazusagen, was es NICHT kann:** es misst Erwaehnung statt inhaltlicher Treue, und die absolute Prozentzahl ist wertlos (gemessen: 43 % gegen einen Stand, in dem das Material nachweislich fehlte) — nur der Zuwachs traegt eine Aussage.

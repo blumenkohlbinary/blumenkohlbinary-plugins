@@ -165,12 +165,14 @@ globs: src/api/**/*.ts
 #### Companion-Rules fuer installierte Tools ("No Dead Tools" — NEU v4.0)
 
 Wenn eine Rule ein **installiertes Tool erreichbar machen** soll (z.B. `tools/backup_tools.py`,
-`tools/version.py`, `tools/update_changelog.py`), gelten zwei Zusatz-Regeln:
+`tools/version.py`, `tools/update_changelog.py`, `tools/coverage_gate.py`), gelten zwei
+Zusatz-Regeln:
 
 - **`globs:` muss auf die Trigger-Dateien zeigen**, an denen das Tool relevant wird — nicht
   irgendein Muster. Beispiele:
   - Backup-Tool (immer relevant vor Datei-Ops) -> `globs: ["**/*"]` (always-on).
   - Versions-Tool -> `globs: ["build.py", "*.spec", "**/*.py", "pyproject.toml", "VERSION"]`.
+  - Doku-Gate (relevant sobald Wissen uebertragen wird) -> `globs: ["**/*"]` (always-on).
 - **Inhalt = WANN + WIE**, nicht nur WAS: konkreter Trigger ("vor Mass-Delete", "nach
   Feature-Fertigstellung"), der genaue CLI-Aufruf, und die 2-3 load-bearing Fallen.
 - **Grund (ehrlich):** Eine glob-Rule laedt auto, sobald Claude eine passende Datei anfasst,
@@ -179,8 +181,13 @@ Wenn eine Rule ein **installiertes Tool erreichbar machen** soll (z.B. `tools/ba
   ist eine echte Verbesserung. `docs/*.md` (Menschen-Doku) wird NICHT auto-geladen und zaehlt nicht.
 
 mind-files nutzt fertige Companion-Rule-Templates aus `references/rule-templates/`
-(`backup-usage.md`, `release-hygiene.md`, `release-build.md`) — diese hier sind die
-Vorlage/Muster fuer handgeschriebene Companion-Rules.
+(`backup-usage.md`, `release-hygiene.md`, `release-build.md`, `wissenstransfer-pruefen.md`) —
+diese hier sind die Vorlage/Muster fuer handgeschriebene Companion-Rules.
+
+⚠ **Diese Liste zieht nicht automatisch mit.** Es gibt im Plugin **keine maschinenlesbare
+Registry** installierbarer Tools; sie steht als Prosa an genau zwei Stellen — hier und in der
+Step-5-Struktur von `mind-files/SKILL.md`. Wer ein Bundle ergaenzt, traegt es in **beide** ein,
+sonst ist es an einer Stelle unsichtbar.
 
 ---
 
