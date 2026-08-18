@@ -98,14 +98,18 @@ Basierend auf project-scanner Ergebnis:
 3. Ziel: 40-80 Zeilen, max 100
 
 ### Step 3d: Generation Checklist (MUST pass)
-- [ ] Has build/test commands section?
-- [ ] Has architecture/structure section?
-- [ ] Has conventions section?
+
+**Sektionen:** gegen die **gemeinsame Sektionsliste** in Step 4c pruefen (5 Pflicht + Workflow
+optional) — **nicht** gegen eine eigene, kuerzere Aufzaehlung.
+
+- [ ] Alle 5 Pflichtsektionen da (Übersicht · Commands · Architektur · Konventionen · Gotchas)?
+- [ ] Keine Emojis? *(= Check 3 — Piktogramme, nicht `→`/`—`)*
+- [ ] Kein Versions-Tag in einer Überschrift? *(= Check 15)*
 - [ ] No generic advice ("write clean code")?
 - [ ] No linter tasks (belongs in linter config)?
 - [ ] Under 100 lines?
 - [ ] Uses H2/H3 headings + bullets?
-- [ ] No secrets or credentials?
+- [ ] No secrets or credentials? *(= Check 17)*
 
 ### Step 3e: Preview + Write
 
@@ -117,6 +121,7 @@ Show generated CLAUDE.md to user. Ask for confirmation before writing.
 
 Read these reference files:
 - [references/quality-scoring-guide.md](../../references/quality-scoring-guide.md) — 0-100 scoring rubric, A-F grading
+- [references/claudemd-audit-criteria.md](../../references/claudemd-audit-criteria.md) — **NEU v5.4.0: ZWEITE Rubrik** (Anthropic, andere Gewichtung, **ohne** Notenskala) + Red Flags + `update-guidelines.md`-Kategorien
 - [references/quality-criteria.md](../../references/quality-criteria.md) — Optimization patterns + anti-patterns
 - [references/prompt-quality-guide.md](../../references/prompt-quality-guide.md) — CLAUDE.md writing best practices
 - [references/budget-thresholds.md](../../references/budget-thresholds.md) — SFEIR compliance data
@@ -131,14 +136,124 @@ Version/Pfad/Budget ab, NICHT die semantische Bewertung. Der Agent ist der einzi
 Launch **context-analyzer** with scope=claude-md:
 "Analyze all CLAUDE.md files in this project. Scope: claude-md. Report quality score, contradictions, staleness, and optimization suggestions."
 
-### Step 4c: Deterministische Inline-Checks (ergaenzend, NICHT statt Agent)
+**NEU v5.4.0 — vier Anforderungen, die nachweislich NICHT messbar sind** und deshalb
+ausdruecklich in den Agent-Prompt gehoeren, statt still zu fehlen:
 
-Während der Agent läuft, selbst prüfen:
+- **Keine Ausfuehrungsplaene** — sie veralten zu schnell, gehoeren in MEMORY.md/Task-Dateien
+- **Zeiger statt Inline-Kopien** — *„Prefer pointers to copies"*
+- **Kein Hotfix-Sammelbecken** — jede ueberfluessige Zeile senkt die Befolgung aller anderen
+- **Keine vorsorglichen Regeln** — reaktiv ergaenzen, wenn Claude einen Fehler macht
 
-1. **Versions-Check**: Read plugin.json/package.json → extract version. Grep CLAUDE.md für Versionsnummern. Mismatch → Finding.
-2. **Pfad-Check**: Extract alle Pfade aus CLAUDE.md (backtick-wrapped, Zeilen mit `/` oder `\`). Bash: `test -e "$path"` für jeden. Tot → Finding.
-3. **Git-Check** (nur wenn `.git/` existiert): `git log --oneline -10` → Gibt es Commits (feat, fix, refactor) die nicht in CLAUDE.md reflektiert sind?
-4. **CLAUDE.local.md**: Wenn vorhanden → Deprecation-Warnung
+Dazu die zwei Leitfragen: *„Wuerde das Entfernen dieser Zeile dazu fuehren, dass Claude einen
+Fehler macht?"* und *„Would a new Claude session find this helpful?"*
+
+⛔ **Der Agent zaehlt NICHT selbst.** Zeilenzahl und Tokens/Zeile kommen kanonisch aus
+Step 4c Schritt 2 und werden ihm uebergeben — sonst stehen zwei verschiedene Zahlen fuer
+dieselbe Groesse im selben Bericht.
+
+### Step 4c: Deterministische Prüf-Pipeline (NEU v5.4.0 — ergaenzend, NICHT statt Agent)
+
+⛔ **Das ist eine PIPELINE, keine Liste. Die Reihenfolge ist Teil der Spezifikation** — mehrere
+Fehlerklassen entstehen ausschliesslich dadurch, dass man sie missachtet.
+
+#### Schritt 0 — Vorverarbeitung (PFLICHT, vor jedem Check)
+
+1. **Fenced Codebloecke herausschneiden und merken.** Sie sind von Check 3, 6 und 13
+   ausgenommen. Ohne das reisst die Backtick-Extraktion an den Fences auf, und Code-Inhalt
+   landet ungefiltert in der Pfadliste.
+2. **Mehrzeilige Bullets zusammenfassen** — Bullet + eingerueckte Folgezeilen zu EINER Einheit.
+   Ohne das meldet Check 7 falsch: das `NEVER` steht auf Zeile 1, die Alternative auf Zeile 2.
+3. **Alle Textvergleiche case-insensitiv.** `**stattdessen**` klein geschrieben zaehlt.
+
+> Alle drei sind real passiert, am 2026-08-18 beim Bau genau dieser Pruefungen.
+
+#### Schritt 1 — Instrumentenkontrolle (EINZIGER Abbruchgrund)
+
+Die Pruefung zusaetzlich gegen eine **bekannt schlechte** Kontrolldatei fahren (Prosa-Wand,
+keine Struktur, generische Ratschlaege). Schneidet sie **nicht deutlich schlechter** ab, misst
+das Instrument nichts → **Lauf abbrechen**, alle Zahlen ungueltig.
+
+**Warum das keine Zierde ist:** In einer einzigen Sitzung traten **neun** Messfehler auf, deren
+Ausgabe jedes Mal wie ein plausibler Befund aussah — u.a. `grep -c $'\r'`, das jede Zeile
+zaehlte und „CRLF in allen Hooks" meldete (byte-genau: **0**), und ein Emoji-Zaehler, der nur
+die Unicode-Kategorien `So`/`Sk` prueft und deshalb `→` (Kategorie `Sm`) uebersah.
+**Eine Bewertung ohne Gegenprobe ist eine Behauptung.**
+
+#### Schritt 2 — Harte Checks → Berichtsblock „Befunde"
+
+| # | Check | Regel |
+|---|---|---|
+| 2 | H1 **oder** direkter H2-Start | beides zulaessig |
+| 3 | Keine Emojis | **Piktogramm-Ranges** U+1F300–1FAFF, ausgewaehlte U+2600–27BF. **NIE nach Unicode-Kategorie** — `→` und `—` sind erlaubt |
+| 4 | Bullets ≤ 3 Ebenen | tiefere melden |
+| 5 | Keine Leerzeile **zwischen** Bullets | **beide** Nachbarn pruefen — vor `## Gotchas` ist sie erlaubt |
+| 6 | Zeilenlaenge — **zwei Schwellen** | **Prosa 100 · strukturierte Zeile (Bullet, Tabelle, nummeriert) 250.** Codebloecke ganz ausgenommen. Eine Regelzeile mit Alternative/Grund ist lang, **weil Check 7 es verlangt** — bis 250 kein Befund |
+| 7 | Jedes `NEVER` nennt eine Alternative | nach Schritt 0.2, jedes einzeln melden |
+| 11 | Zeilenzahl — **zwei Skalen, beide melden** | *diese Datei:* `<60` optimal · `<150` akzeptabel · 150–200 Warnung · `>200` kritisch. *Summe ueber alle Scopes:* `<100` · `<200` · 200–400 · `>400` (71 % Befolgung). Zielwert Wurzeldatei 40–80 |
+| 12 | Tokens/Zeile | **drei** Schaetzer: Zeichen/4 · Bytes/4 · Woerter×1,4. **Alle drei ausweisen**, Schwelle 15 — sie laufen bei deutschem Text um ein Drittel auseinander |
+| 13 | Pfade existieren | **ERSETZT den alten Punkt 2.** Kette: Fences raus → Backtick+Slash extrahieren → Spans mit Interpreter-Praefix an Check 14 abgeben → `classify_path()` (mind-update 3b) → `test -e`. **Drei Klassen:** `DEAD` (nirgends) = Befund · **`EXTERN`** (existiert unter Elternverzeichnis oder unter einer Wurzel, die die Datei selbst nennt) = **nur Hinweis** · `SKIP` |
+| 14 | Befehle lauffaehig | **nur** Spans mit Interpreter-Praefix (`python `, `node `, `bash `, `./`). Fragmente wie `restore <name>` ignorieren |
+| 15 | Versionen | Manifest-Abgleich **plus** `grep -E '^#+ .*\(v[0-9]'` → **muss 0 sein** |
+| 17 | Keine Secrets | `sk-ant-` · `AKIA` · `BEGIN … PRIVATE KEY` · `password=` |
+| 18 | Modularity messbar | `.claude/rules/*.md` zaehlen · `@import`-Vorkommen · Memory-Topic-Files. **15 Rubrik-Punkte, bis v5.3.1 von keinem Check beruehrt** |
+| 19 | Ueberschriften-Hierarchie | `##` Haupt-, `###` Unterabschnitt, keine Spruenge |
+| 20 | Architektur: 3–7 Eintraege | mehr = „vollstaendige Verzeichnisliste" (Anti-Pattern) |
+| 21 | Commands-Inhalt | Stichwortsuche nach `build`, `test`, `lint`, `dev` — Sektions-Praesenz allein genuegt nicht. ⛔ **NUR bei Code-Projekten** (`package.json`/`pyproject.toml`/`Cargo.toml`/`go.mod`/`Makefile`/…). Ein Doku- oder Workspace-Projekt hat kein build/test/lint — dort waere der Check ein garantierter Fehltreffer, also gar keine Messung |
+
+**Unveraendert uebernommen:** Git-Check (`git log --oneline -10`, nur wenn `.git/` existiert)
+und die `CLAUDE.local.md`-Deprecation-Warnung.
+
+#### Schritt 3 — Heuristiken → Berichtsblock „Hinweise" (NIE Punktabzug)
+
+| # | Check | Warum nur Hinweis |
+|---|---|---|
+| 1 | Pflichtsektionen | **DE/EN-Synonymtabelle**, nicht englische Literale (`Übersicht` == `Overview`). **Workflow ist laut Notiz-Tabelle „(optional, empfohlen)"**, obwohl die Einleitung „MUSS" sagt — Widerspruch nicht aufloesen, Workflow als optional zaehlen. Kein Treffer → *„ungeprueft, Agent bestaetigen"*, nicht „fehlt" |
+| 8 | Drei Constraint-Arten, **beide Richtungen** | nur `MUST`/`NEVER` ist bei guten Dateien normal. Auch der Spiegelfall (0 harte Regeln, nur `PREFER`) ist ein Hinweis |
+| 9 | Betonung ueber Fett statt Marker | nur Extremfaelle (> 10:1) |
+| 10 | Generische Ratschlaege | Phrasenlisten finden keine Paraphrasen — Agent-Aufgabe |
+| 16 | Dopplung | identische Zeilen gegen README **und** `package.json` **und** `tsconfig.json` |
+| 22 | Prosa-Wand | Anteil Nicht-Bullet-Zeilen |
+| 23 | Linter-Aufgaben | eigene Kategorie, nicht dasselbe wie „generisch" |
+| 24 | Backtick-Pflicht | fehleranfaellig, deshalb **nie** Befund |
+
+⛔ **Heuristiken warnen, sie strafen nicht.** Ein Punktabzug auf Verdacht waere derselbe Fehler
+wie ein autonom geloeschter „toter" Pfad.
+
+#### ⛔ Drei Checks wurden erst durch das AUSFUEHREN richtig (2026-08-19)
+
+Die Pipeline wurde auf zwei echten Dateien gefahren, bevor sie hier stand. Ergebnis im ersten
+Lauf: die **gute** Datei loeste **8 Befunde** aus. Kein einziger war ein Mangel der Datei:
+
+| Check | Fehlverhalten | Ursache |
+|---|---|---|
+| 6 | 3 Fehltreffer | Schwelle 100 traf **Regelzeilen mit Grund** — genau das Format, das der Leitfaden verlangt. Die echten Prosa-Waende der schlechten Datei lagen bei **518** und **643** Zeichen. Zwei Schwellen trennen beides sauber |
+| 13 | 4 Fehltreffer | Ein Befehl (`python tools/rollback.py list`) landete in der Pfadliste statt bei Check 14 · und Pfade in ein **Nachbar-Repo** galten als tot. Eine CLAUDE.md, die anderswo liegenden Code dokumentiert, haette so reihenweise `DEAD` erzeugt — bei ≤5 Treffern **autonom geloescht** |
+| 21 | 1 Fehltreffer | Ein Workspace ohne Build hat kein `build`/`test`/`lint`. Ein Check, der auf einer ganzen Projektklasse **immer** anschlaegt, misst dort nichts |
+
+**Danach: gute Datei 0 Befunde · schlechte 17 · Kontrolldatei 11.** Zusaetzlich 27 benannte
+Regressionsfaelle, davon **13 Gegenproben** (soll NICHT anschlagen) — alle bestanden.
+
+> **Die Lehre:** Eine Pruefliste, die nie gelaufen ist, sieht genauso gut aus wie eine, die
+> laeuft. Drei von 15 harten Checks waren falsch, und alle drei sahen auf dem Papier richtig aus.
+
+#### Gemeinsame Sektionsliste (Check 1 **und** Step 3d — EINE Quelle)
+
+| Sektion | Pflicht? | Erkannt an (case-insensitiv, DE **oder** EN) |
+|---|---|---|
+| Übersicht | ja | `übersicht`, `overview`, `projekt`, `project`, `zweck`, `purpose`, `about` |
+| Commands | ja | `command`, `befehl`, `build`, `test`, `script`, `entwicklung`, `development` |
+| Architektur | ja | `architekt`, `architecture`, `struktur`, `structure`, `aufbau`, `layout` |
+| Konventionen | ja | `konvention`, `convention`, `stil`, `style`, `regel`, `rule`, `pattern` |
+| Gotchas | ja | `gotcha`, `falle`, `pitfall`, `warnung`, `warning`, `bekannte fehler`, `known issue` |
+| Workflow | **optional** | `workflow`, `ablauf`, `prozess`, `process`, `beitrag`, `contributing` |
+
+⛔ **Workflow ist optional.** Die Notiz sagt in der Einleitung „MUSS", die Tabelle darunter
+„(optional, empfohlen)". Der Widerspruch wird **nicht aufgeloest**, sondern zugunsten der
+spezifischeren Angabe entschieden — und hier sichtbar gemacht statt stillschweigend.
+
+⛔ **Diese Liste steht genau EINMAL.** Bis v5.3.1 nannte Step 3d eine andere, kuerzere Auswahl
+(Übersicht, Gotchas und Workflow fehlten) — zwei Wahrheiten in derselben Datei, beide gleich
+glaubwuerdig. Wer sie aendert, aendert sie hier.
 
 ### Step 4d: Ergebnisse konsolidieren + präsentieren
 
@@ -160,8 +275,46 @@ Agent-Ergebnisse + eigene Inline-Checks zusammenführen. Anzeigen als:
 
 Fehlt der Self-Check-Block oder enthaelt `(SKIPPED)`: User darf zurueckweisen.
 
+**NEU v5.4.0 — ZWEIMAL bewerten, mit beiden Rubriken:**
+
+1. `references/quality-scoring-guide.md` — Structure 20 · Completeness 25 · Efficiency 20 ·
+   Modularity 15 · Currency 10 · Format Quality 10. **Hat eine A–F-Skala.**
+2. `references/claudemd-audit-criteria.md` — Commands 20 · Architecture 20 · Non-Obvious 15 ·
+   Conciseness 15 · Currency 15 · Actionability 15. ⛔ **Hat KEINE Skala — keine Note erfinden.**
+
+**Warum beide:** dieselbe Datei ergab **54** (Rubrik 2) und **67** (Rubrik 1), nach dem Umbau
+**95** und **91**. Gleiche Defekte, andere Gewichte — eine Rubrik allein findet die Haelfte nicht.
+
+Der Bericht nennt beide getrennt und trennt Befunde von Hinweisen:
+
 ```
-=== CLAUDE.md Audit Report ===
+=== CLAUDE.md Audit Report v5.4.0 ===
+Instrumentenkontrolle: bestanden (Kontrolldatei 284 Tok/Z gegen 12,3) — Messung gueltig
+
+RUBRIK 1 (quality-scoring-guide.md, mit Notenskala)   67/100  Grade C
+  Structure 16/20 · Completeness 13/25 · Efficiency 15/20
+  Modularity 10/15 · Currency 3/10 · Format Quality 10/10
+
+RUBRIK 2 (claudemd-audit-criteria.md, OHNE Notenskala)   54/100
+  Commands 10/20 · Architecture 18/20 · Non-Obvious 5/15
+  Conciseness 5/15 · Currency 8/15 · Actionability 8/15
+  ⚠ keine Note — das Quelldokument definiert keine Skala
+
+--- BEFUNDE (harte Checks) ---
+[1] CRITICAL  CLAUDE.md:52   Versions-Tag in Ueberschrift: (v5.2.2), Ist-Stand 5.3.1
+[2] WARNING   CLAUDE.md:—    Gotchas-Sektion fehlt
+[3] WARNING   CLAUDE.md:—    Tokens/Zeile 26,0 / 26,3 / 17,0 (Schwelle 15)
+
+--- HINWEISE (Heuristiken, KEIN Punktabzug) ---
+[H1] Sektion „Architecture" nicht gefunden — ungeprueft, Agent bestaetigen
+[H2] nur MUST/NEVER, keine PREFER/AVOID — bei diesem Projekttyp ggf. richtig
+```
+
+⛔ **Befunde und Hinweise nie in einer Liste mischen** — sonst stehen harte Messungen neben
+Verdachtsmomenten und der Leser kann beides nicht trennen.
+
+```
+=== CLAUDE.md Audit Report (Altformat, weiterhin gueltig fuer die Findings-Tabelle) ===
 
 Score: 72/100 (Grade: C)
 File: ./CLAUDE.md (145 lines, ~1450 tokens)
@@ -272,3 +425,20 @@ Token savings: ~270
 - ALWAYS use Edit tool (not Write) for modifications — preserves surrounding content
 - Generate-Modus: ALWAYS show preview, NEVER write without confirmation
 - If CLAUDE.local.md found: warn but NEVER auto-delete (deprecated is not deleted)
+
+**NEU v5.4.0 — Pipeline-Invarianten (Step 4c):**
+
+- **Step 4c ERSETZT den Agent nicht.** Der context-analyzer-Dispatch (Step 4b) bleibt Pflicht;
+  vier Anforderungen sind nachweislich nicht messbar und existieren nur dort.
+- ⛔ **Die Instrumentenkontrolle (Schritt 1) ist der EINZIGE Abbruchgrund.** Kein Check darunter
+  bricht ab — sie sind Befunde, keine Fehler.
+- ⛔ **Heuristiken (Schritt 3) fuehren NIE zu Punktabzug** und stehen NIE im Block „Befunde".
+- ⛔ **Ein Pfad-Check und ein Versions-Check, nicht je zwei.** Check 13 *ersetzt* den alten
+  Punkt 2, Check 15 *erweitert* Punkt 1. Bleibt der alte Pfad-Check daneben stehen, laeuft der
+  v5.3.1-Bug parallel weiter — Markdown-Links als `DEAD`, bei ≤5 **autonom geloescht**.
+- ⛔ **Check 6 meldet keine Zeile, die Check 7 verlangt.** `NEVER`+Alternative ist lang, weil
+  die Regel es fordert. Zwei Kriterien, die einander ausschliessen, machen das Werkzeug kaputt.
+- **Beide Rubriken im Bericht, mit Namen.** `quality-scoring-guide.md` hat eine Notenskala,
+  `claudemd-audit-criteria.md` hat **keine** — dort keine Note erfinden.
+- **Zahlen kommen kanonisch aus Schritt 2** und werden dem Agent uebergeben, statt dass er
+  selbst zaehlt.

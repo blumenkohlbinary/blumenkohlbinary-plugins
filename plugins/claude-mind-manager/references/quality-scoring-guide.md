@@ -48,6 +48,28 @@ optimized ~9 tokens/line. Compliance drops from 92% (<200 lines) to 71% (>400 li
 **Why 150 lines?** Boris Cherny recommends <1,000 tokens. At ~9 tokens/line (optimized),
 that is ~110 lines. Anthropic recommends <200 lines. The 150-line threshold balances both.
 
+#### ⛔ Tokens/Zeile: DREI Schaetzer, alle drei ausweisen (NEU v5.4.0)
+
+Es gibt keinen einzelnen richtigen Wert. Auf **deutschem** Text laufen die gaengigen
+Naeherungen um rund ein Drittel auseinander — wer nur einen nennt, waehlt damit unausgesprochen
+sein Ergebnis:
+
+| Schaetzer | Formel | Neigt zu |
+|---|---|---|
+| Zeichen/4 | `Zeichen ÷ 4 ÷ Zeilen` | unterschaetzt bei Umlauten (ein Zeichen, zwei Bytes) |
+| Bytes/4 | `Bytes ÷ 4 ÷ Zeilen` | naeher an UTF-8-Tokenisierern, ueberschaetzt reines ASCII |
+| Woerter×1,4 | `Woerter × 1,4 ÷ Zeilen` | robust gegen Kodierung, blind fuer lange Codespans |
+
+**Gemessen an einer realen deutschen CLAUDE.md (95 Zeilen):** 26,0 · 26,3 · 17,0 — dieselbe
+Datei, drei Zahlen, Spanne **9,3**. Die Schwelle 15 ist nur dann eine Aussage, wenn dabeisteht,
+womit gemessen wurde.
+
+**Regel:** Step 4c Check 12 gibt **alle drei** aus. Ein Befund wird nur gemeldet, wenn
+**mindestens zwei** die Schwelle reissen — sonst ist er ein Artefakt der Formelwahl.
+
+⛔ **Der Skill nutzt die Werte aus Step 4c und rechnet sie nicht neu.** Zwei Zahlen fuer
+dieselbe Groesse im selben Bericht sind schlimmer als eine ungenaue.
+
 ### 4. Modularity (15 points)
 
 SFEIR data: 5 rule files x 30 lines = 96% compliance vs. single 150-line file = 92%.
