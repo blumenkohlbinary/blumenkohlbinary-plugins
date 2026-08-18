@@ -58,22 +58,34 @@ fi
 steht ein Sync aus. `OPEN` nennt die Rettungsdatei und den gesicherten Auftrag.
 ```bash
 OPEN="$PROJ/.claude-mind/rescued/OPEN"
-RESCUED=""; RESUME_FILE=""; COMPACTIONS=""
+RESCUED_ALL=""; RESUME_FILE=""; COMPACTIONS=""
 if [ -f "$OPEN" ]; then
-  RESCUED=$(grep     -m1 '^path='        "$OPEN" | cut -d= -f2-)
-  RESUME_FILE=$(grep -m1 '^resume='      "$OPEN" | cut -d= -f2-)
+  # v5.4.1: ALLE offenen Rettungen, aelteste zuerst. Bis v5.4.0 stand hier `grep -m1` —
+  # bei zwei Kompaktierungen ohne Sync wurde die aeltere NIE eingespeist, obwohl ihre Datei
+  # noch dalag. Belegt: 20260816-194132_chat.md, 412 KB, verwaist.
+  RESCUED_ALL=$(grep '^path=' "$OPEN" | cut -d= -f2- | while IFS= read -r p; do
+                  [ -n "$p" ] && [ -f "$p" ] && echo "$p"; done)
+  RESUME_FILE=$(grep '^resume='      "$OPEN" | cut -d= -f2- | tail -1)   # der juengste Auftrag
   COMPACTIONS=$(grep -m1 '^compactions=' "$OPEN" | cut -d= -f2-)
 fi
 # Rueckfall, falls OPEN fehlt (Rettung aus einer aelteren Version)
-[ -z "$RESCUED" ] && RESCUED=$(ls -t "$PROJ/.claude-mind/rescued"/*_chat.md 2>/dev/null | head -1)
+[ -z "$RESCUED_ALL" ] && RESCUED_ALL=$(ls -t "$PROJ/.claude-mind/rescued"/*_chat.md 2>/dev/null | head -1)
+RESCUED_N=$(printf '%s\n' "$RESCUED_ALL" | grep -c . 2>/dev/null)
+case "$RESCUED_N" in ''|*[!0-9]*) RESCUED_N=0 ;; esac
 
-if [ -n "$RESCUED" ] && [ -s "$RESCUED" ]; then
+if [ "$RESCUED_N" -gt 0 ]; then
   # NUR ZAEHLEN, NICHT LESEN — siehe Sperre unten
   # v5.2.2: BEIDE Quellen. Die Rettung endet am Kompaktierungs-Zeitpunkt; alles danach steht
   # nur im Live-Transkript — und genau das ist die Arbeit, wegen der der Lauf erzwungen wird.
   echo "Session-Quelle: gerettet+live"
-  echo "  gerettet -> $RESCUED ($(grep -c '^## \[' "$RESCUED") Beitraege, bis zur Kompaktierung)"
-  echo "  live     -> Sampler ueber das laufende Transkript (die Zeit danach)"
+  echo "  gerettet -> $RESCUED_N Rettung(en), aelteste zuerst:"
+  i=0
+  printf '%s\n' "$RESCUED_ALL" | while IFS= read -r r; do
+    [ -n "$r" ] || continue
+    i=$((i+1))
+    echo "     [$i] $(basename "$r")  $(grep -c '^## \[' "$r") Beitraege"
+  done
+  echo "  live     -> Sampler ueber das laufende Transkript (die Zeit nach der letzten)"
   [ -n "$COMPACTIONS" ] && [ "$COMPACTIONS" -gt 1 ] 2>/dev/null && \
     echo "ACHTUNG: $COMPACTIONS Kompaktierungen seit dem letzten Sync — bereits verschleppt."
 else
@@ -221,8 +233,14 @@ if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" = "ja" ]; then
 fi
 ```
 
-**Die Rettungsdatei `*_chat.md` bleibt liegen** — sie ist das Archiv und rotiert ueber
-`MIND_RESCUE_KEEP_COUNT`. Entfernt wird nur die **Schuld**, nicht der Beleg.
+**Die Rettungsdateien `*_chat.md` bleiben liegen** — sie sind das Archiv. Entfernt wird nur
+die **Schuld**, nicht der Beleg.
+
+⛔ **v5.4.1: Teilerfolg ist kein Erfolg.** `OPEN` wird nur entfernt, wenn **ALLE** offenen
+Rettungen eingespeist wurden. Bricht der Lauf nach der ersten ab, bleiben die uebrigen
+`path=`-Zeilen stehen und der Stop-Hook hakt zu Recht weiter nach. Wer hier zu frueh
+begleicht, wiederholt genau den Fehler, an dem v5.2.0 gescheitert ist — nur eine Ebene
+tiefer.
 
 **Wenn der Sync NICHT lief** (Abbruch, Probelauf, mind-update gescheitert): `OPEN` bleibt, und
 der Schlussbericht sagt **ausdruecklich**, dass die Schuld offen bleibt und der Stop-Hook
@@ -290,8 +308,9 @@ nicht: jede Aenderung einzeln, jede Auslassung mit Grund, Snapshot-Pfad immer da
 - **Strikt sequenziell** — nie zwei Skills gleichzeitig (Anti-Burst).
 - **Reihenfolge ist fest:** files → claudemd → memory → rules → update.
 - **DESIGN-Befunde werden nie automatisch angewendet** (in keinem der 5).
-- **Geretteter Chat UND Live-Transkript (v5.2.2, korrigiert v5.1.0):** Liegt eine Rettung vor,
-  sind **beide** die Session-Quelle, und der Bericht MUSS beide ausweisen. Die Rettung deckt
+- **ALLE geretteten Chats UND das Live-Transkript (v5.4.1, zuvor v5.2.2):** Liegen mehrere
+  Rettungen vor, sind sie **alle** Session-Quelle — aelteste zuerst —, und der Bericht MUSS
+  jede einzeln ausweisen. Nur die juengste zu nehmen ist ein **Befund**, kein gueltiger Lauf. Die Rettung deckt
   alles bis zur Kompaktierung ab, das Live-Transkript die Zeit danach — und das ist die Arbeit,
   wegen der der Stop-Hook den Lauf erzwingt. **`gerettet` allein ist ab v5.2.2 ein Befund.**
 - **Overwrite-Guards und Tool-Bundle-Angebote aus mind-files bleiben aktiv** — Autonomie
@@ -312,6 +331,14 @@ nicht: jede Aenderung einzeln, jede Auslassung mit Grund, Snapshot-Pfad immer da
 - **Die Schuld wird nur bei tatsaechlich gelaufenem Sync entfernt (v5.2.1).** Bleibt sie offen,
   MUSS der Bericht das sagen — stillschweigendes Liegenlassen ist genau der Fehler, an dem
   v5.2.0 gescheitert ist.
+- ⛔ **DER SYNC GEHT IMMER VOR (NEU v5.4.1, Nutzer-Entscheidung 19.08.2026).**
+  Liegt eine offene Schuld vor, laeuft `/mind-all` **zuerst** — vor jedem Auftrag, ohne
+  Ausnahme. *„Ich mache erst den Auftrag fertig"* ist **kein zulaessiger Grund mehr**.
+  **Warum das die v5.2.0-Regel ersetzt:** Die alte Fassung („laufender Auftrag hat Vorrang")
+  nannte keinen Zeitpunkt, zu dem der Sync faellig wird. Zog sich der Auftrag bis zur
+  naechsten Kompaktierung, wiederholte sich dieselbe Begruendung — und bis v5.4.0 zeigte der
+  Merker dann woanders hin. Der Auftrag geht dabei **nicht** verloren: er steht woertlich im
+  `<ts>_RESUME.md` und kommt unten mit der `⏭ FORTSETZUNG`-Zeile zurueck.
 - **`/mind-all` ist NIE ein Auftragsende (v5.2.0).** Nennt der Auftrags-Merker einen unterbrochenen
   Auftrag, MUSS der Schlussbericht mit der `⏭ FORTSETZUNG`-Zeile enden und die Arbeit danach
   wieder aufgenommen werden. Ein Context-Sync ist ein Einschub — er erledigt nichts, was der

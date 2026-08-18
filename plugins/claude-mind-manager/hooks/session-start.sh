@@ -89,11 +89,30 @@ RESUME_FILE=$(grep -m1 '^resume='      "$OPEN" 2>/dev/null | cut -d= -f2-)
 RESCUE_N=$(grep    -m1 '^events='      "$OPEN" 2>/dev/null | cut -d= -f2-)
 COMPACTIONS=$(grep -m1 '^compactions=' "$OPEN" 2>/dev/null | cut -d= -f2-)
 
-if [ -z "$RESCUE_PATH" ] || [ ! -f "$RESCUE_PATH" ]; then
-  _slog INFO "OPEN zeigte ins Leere -> entfernt, nichts gemeldet"
+# v5.4.1: OPEN kann MEHRERE Rettungen nennen — eine je Kompaktierung ohne Sync.
+# Tote Zeiger fliegen EINZELN raus; OPEN verschwindet nur, wenn KEINE Rettung mehr da ist.
+# Vorher loeschte eine einzige wegrotierte Datei die Schuld fuer alle.
+_ALIVE=$(grep '^path=' "$OPEN" 2>/dev/null | cut -d= -f2- | while IFS= read -r _p; do
+           [ -n "$_p" ] && [ -f "$_p" ] && echo "$_p"; done)
+RESCUE_ANZ=$(printf '%s\n' "$_ALIVE" | grep -c . 2>/dev/null)
+case "$RESCUE_ANZ" in ''|*[!0-9]*) RESCUE_ANZ=0 ;; esac
+if [ "$RESCUE_ANZ" -eq 0 ]; then
+  _slog INFO "OPEN nannte nur tote Rettungen -> entfernt"
   rm -f "$OPEN" "${OPEN}.seen-"* 2>/dev/null
   exit 0
 fi
+_ROH=$(grep -c '^path=' "$OPEN" 2>/dev/null); case "$_ROH" in ''|*[!0-9]*) _ROH=0 ;; esac
+if [ "$RESCUE_ANZ" -ne "$_ROH" ]; then
+  _T="${OPEN}.tmp.$$"
+  { grep -v -E '^(path|resume)=' "$OPEN" 2>/dev/null
+    printf '%s\n' "$_ALIVE" | sed 's|^|path=|'
+    grep '^resume=' "$OPEN" 2>/dev/null | cut -d= -f2- | while IFS= read -r _r; do
+      [ -n "$_r" ] && [ -f "$_r" ] && echo "resume=$_r"; done
+  } > "$_T" 2>/dev/null && mv -f "$_T" "$OPEN" 2>/dev/null || rm -f "$_T" 2>/dev/null
+  _slog INFO "$((_ROH - RESCUE_ANZ)) tote Rettungszeiger entfernt, $RESCUE_ANZ verbleiben"
+fi
+RESCUE_PATH=$(printf '%s\n' "$_ALIVE" | tail -1)   # die JUENGSTE ist die Leitrettung
+
 
 : > "$SEEN" 2>/dev/null
 _slog INFO "Schuld gemeldet (events=${RESCUE_N:-?}, compactions=${COMPACTIONS:-?}, sid=$SID) -> $RESCUE_PATH"
@@ -116,8 +135,11 @@ Kompaktierung gesichert):
 ${RESUME_TXT:-(kein Auftrags-Merker vorhanden)}
 --- Ende Auftrags-Merker ---
 
-REIHENFOLGE: Steht oben ein Auftrag, der noch nicht erledigt ist, hat ER Vorrang — dann erst
-weiterarbeiten und den Sync danach nachholen. Sonst: /mind-all mit der Rettungsdatei als
+REIHENFOLGE: /mind-all ZUERST — ohne Ausnahme. Der Auftrag ist woertlich in
+<ts>_RESUME.md gesichert und kommt im Sync-Bericht mit der Zeile 'FORTSETZUNG' zurueck.
+Der Sync dauert Minuten; ihn zu verschieben kostet den Inhalt der Rettung, sobald die
+naechste Kompaktierung kommt. 'Ich mache zuerst den Auftrag fertig' ist ab v5.4.1
+KEIN zulaessiger Grund mehr. Sonst: /mind-all mit der Rettungsdatei als
 Session-Quelle ausfuehren ('Session-Quelle: gerettet <pfad>' im Bericht) und den Auftrag
 danach wieder aufnehmen.
 

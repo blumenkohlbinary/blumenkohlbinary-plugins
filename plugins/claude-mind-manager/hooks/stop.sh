@@ -30,11 +30,24 @@ INPUT=$(cat 2>/dev/null)
 MIND_LOG_FILE="/tmp/mind-manager.log"
 _slog() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1 stop: ${*:2}" >> "$MIND_LOG_FILE" 2>/dev/null; }
 
+# v5.4.1: belegt, DASS der Hook lief — sonst ist "Hook feuerte nicht" nicht
+# von "Hook stieg still aus" zu unterscheiden.
+_slog DEBUG "aufgerufen"
+
 # --- Bremse 2: ohne jq kein Schleifenschutz -> gar nicht erst blocken ---
-command -v jq >/dev/null 2>&1 || exit 0
+# v5.4.1: JEDER Ausstieg wird protokolliert. Vorher schwieg dieser Hook in drei Faellen
+# vollstaendig — und ein Hook, der schweigt weil er soll, war von einem, der schweigt weil
+# er kaputt ist, nicht zu unterscheiden. Genau daran scheiterte am 19.08.2026 die Frage
+# "warum hat er kein /mind-all gemacht?": blocks=0, keine Log-Zeile, drei Kandidaten,
+# keiner ausschliessbar. v5.3.1 hatte diesen Fix den zwei anderen Hooks schon gegeben.
+if ! command -v jq >/dev/null 2>&1; then
+  _slog WARN "kein jq -> kein Schleifenschutz, deshalb KEIN Block (Schuld bleibt offen)"
+  exit 0
+fi
 
 # --- Bremse 1: Schleifenschutz ZUERST ---
 if [ "$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null)" = "true" ]; then
+  _slog INFO "still: stop_hook_active=true (erzwungene Fortsetzung laeuft bereits)"
   exit 0
 fi
 
@@ -44,8 +57,11 @@ PROJ="${CLAUDE_PROJECT_DIR:-}"
 
 OPEN="$PROJ/.claude-mind/rescued/OPEN"
 
-# --- SCHNELLPFAD: keine Schuld -> absolut still ---
-[ -f "$OPEN" ] || exit 0
+# --- SCHNELLPFAD: keine Schuld -> still, aber nachweisbar ---
+if [ ! -f "$OPEN" ]; then
+  _slog INFO "still: keine offene Schuld (PROJ=$PROJ)"
+  exit 0
+fi
 
 RESCUE_PATH=$(grep -m1 '^path='        "$OPEN" 2>/dev/null | cut -d= -f2-)
 RESUME_FILE=$(grep -m1 '^resume='      "$OPEN" 2>/dev/null | cut -d= -f2-)
@@ -55,11 +71,30 @@ BLOCKS=$(grep      -m1 '^blocks='      "$OPEN" 2>/dev/null | cut -d= -f2-)
 case "$BLOCKS" in ''|*[!0-9]*) BLOCKS=0 ;; esac
 
 # Schuld zeigt ins Leere (Rettung wegrotiert)? Aufraeumen statt blocken.
-if [ -z "$RESCUE_PATH" ] || [ ! -f "$RESCUE_PATH" ]; then
+# v5.4.1: OPEN kann MEHRERE Rettungen nennen — eine je Kompaktierung ohne Sync.
+# Tote Zeiger fliegen EINZELN raus; OPEN verschwindet nur, wenn KEINE Rettung mehr da ist.
+# Vorher loeschte eine einzige wegrotierte Datei die Schuld fuer alle.
+_ALIVE=$(grep '^path=' "$OPEN" 2>/dev/null | cut -d= -f2- | while IFS= read -r _p; do
+           [ -n "$_p" ] && [ -f "$_p" ] && echo "$_p"; done)
+RESCUE_ANZ=$(printf '%s\n' "$_ALIVE" | grep -c . 2>/dev/null)
+case "$RESCUE_ANZ" in ''|*[!0-9]*) RESCUE_ANZ=0 ;; esac
+if [ "$RESCUE_ANZ" -eq 0 ]; then
+  _slog INFO "OPEN nannte nur tote Rettungen -> entfernt"
   rm -f "$OPEN" "${OPEN}.seen-"* 2>/dev/null
-  _slog INFO "OPEN zeigte ins Leere -> entfernt, kein Block"
   exit 0
 fi
+_ROH=$(grep -c '^path=' "$OPEN" 2>/dev/null); case "$_ROH" in ''|*[!0-9]*) _ROH=0 ;; esac
+if [ "$RESCUE_ANZ" -ne "$_ROH" ]; then
+  _T="${OPEN}.tmp.$$"
+  { grep -v -E '^(path|resume)=' "$OPEN" 2>/dev/null
+    printf '%s\n' "$_ALIVE" | sed 's|^|path=|'
+    grep '^resume=' "$OPEN" 2>/dev/null | cut -d= -f2- | while IFS= read -r _r; do
+      [ -n "$_r" ] && [ -f "$_r" ] && echo "resume=$_r"; done
+  } > "$_T" 2>/dev/null && mv -f "$_T" "$OPEN" 2>/dev/null || rm -f "$_T" 2>/dev/null
+  _slog INFO "$((_ROH - RESCUE_ANZ)) tote Rettungszeiger entfernt, $RESCUE_ANZ verbleiben"
+fi
+RESCUE_PATH=$(printf '%s\n' "$_ALIVE" | tail -1)   # die JUENGSTE ist die Leitrettung
+
 
 # --- Bremse 3: Notausgang ---
 MAX="${MIND_STOP_MAX_BLOCKS:-3}"
@@ -86,11 +121,22 @@ if [ -n "$COMPACTIONS" ] && [ "$COMPACTIONS" -gt 1 ] 2>/dev/null; then
   NACHHOL=" Es sind bereits ${COMPACTIONS} Kompaktierungen seit dem letzten Sync aufgelaufen."
 fi
 
+# v5.4.1: alle offenen Rettungen auflisten, nicht nur die juengste
+OFFENE_LISTE=$(printf '%s\n' "$_ALIVE" | while IFS= read -r _p; do
+                 [ -n "$_p" ] && echo "    - $_p"; done)
+
 REASON="[Mind Manager] Der Context-Sync steht noch aus.${NACHHOL}
+
+⛔ REIHENFOLGE: /mind-all ZUERST — ohne Ausnahme. Der Auftrag ist woertlich in der
+RESUME-Datei gesichert und kommt im Sync-Bericht mit der FORTSETZUNG-Zeile zurueck. Der Sync
+dauert Minuten; ihn zu verschieben kostet den Inhalt der Rettung, sobald die naechste
+Kompaktierung kommt. 'Ich mache zuerst den Auftrag fertig' ist ab v5.4.1 KEIN zulaessiger
+Grund mehr.
 
 Fuehre JETZT /mind-all aus. Der Knowledge-Sync MUSS die geretteten Sitzungsdaten als Quelle
 nehmen und im Bericht 'Session-Quelle: gerettet <pfad>' ausweisen:
-  Rettung: ${RESCUE_PATH}   (${RESCUE_N:-?} Beitraege)
+  Offene Rettungen: ${RESCUE_ANZ:-1} — ALLE einspeisen, aelteste zuerst:
+${OFFENE_LISTE}
   Auftrag: ${RESUME_FILE:-(keiner gesichert)}
 
 ⛔ Die Rettungsdatei NIE im Hauptkontext lesen (kein Read, kein cat) — sie ist mehrere hundert

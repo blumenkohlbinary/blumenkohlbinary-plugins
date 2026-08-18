@@ -89,13 +89,36 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
       # geretteter Chat lagen da, die nie jemand eingespeist hat.
       # OPEN wird NUR entfernt, wenn der Sync wirklich lief (/mind-all bzw. /mind-update mit
       # Rettungsquelle) oder wenn die Rettungsdatei nachweislich weg ist.
+      # ⛔ v5.4.1: path= und resume= werden ANGEHAENGT, nicht ersetzt.
+      # Vorher stand hier genau EINE path=-Zeile. Kam eine zweite Kompaktierung vor dem
+      # Sync, zeigte der Merker nur noch auf die neue Rettung — die aeltere lag als Datei
+      # da, war aber als Quelle unerreichbar, weil alle Leser `grep -m1 '^path='` nahmen.
+      # Belegt im eigenen Projekt: 20260816-194132_chat.md, 412 KB, nie eingespeist.
       PREV_C=0
+      PREV_PATHS=""; PREV_RESUMES=""
       if [ -f "$RESCUE_DIR/OPEN" ]; then
         PREV_C=$(grep -m1 '^compactions=' "$RESCUE_DIR/OPEN" 2>/dev/null | cut -d= -f2-)
         case "$PREV_C" in ''|*[!0-9]*) PREV_C=0 ;; esac
+        # Nur uebernehmen, was es noch GIBT — ein toter Zeiger soll die Liste nicht belasten.
+        OLD_P=$(grep '^path='   "$RESCUE_DIR/OPEN" 2>/dev/null | cut -d= -f2-)
+        OLD_R=$(grep '^resume=' "$RESCUE_DIR/OPEN" 2>/dev/null | cut -d= -f2-)
+        while IFS= read -r _p; do
+          [ -n "$_p" ] && [ -f "$_p" ] && PREV_PATHS="${PREV_PATHS}path=${_p}
+"
+        done <<EOF
+$OLD_P
+EOF
+        while IFS= read -r _r; do
+          [ -n "$_r" ] && [ -f "$_r" ] && PREV_RESUMES="${PREV_RESUMES}resume=${_r}
+"
+        done <<EOF
+$OLD_R
+EOF
       fi
       {
+        printf '%s' "$PREV_PATHS"            # aeltere zuerst -> chronologisch
         echo "path=$RESCUE_FILE"
+        printf '%s' "$PREV_RESUMES"
         echo "resume=$RESUME_FILE"
         echo "events=${RESCUE_N:-?}"
         echo "ts=$RTS"
@@ -116,9 +139,21 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
       fi
       # Rotation (KEIN xargs — Pfade enthalten Leerzeichen). RESUME-Dateien mitrotieren;
       # *_RESUME.done.md faellt nicht unter das Muster und bleibt als Beleg liegen.
+      # ⛔ v5.4.1: was im OPEN steht, wird NIE rotiert.
+      # Vorher loeschte KEEP=3 ab der vierten Kompaktierung ohne Sync die aelteste Rettung —
+      # also genau den Beleg, der noch eingespeist werden musste. Geschuetzte Dateien zaehlen
+      # nicht gegen KEEP; wer nie synct, sammelt an. Das ist gewollt: Platte ist billiger als
+      # verlorene Arbeit, und die Warnung unten wird mit jeder Kompaktierung lauter.
+      GESCHUETZT=$(grep -E '^(path|resume)=' "$RESCUE_DIR/OPEN" 2>/dev/null | cut -d= -f2-)
       for pat in '*_chat.md' '*_RESUME.md'; do
         ls -t "$RESCUE_DIR"/$pat 2>/dev/null | tail -n +$((RESCUE_KEEP + 1)) | while IFS= read -r f; do
-          [ -n "$f" ] && [ -f "$f" ] && rm -f "$f"
+          [ -n "$f" ] && [ -f "$f" ] || continue
+          case "
+$GESCHUETZT
+" in *"
+$f
+"*) continue ;; esac
+          rm -f "$f"
         done
       done
     else

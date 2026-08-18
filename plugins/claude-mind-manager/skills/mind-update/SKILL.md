@@ -706,7 +706,8 @@ aus der Mitte. 3-Stufen-Algorithmus:
 # fuer die der Sync noch aussteht. Fehlt OPEN (aeltere Version): neueste Datei per Zeitstempel.
 _MU_OPEN="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/rescued/OPEN"
 RESCUED=""
-[ -f "$_MU_OPEN" ] && RESCUED=$(grep -m1 '^path=' "$_MU_OPEN" 2>/dev/null | cut -d= -f2-)
+# v5.4.1: OPEN kann mehrere Rettungen nennen — alle nehmen, aelteste zuerst.
+[ -f "$_MU_OPEN" ] && RESCUED=$(grep '^path=' "$_MU_OPEN" 2>/dev/null | cut -d= -f2-                                 | while IFS= read -r p; do [ -f "$p" ] && echo "$p"; done)
 [ -n "$RESCUED" ] && [ ! -f "$RESCUED" ] && RESCUED=""
 [ -z "$RESCUED" ] && RESCUED=$(ls -t "${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude-mind/rescued"/*_chat.md 2>/dev/null | head -1)
 
