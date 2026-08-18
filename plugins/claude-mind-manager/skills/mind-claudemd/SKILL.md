@@ -269,7 +269,10 @@ Agent-Ergebnisse + eigene Inline-Checks zusammenführen. Anzeigen als:
 === CLAUDE.md Audit Report v3.3.2 — Self-Check ===
 [Step 4b context-analyzer] Agent dispatched: <N> Findings (Severity: <C> CRITICAL, <W> WARNING, <I> INFO), Health-Score <X>/100
   Beleg: context-analyzer Tool-Call #<N>
-[Step 4c Inline-Checks] Version-Match: <ok/mismatch>, Pfad-Check: <Y> tote Pfade, Git-Check: <Z> unreflektierte Commits
+[Step 4c Pipeline v5.4.0] Instrumentenkontrolle: <bestanden/ABBRUCH> (Kontrolle <K> vs. Ziel <N>)
+  Schritt 2: <B> Befunde aus 15 harten Checks  ·  Schritt 3: <H> Hinweise aus 8 Heuristiken
+  Pfade: <D> DEAD, <E> EXTERN (Hinweis), <S> SKIP  ·  Versionen: <ok/mismatch>, <T> Tags in Ueberschriften
+  Git-Check: <Z> unreflektierte Commits
   Beleg: Bash-Tool-Call #<N>
 ```
 
@@ -399,7 +402,8 @@ Für jeden bestätigten Fix:
 | Modularize | Write + Edit | Write neue Rule-Datei, Edit CLAUDE.md: Sektion entfernen |
 | Shorten | Edit | `old_string: verbose Zeile` → `new_string: kompakte Zeile` |
 | Deduplicate | Edit | Duplikat-Zeile aus CLAUDE.md entfernen |
-| Dead path | Edit | Pfad-Zeile entfernen oder aktualisieren |
+| Dead path (`DEAD`) | Edit | Pfad-Zeile entfernen oder aktualisieren. ⛔ **>5 auf einmal bleibt gesperrt** (Massenlösch-Sicherung) |
+| **`EXTERN`-Pfad** | **nichts** | ⛔ **NIE anfassen.** Der Pfad existiert — nur nicht unter diesem Projekt. Nur als Hinweis listen |
 | Add info | Edit | Neue Zeile in passende Sektion einfügen |
 | Remove generic | Edit | Zeile entfernen |
 
