@@ -45,6 +45,28 @@ if [ -d "$PROJ" ]; then
   } > "$PROJ/.claude-mind/hook-heartbeat" 2>/dev/null
 fi
 
+
+# --- v5.7.0: Uebergabe nach einer Kompaktierung, unabhaengig von jeder Schuld ---
+# Wird eine Sitzung nach der Kompaktierung neu gestartet, ist prompt-submit.sh noch nicht
+# gelaufen. Ohne diesen Zweig ginge der Arbeitsstand genau dann verloren, wenn er am
+# meisten wert waere.
+_UEB="$PROJ/.claude-mind/rescued/UEBERGABE"
+if [ -f "$_UEB" ]; then
+  _AS=$(grep -m1 '^arbeitsstand=' "$_UEB" 2>/dev/null | cut -d= -f2-)
+  if [ -n "$_AS" ] && [ -s "$_AS" ] && [ -n "$CLAUDE_PLUGIN_ROOT" ]; then
+    _PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
+    if [ -n "$_PY" ]; then
+      _TXT=$("$_PY" "$CLAUDE_PLUGIN_ROOT/references/arbeitsstand_render.py" "$_AS" 2>/dev/null)
+      if [ -n "$_TXT" ]; then
+        _slog INFO "Arbeitsstand beim Sitzungsstart uebergeben"
+        rm -f "$_UEB" 2>/dev/null
+        echo "[Mind Manager] Arbeitsstand vor der letzten Kompaktierung:"
+        echo "$_TXT"
+      fi
+    fi
+  fi
+fi
+
 OPEN="$PROJ/.claude-mind/rescued/OPEN"
 
 # --- Legacy-Merker uebernehmen (NEU v5.2.2) ---

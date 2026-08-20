@@ -226,3 +226,37 @@ After:
 - **ALWAYS report every applied change** mit `file:line` + before→after + Snapshot-Pfad.
 - Rules without globs: are valid — they always load (document this, don't warn)
 - **"No Dead Tools" (NEU v4.0):** Wird ein Tool ins Projekt installiert, MUSS eine Companion-Rule mit passendem `globs:`-Trigger dazu — sonst liegt das Tool tot im Ordner. Companion-Rule = WANN + WIE + load-bearing Fallen, nicht nur WAS. Ehrlich: Rule = erreichbar, nicht garantiert-genutzt.
+
+## ⛔ `paths:` gegen `globs:` — Stand der Belege (NEU v5.7.0)
+
+Die Migrations-Empfehlung dieses Skills stuetzte sich bis v5.6.0 **ausschliesslich** auf
+Community-Recherche (`Wissen/block-4-community.md`), nicht auf die offizielle Doku. Am
+21.08.2026 in der CLI-Binaerdatei nachgesehen (dieselbe Technik, die die
+Auto-Kompaktierungs-Formel geliefert hat):
+
+| Befund | Zahl |
+|---|---|
+| `globs:` in Frontmatter-Beispielen | **11** |
+| `alwaysApply:` | 1 (im selben Beispiel) |
+| `paths:` in einem Frontmatter-Beispiel | **0** |
+
+Wortlaut des mitgelieferten Beispiels:
+
+```yaml
+description: Use Bun instead of Node.js, npm, pnpm, or vite.
+globs: "*.ts, *.tsx, *.html, *.css, *.js, *.jsx, package.json"
+alwaysApply: false
+```
+
+⚠ **Das beweist NICHT, dass `paths:` scheitert.** Gefunden sind Beispiel- und Dokumenttexte,
+nicht der Parser. Belegt ist nur: Claude Code liefert selbst Regeln mit `globs:` aus und
+keine mit `paths:`.
+
+⛔ **Die zweite offene Haelfte bleibt offen:** ein `globs:`-Muster **ohne einen einzigen
+Treffer** verhindert das Laden NICHT (gemessen an CC 2.1.237). Die Tabelle oben stuft das
+weiterhin als „rule never loads" ein — das ist **falsch** und wird bis zur Klaerung nur als
+Hinweis ausgegeben, nie als Grund fuer eine Aenderung.
+
+**Das Experiment, das beides entscheiden wuerde:** je eine Testregel mit `paths:` und mit
+`globs:` anlegen, den `InstructionsLoaded`-Hook registrieren und nachsehen, welche geladen
+wird. Bis dahin: **`migrate` nicht blind laufen lassen.**

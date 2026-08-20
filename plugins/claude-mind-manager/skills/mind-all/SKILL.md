@@ -194,11 +194,38 @@ IMMER, er haengt an keinem Erfolg).
 **Jeder** `/mind-all`-Lauf haengt einen Abschnitt an `<projekt>/listeverbesserungen.md` an —
 auch ein Handaufruf ohne Kompaktierung, auch ein Lauf ohne einen einzigen Fund.
 
+⛔ **Hier stand bis v5.6.0 nur eine Markdown-Vorlage und kein ausfuehrbarer Code** — deshalb
+schrieb jeder Lauf das Anhaengen von Hand, mit `>>` und ohne Ruecksicht auf die Zeilenenden.
+Seit v5.7.0 ist es Code, und der Abschnitt geht **zusaetzlich zentral** hinaus.
+
 ```bash
 LISTE="$PROJ/listeverbesserungen.md"
 [ -f "$LISTE" ] || printf '# Verbesserungsliste\n\nAngehaengt von /mind-all. Neueste Abschnitte stehen UNTEN.\n' > "$LISTE"
-# Abschnitt anhaengen (>> — niemals ueberschreiben)
+
+# 1) Abschnitt in eine Zwischendatei schreiben (Aufbau siehe unten), dann anhaengen.
+#    mind_append statt '>>' — es erhaelt die Zeilenenden der Zieldatei.
+ABSCHNITT="$PROJ/.claude-mind/lauf-abschnitt.md"
+# ... Abschnitt nach "$ABSCHNITT" schreiben ...
+[ "$DRY_RUN" = "no" ] && mind_append "$LISTE" < "$ABSCHNITT"
+
+# 2) Befunde MASCHINENLESBAR danebenlegen — eine Zeile je Befund.
+#    Ohne die feste Klassenliste heisst derselbe Fehler dreimal anders und wird nie als
+#    Wiederholung erkannt. Gueltige Klassen stehen in references/debug_auswertung.py.
+BEFUNDE="$PROJ/.claude-mind/lauf-befunde.jsonl"
+: > "$BEFUNDE"
+# je Befund eine Zeile, z.B.:
+#   {"ts":"2026-08-21 01:20","projekt":"<PROJ>","klasse":"instrument-nachgebaut",
+#    "kurz":"Pipeline statt claudemd_pipeline.py nachgebaut","lauf":"<ts>"}
+
+# 3) zentral melden (still, wenn MIND_DEBUG_DIR nicht gesetzt ist)
+[ "$DRY_RUN" = "no" ] && mind_debug_write "$PROJ" "$AUSLOESER" "$ABSCHNITT" "$BEFUNDE"
+rm -f "$ABSCHNITT" "$BEFUNDE" 2>/dev/null
 ```
+
+**Die elf Ursachenklassen** (feste Liste, nicht erweitern ohne `debug_auswertung.py`):
+`instrument-nachgebaut` · `instrument-misst-nichts` · `windows-pfad` · `zeilenenden` ·
+`agent-fehlbericht` · `agent-gestorben` · `plugin-defekt` · `doku-veraltet` · `sichtbarkeit` ·
+`ungeklaerter-widerspruch` · `sonstiges`
 
 Aufbau je Lauf — **angehaengt**, nie vorangestellt (Anhaengen kann eine bestehende Datei nicht
 beschaedigen, Umschreiben schon):
@@ -226,6 +253,34 @@ beschaedigen, Umschreiben schon):
 - Auch **eigene** Fehlgriffe gehoeren hinein (falsche Annahme, verworfener Zwischenstand) —
   die Liste ist ein Arbeitsprotokoll, keine Erfolgsmeldung.
 - Im **`--dry-run`** wird die Datei **nicht** geschrieben; der Bericht sagt das ausdruecklich.
+
+## Step 2.96a: `sync-stand` setzen (PFLICHT, NEU v5.7.0)
+
+**Direkt nach einem tatsaechlich gelaufenen Sync** — und zwar unabhaengig davon, ob eine
+Schuld bestand:
+
+```bash
+if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" = "ja" ]; then
+  mkdir -p "$PROJ/.claude-mind/rescued"
+  printf 'ts=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" > "$PROJ/.claude-mind/rescued/sync-stand"
+fi
+```
+
+⛔ **Dieser eine Merker traegt den ganzen 800k-Ablauf.** Solange er liegt, schweigen
+Token-Mahnung (`prompt-submit.sh`) und Token-Zwang (`stop.sh`) — der Sync ist ja erledigt.
+`pre-compact.sh` verbraucht ihn bei der naechsten Kompaktierung und erzeugt deshalb **keine
+neue Schuld**; damit ist der Ausloeser fuer den naechsten Zyklus automatisch wieder scharf.
+
+**Der Bericht endet in diesem Fall mit einer zusaetzlichen Zeile:**
+
+```
+Naechster Schritt: die Kompaktierung kommt von selbst. Wer sie sofort will, tippt /compact.
+```
+
+⚠ **Auslosen kann das Plugin sie nicht** — drei unabhaengige Belege (Hook-Doku, Werkzeugliste,
+CLI-Binaerdatei). Der Sync selbst schiebt den Kontext ueber die Kompaktierungsschwelle; das ist
+die gewollte Reihenfolge und kein Nebeneffekt.
+
 
 ## Step 2.96: Schuld begleichen (PFLICHT, NEU v5.2.1)
 

@@ -722,6 +722,13 @@ Tool-Call). Ergebnisse aller 4 einsammeln, dann konsolidieren. Jeder bekommt:
     > Kompaktierungs-Zeitpunkt. Der Lauf, den der Stop-Hook danach erzwingt, soll aber gerade
     > die Arbeit einspeisen, die seitdem passiert ist. Mit nur einer der beiden Quellen fehlt
     > entweder die Tiefe (live ist gesampelt) oder die Aktualitaet (Rettung ist alt).
+- ⛔ **Der Agent MUSS die uebergebenen kanonischen Zahlen ZURUECKGEBEN (NEU v5.7.0).**
+  Zwei Fehlberichte sind belegt: „14 Topic-Dateien" bei uebergebenen **10**, und
+  „`stop.sh` und `session-start.sh` sourcen `lib.sh` nicht (0 von 2)" — gemessen sourct
+  `session-start.sh` sie sehr wohl. Beide klangen plausibel und waren falsch.
+  Deshalb endet jeder Agent-Prompt mit: *„Gib in der ersten Zeile die dir uebergebenen Zahlen
+  woertlich zurueck."* Weicht die Rueckgabe ab, ist der ganze Agentenbericht **ungeprueft** —
+  nicht teilweise gueltig. Kostet eine Zeile und macht den Unterschied zwischen Hinweis und Beleg.
 - **Im Self-Check MUSS die Quelle stehen** (`Session-Quelle: gerettet+live <pfad>` bzw.
   `gerettet <pfad>` bzw. `live`) — sonst ist nicht erkennbar, ob der Sync auf dem vollen Chat,
   auf Resten oder auf beidem lief. **`gerettet` allein nach einer Kompaktierung ist ab v5.2.2

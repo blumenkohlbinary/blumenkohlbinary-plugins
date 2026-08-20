@@ -440,7 +440,27 @@ Doku: docs/BACKUP_USAGE.md
 
 ### Step 5b: Release-Hygiene-Bundle installieren (NEU v4.0 — jedes Git-Projekt)
 
-**Wann:** Projekt ist ein Git-Repo (`test -d .git`) UND User bestaetigt den Vorschlag.
+**Wann:** Projekt ist ein Git-Repo (`test -d .git`) **UND** hat ein Versions-Signal
+(`VERSION` / `pyproject.toml` / `package.json` / `*.csproj` / Git-Tags) **UND** User bestaetigt.
+
+⛔ **Das Versions-Signal ist seit v5.7.0 Pflicht.** Bis dahin genuegte `test -d .git` allein —
+und damit wurde das Bundle auch dort angeboten, wo es nie einen Changelog geben kann.
+`update_changelog.py` erzeugt ihn aus **Git-Tags**; ein Doku- oder Workspace-Repo ohne Tags
+bekaeme ein Werkzeug, das per Konstruktion nichts zu tun hat. Genau der Dead-Tool-Fall, den
+Step 5c mit seinem Gate laengst vermeidet und den dieser Skill an anderer Stelle als
+KERN-Invariante durchsetzt. Gemessen am 21.08.2026 im Claude-Mind-Manager-Workspace: Git-Repo,
+kein Remote, kein Versions-Signal — das Angebot waere gekommen.
+
+```bash
+HAT_VERSION="nein"
+for _s in VERSION pyproject.toml package.json; do
+  [ -f "$CLAUDE_PROJECT_DIR/$_s" ] && HAT_VERSION="ja"
+done
+ls "$CLAUDE_PROJECT_DIR"/*.csproj >/dev/null 2>&1 && HAT_VERSION="ja"
+[ -n "$(git -C "$CLAUDE_PROJECT_DIR" tag 2>/dev/null | head -1)" ] && HAT_VERSION="ja"
+# HAT_VERSION=nein -> NICHT anbieten, sondern INFO: "kein Versions-Signal, der Changelog
+#                     haette hier keine Quelle"
+```
 Rule-only-Baseline fuer Commit-/Changelog-Disziplin — kein Sprach-Gate, funktioniert fuer
 Node/C#/Python/etc. (Bump laeuft ueber die native Toolchain bzw. das Versioning-Pack unten).
 

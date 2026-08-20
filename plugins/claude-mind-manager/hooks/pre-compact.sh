@@ -105,6 +105,29 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
         ARBEITSSTAND_FILE=""
       fi
 
+      # --- v5.7.0: UEBERGABE-Merker, IMMER ---
+      # Er haengt bewusst NICHT an der Schuld. Laeuft der Sync vor der Kompaktierung, gibt es
+      # keine Schuld — und ohne diesen Merker saehe der frisch geleerte Kontext gar nichts.
+      # Fail-open wie --orders: schlaegt es fehl, laeuft der Hook weiter.
+      {
+        printf 'ts=%s\n' "$TS"
+        [ -n "$ARBEITSSTAND_FILE" ] && printf 'arbeitsstand=%s\n' "$ARBEITSSTAND_FILE"
+        [ -n "$RESUME_FILE" ] && printf 'resume=%s\n' "$RESUME_FILE"
+      } > "$RESCUE_DIR/UEBERGABE" 2>/dev/null \
+        || mind_log WARN "UEBERGABE-Merker nicht schreibbar (Rettung ist davon unberuehrt)"
+
+      # --- v5.7.0: lief in diesem Zyklus schon ein Sync? ---
+      # Dann entsteht KEINE neue Schuld — der Sync ist ja erledigt, die Kompaktierung ist
+      # seine Folge und nicht sein Ausloeser. Der Merker wird hier verbraucht und stellt damit
+      # den 800k-Ausloeser fuer den naechsten Zyklus automatisch wieder scharf.
+      SYNC_LIEF_SCHON="nein"
+      if [ -f "$RESCUE_DIR/sync-stand" ]; then
+        SYNC_LIEF_SCHON="ja"
+        rm -f "$RESCUE_DIR/sync-stand" 2>/dev/null
+        mind_log "Sync lief vor dieser Kompaktierung -> keine neue Schuld"
+      fi
+
+
       # --- SCHULD-Merker OPEN (NEU v5.2.1 — loest PENDING ab) ---
       # WARUM die Umbenennung mehr ist als ein neuer Name: PENDING wurde beim ANKUENDIGEN
       # geloescht (prompt-submit.sh/session-start.sh benannten es in .announced um), nicht beim
@@ -146,21 +169,30 @@ EOF
 $OLD_A
 EOF
       fi
-      {
-        printf '%s' "$PREV_PATHS"            # aeltere zuerst -> chronologisch
-        echo "path=$RESCUE_FILE"
-        printf '%s' "$PREV_RESUMES"
-        echo "resume=$RESUME_FILE"
-        printf '%s' "$PREV_ARB"
-        echo "arbeitsstand=$ARBEITSSTAND_FILE"
-        echo "events=${RESCUE_N:-?}"
-        echo "ts=$RTS"
-        echo "trigger=$TRIGGER"
-        echo "compactions=$((PREV_C + 1))"   # seit dem letzten erfolgreichen Sync
-        echo "blocks=0"                       # Stop-Hook-Notausgang, s. hooks/stop.sh
-      } > "$RESCUE_DIR/OPEN" 2>/dev/null
-      # Neue Rettung -> in JEDER Sitzung neu ankuendigen, Notausgang-Zaehler auf 0
-      rm -f "$RESCUE_DIR/OPEN.seen-"* 2>/dev/null
+      # ⛔ v5.7.0: KEINE neue Schuld, wenn der Sync VOR dieser Kompaktierung lief.
+      #    Ab v5.7.0 ist genau das der Normalfall: /mind-all laeuft bei 800k, die
+      #    Kompaktierung ist seine FOLGE und nicht sein Ausloeser. Eine Schuld waere hier
+      #    schlicht falsch — sie wuerde den naechsten Turn blockieren, obwohl nichts aussteht.
+      #    Rettung, Auftrags-Merker und UEBERGABE entstehen trotzdem; nur der ZWANG entfaellt.
+      if [ "$SYNC_LIEF_SCHON" = "ja" ]; then
+        mind_log "keine Schuld angelegt (Sync lief vor dieser Kompaktierung)"
+      else
+        {
+          printf '%s' "$PREV_PATHS"            # aeltere zuerst -> chronologisch
+          echo "path=$RESCUE_FILE"
+          printf '%s' "$PREV_RESUMES"
+          echo "resume=$RESUME_FILE"
+          printf '%s' "$PREV_ARB"
+          echo "arbeitsstand=$ARBEITSSTAND_FILE"
+          echo "events=${RESCUE_N:-?}"
+          echo "ts=$RTS"
+          echo "trigger=$TRIGGER"
+          echo "compactions=$((PREV_C + 1))"   # seit dem letzten erfolgreichen Sync
+          echo "blocks=0"                       # Stop-Hook-Notausgang, s. hooks/stop.sh
+        } > "$RESCUE_DIR/OPEN" 2>/dev/null
+        # Neue Rettung -> in JEDER Sitzung neu ankuendigen, Notausgang-Zaehler auf 0
+        rm -f "$RESCUE_DIR/OPEN.seen-"* 2>/dev/null
+      fi
       # Altlasten aus v5.1.0/v5.2.0 wegraeumen (sonst redet niemand mehr ueber sie)
       rm -f "$RESCUE_DIR/PENDING" "$RESCUE_DIR/PENDING.announced" "$RESCUE_DIR/RESUME.md" \
             "$RESCUE_DIR/RESUME.done.md" 2>/dev/null

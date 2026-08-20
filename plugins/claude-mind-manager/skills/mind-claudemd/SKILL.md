@@ -153,6 +153,34 @@ dieselbe Groesse im selben Bericht.
 
 ### Step 4c: Deterministische Prüf-Pipeline (NEU v5.4.0 — ergaenzend, NICHT statt Agent)
 
+⛔ **AUSGEFUEHRT WIRD DAS SKRIPT, NICHT DIESE TABELLE (NEU v5.7.0).**
+
+```bash
+PIPE="$CLAUDE_PLUGIN_ROOT/references/claudemd_pipeline.py"
+python "$PIPE" "<ziel.md>" --projekt "${CLAUDE_PROJECT_DIR:-$(pwd)}"
+# Rueckgabe: 0 = keine Befunde · 1 = Befunde · 2 = Aufruffehler
+#            3 = MESSUNG UNGUELTIG (Instrumentenkontrolle durchgefallen) -> Zahlen verwerfen
+python "$PIPE" --selbsttest      # 22 Pruefungen, vor jedem Zweifelsfall
+```
+
+⛔ **Diese Pipeline NIE nachbauen.** Sie stand von v5.4.0 bis v5.6.0 nur als Prosa hier — und
+wurde deshalb bei jedem Lauf neu geschrieben, samt der schon behobenen Fehler. Erhebung ueber
+16 Laufabschnitte in zwei `listeverbesserungen.md`: **„instrument-nachgebaut" ist mit ~25
+Vorkommen die haeufigste Ursachenklasse ueberhaupt**, dreimal in Folge derselbe Fall:
+
+| Wann | Was der Nachbau meldete | Was wirklich war |
+|---|---|---|
+| 20.08.2026 | 11 tote Pfade | 11 Slash-Commands (`/mind-all`, …) |
+| 20.08.2026 | `hooks/hooks.json` tot | liegt im Nachbar-Repo, das die Datei selbst nennt |
+| 21.08.2026 | 9 tote Pfade | 8 Slash-Commands + 1 Nachbar-Repo — **echte tote Pfade: 0** |
+
+Alle drei Klassen waren seit v5.3.1 in `classify_path()` behoben. Der Nachbau kannte sie nie.
+Das Skript **portiert** die Funktion und haelt die Faelle mit `--selbsttest` fest — darunter
+ein Fixture fuer die Nachbar-Repo-Wurzel, an dem der zweite Anlauf vom 20.08. gescheitert waere.
+
+**Die Tabellen unten bleiben die SPEZIFIKATION** — sie sagen, was das Skript tut, und sind bei
+einer Aenderung die Quelle. Sie sind keine Arbeitsanweisung mehr.
+
 ⛔ **Das ist eine PIPELINE, keine Liste. Die Reihenfolge ist Teil der Spezifikation** — mehrere
 Fehlerklassen entstehen ausschliesslich dadurch, dass man sie missachtet.
 

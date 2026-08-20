@@ -49,6 +49,84 @@ fi
 
 OPEN="$PROJ/.claude-mind/rescued/OPEN"
 
+# ===== v5.7.0: Uebergabe nach der Kompaktierung =============================
+# Bis v5.6.0 hing JEDE Meldung an der Sync-SCHULD. Laeuft der Sync kuenftig VOR der
+# Kompaktierung, gibt es keine Schuld — und damit haette hier niemand mehr ein Wort gesagt,
+# genau in dem Moment, in dem der Kontext leer ist und die Uebergabe am noetigsten waere.
+UEBERGABE="$PROJ/.claude-mind/rescued/UEBERGABE"
+if [ -f "$UEBERGABE" ]; then
+  _AS=$(grep -m1 '^arbeitsstand=' "$UEBERGABE" 2>/dev/null | cut -d= -f2-)
+  _RS=$(grep -m1 '^resume='       "$UEBERGABE" 2>/dev/null | cut -d= -f2-)
+  _TXT=""
+  if [ -n "$_AS" ] && [ -s "$_AS" ] && [ -n "$CLAUDE_PLUGIN_ROOT" ]; then
+    _PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
+    [ -n "$_PY" ] && _TXT=$("$_PY" "$CLAUDE_PLUGIN_ROOT/references/arbeitsstand_render.py" \
+                            "$_AS" 2>/dev/null)
+  fi
+  _AUF=""
+  [ -n "$_RS" ] && [ -f "$_RS" ] && _AUF=$(sed -n "/^## /,\$p" "$_RS" | head -30)
+  rm -f "$UEBERGABE" 2>/dev/null
+  if [ -n "$_TXT" ] || [ -n "$_AUF" ]; then
+    _slog INFO "Arbeitsstand nach Kompaktierung uebergeben"
+    _MSGU="[Mind Manager] Der Kontext wurde gerade kompaktiert. Hier ist der Arbeitsstand
+von unmittelbar davor — er ersetzt das, was aus dem Fenster gefallen ist.
+
+$_TXT
+
+--- WORAN GEARBEITET WURDE ---
+$_AUF
+--- Ende ---
+
+Die Arbeit oben WIEDER AUFNEHMEN. Der Sync ist erledigt; es steht nichts aus."
+    if command -v jq >/dev/null 2>&1; then
+      jq -nc --arg ctx "$_MSGU" \
+        '{hookSpecificOutput:{hookEventName:"UserPromptSubmit", additionalContext:$ctx}}'
+    else
+      echo "$_MSGU"
+    fi
+    exit 0
+  fi
+fi
+
+# ===== v5.7.0: Sync-Ausloeser an der TOKEN-Schwelle =========================
+# ⛔ Reihenfolge-Umkehr gegenueber v5.6.0. Vorher: kompaktieren, DANACH /mind-all erzwingen —
+#    der Lauf fuellte den frisch geleerten Kontext mit 40-60k Tokens wieder auf.
+#    Jetzt: bei 800k synchronisieren, DANACH kompaktieren lassen (Nutzer-Entscheidung 21.08.2026).
+# ⚠ Vorgabe 0 = AUS. Ohne gesetzte Schwelle aendert sich fuer andere Projekte nichts.
+_SCHWELLE="${MIND_SYNC_AT_TOKENS:-0}"
+_STAND="$PROJ/.claude-mind/rescued/sync-stand"
+if [ ! -f "$OPEN" ] && [ ! -f "$_STAND" ] && [ "$_SCHWELLE" -gt 0 ] 2>/dev/null; then
+  _TP=""
+  command -v jq >/dev/null 2>&1 && _TP=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+  if [ -n "$_TP" ] && [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
+    # shellcheck disable=SC1091
+    . "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" 2>/dev/null
+    _TOK=$(mind_kontext_tokens "$_TP" 2>/dev/null) || _TOK=""
+    # ⚠ KEINE Zahl ist KEINE Null — ohne Messung wird NICHT gemahnt.
+    if [ -n "$_TOK" ] && [ "$_TOK" -ge "$_SCHWELLE" ] 2>/dev/null; then
+      _slog INFO "Token-Schwelle erreicht ($_TOK >= $_SCHWELLE) -> Sync angemahnt"
+      _MSGT="[Mind Manager] Der Kontext hat $_TOK Tokens erreicht (Schwelle $_SCHWELLE).
+
+⛔ JETZT /mind-all ausfuehren — VOR der naechsten Kompaktierung.
+
+Der Grund fuer diese Reihenfolge: laeuft der Sync erst NACH der Kompaktierung, fuellt er den
+frisch geleerten Kontext sofort wieder mit 40-60k Tokens. Vor der Kompaktierung gearbeitet,
+raeumt die Kompaktierung danach auf — und der Arbeitsstand wird uebergeben statt nachgereicht.
+
+Nach dem Sync bleibt Luft bis zur automatischen Kompaktierung; sie kommt dann von selbst.
+Wer sofort kompaktieren will, tippt danach /compact."
+      if command -v jq >/dev/null 2>&1; then
+        jq -nc --arg ctx "$_MSGT" \
+          '{hookSpecificOutput:{hookEventName:"UserPromptSubmit", additionalContext:$ctx}}'
+      else
+        echo "$_MSGT"
+      fi
+      exit 0
+    fi
+  fi
+fi
+
+
 # --- SCHNELLPFAD: keine Schuld -> absolut still, sofort raus ---
 [ -f "$OPEN" ] || exit 0
 

@@ -24,7 +24,7 @@ Hardware-Zusammenbau, in keiner Regeldatei dokumentiert) haette diesen Filter NI
 passiert. Deshalb: deutsche Begriffe gleichberechtigt + USER-Aussagen hoeher gewichtet
 (was der Mensch sagt, ist fuer den Knowledge-Sync wertvoller als Assistant-Prosa).
 """
-import json, re, sys
+import json, os, re, sys
 from pathlib import Path
 
 # --- Stage-1-Muster: EN + DE gleichberechtigt ---
@@ -225,6 +225,47 @@ DECISION_PATTERNS_ASSISTANT = [
     re.compile(r'\bentschieden\s*:', re.IGNORECASE),
 ]
 
+# ⛔ KEIN Bug im Projekt, sondern Transport/Infrastruktur (NEU v5.7.0).
+#    Gemessen: 'API Error: Connection lost mid-response' stand als 'aktiver Bug' im
+#    Arbeitsstand. Wer das nach einer Kompaktierung liest, sucht einen Fehler, den es
+#    im Projekt nie gab.
+NICHT_BUG = (
+    'api error', 'connection lost', 'connection error', 'request timed out',
+    'rate limit', 'overloaded', 'stream error', 'server is temporarily',
+    'the response above may be incomplete',
+)
+
+# Satzenden fuer den Schnitt: Punkt/Ausrufe-/Fragezeichen/Doppelpunkt + Leerraum, oder Umbruch
+_SATZ_ENDE = re.compile(r'[.!?:](?=\s|$)|\n')
+_MAX_DEHNUNG = 200      # so weit darf ein Rand hoechstens wandern, um eine Grenze zu finden
+
+
+def _schnitt(text, a, e, kappe):
+    """Fensterraender auf SATZGRENZEN ziehen, statt mitten im Wort zu kappen.
+
+    Vorher: text[a:e][:kappe] — 77 % der Eintraege begannen dadurch mitten im Satz.
+    Findet sich in Reichweite keine Satzgrenze, wird auf die naechste WORTgrenze
+    ausgewichen; eine harte Kappung bekommt ein sichtbares Auslassungszeichen.
+    """
+    letzte = None
+    for m in _SATZ_ENDE.finditer(text[:a]):
+        letzte = m
+    if letzte is not None and a - letzte.end() <= _MAX_DEHNUNG:
+        a = letzte.end()
+    else:
+        while a > 0 and not text[a - 1].isspace():
+            a -= 1
+    m2 = _SATZ_ENDE.search(text, e)
+    if m2 is not None and m2.end() - e <= _MAX_DEHNUNG:
+        e = m2.end()
+    else:
+        while e < len(text) and not text[e].isspace():
+            e += 1
+    s = re.sub(r'\s+', ' ', text[a:e].replace('\n', ' ')).strip()
+    if len(s) > kappe:
+        s = s[:kappe].rsplit(' ', 1)[0] + '…'
+    return s
+
 BUG_PATTERNS = [
     re.compile(r'tool_use_error', re.IGNORECASE),
     re.compile(r'\bcancelled\s*:', re.IGNORECASE),
@@ -309,7 +350,9 @@ def dump_arbeitsstand(jsonl_path, out_path, self_cmd="mind-compact"):
                 if m:
                     a = max(0, m.start() - vor)
                     e = min(len(text), m.end() + nach)
-                    schnipsel = text[a:e].replace('\n', ' ').strip()[:kappe]
+                    schnipsel = _schnitt(text, a, e, kappe)
+                    if any(w in schnipsel.lower() for w in NICHT_BUG):
+                        break          # Transportmeldung, kein Projekt-Bug
                     treffer.append((lineno, schnipsel, src) if mit_quelle else (lineno, schnipsel))
                     break
         treffer.sort(key=lambda x: -x[0])
@@ -321,7 +364,12 @@ def dump_arbeitsstand(jsonl_path, out_path, self_cmd="mind-compact"):
     bugs, bug_total = _sammle(alle, BUG_PATTERNS, 30, 120, 180, mit_quelle=True)
     constraints, con_total = _sammle(user_texts, CONSTRAINT_PATTERNS_USER, 20, 80, 160)
 
-    files_list = sorted(modified_files)[:top_n * 3]
+    # ⛔ Existenz pruefen (NEU v5.7.0). Gemessen 20.08.2026: von 57 genannten Dateien
+    #    existierten nur noch 29 — der Rest waren Scratchpad- und Zwischenstaende. Eine
+    #    Uebergabe, die zur Haelfte ins Leere zeigt, kostet mehr Zeit als sie spart.
+    _vorhanden = [f for f in sorted(modified_files) if os.path.exists(f)]
+    files_weg = len(modified_files) - len(_vorhanden)
+    files_list = _vorhanden[:top_n * 3]
 
     result = {
         "total_events": total_events,
@@ -335,6 +383,7 @@ def dump_arbeitsstand(jsonl_path, out_path, self_cmd="mind-compact"):
         "bugs_total": bug_total,
         "files": files_list,
         "files_total": len(modified_files),
+        "files_weg": files_weg,
         "constraints": [{"line": l, "text": t} for (l, t) in constraints],
         "constraints_total": con_total,
     }

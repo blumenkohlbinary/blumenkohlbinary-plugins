@@ -34,6 +34,34 @@ _slog() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1 stop: ${*:2}" >> "$MIND_LOG_FI
 # von "Hook stieg still aus" zu unterscheiden.
 _slog DEBUG "aufgerufen"
 
+# ===== v5.7.0: Zwang an der TOKEN-Schwelle ==================================
+# ⛔ stop.sh sourct lib.sh bewusst NICHT im Kopf — es ist der einzige Hook mit Zwangswirkung
+#    und soll auch dann noch laufen, wenn lib.sh kaputt ist. Deshalb hier: GEGUARDET sourcen,
+#    und wenn die Funktion fehlt, faellt nur diese Erweiterung aus. Der Schuld-Zwang darunter
+#    bleibt in jedem Fall funktionsfaehig.
+_TOKZWANG="nein"
+_FSCHWELLE="${MIND_SYNC_FORCE_TOKENS:-0}"
+if [ "$_FSCHWELLE" -gt 0 ] 2>/dev/null && [ -n "$CLAUDE_PLUGIN_ROOT" ] \
+   && [ -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ] && command -v jq >/dev/null 2>&1; then
+  _PROJ=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+  _TP=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+  _STAND="$_PROJ/.claude-mind/rescued/sync-stand"
+  if [ -n "$_TP" ] && [ ! -f "$_STAND" ]; then
+    # shellcheck disable=SC1091
+    . "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" 2>/dev/null
+    if command -v mind_kontext_tokens >/dev/null 2>&1 || type mind_kontext_tokens >/dev/null 2>&1; then
+      _TOK=$(mind_kontext_tokens "$_TP" 2>/dev/null) || _TOK=""
+      if [ -n "$_TOK" ] && [ "$_TOK" -ge "$_FSCHWELLE" ] 2>/dev/null; then
+        _TOKZWANG="ja"
+        _slog INFO "Token-Zwang: $_TOK >= $_FSCHWELLE, kein sync-stand"
+      fi
+    else
+      _slog WARN "mind_kontext_tokens fehlt -> Token-Zwang faellt aus (Schuld-Zwang bleibt)"
+    fi
+  fi
+fi
+
+
 # --- Bremse 2: ohne jq kein Schleifenschutz -> gar nicht erst blocken ---
 # v5.4.1: JEDER Ausstieg wird protokolliert. Vorher schwieg dieser Hook in drei Faellen
 # vollstaendig — und ein Hook, der schweigt weil er soll, war von einem, der schweigt weil
@@ -59,6 +87,21 @@ OPEN="$PROJ/.claude-mind/rescued/OPEN"
 
 # --- SCHNELLPFAD: keine Schuld -> still, aber nachweisbar ---
 if [ ! -f "$OPEN" ]; then
+  # v5.7.0: KEINE Schuld, aber die Token-Schwelle ist ueberschritten und in diesem Zyklus
+  # lief noch kein Sync. Dann wird trotzdem geblockt — der Sync soll VOR die Kompaktierung,
+  # nicht danach. Der Text nennt die Zahl, damit die Aufforderung nachpruefbar ist.
+  if [ "$_TOKZWANG" = "ja" ]; then
+    _slog INFO "block (Token-Schwelle, keine Schuld): $_TOK >= $_FSCHWELLE"
+    jq -nc --arg r "[Mind Manager] Der Kontext liegt bei $_TOK Tokens (Zwangsschwelle $_FSCHWELLE).
+
+JETZT /mind-all ausfuehren. Die Kompaktierung steht unmittelbar bevor; laeuft der Sync erst
+danach, fuellt er den frisch geleerten Kontext sofort wieder mit 40-60k Tokens.
+
+Nach dem Sync kommt die Kompaktierung von selbst — es ist nichts weiter zu tun.
+Ist /mind-all hier nicht ausfuehrbar, sage das ausdruecklich und nenne den Grund." \
+      '{decision:"block", reason:$r}'
+    exit 0
+  fi
   _slog INFO "still: keine offene Schuld (PROJ=$PROJ)"
   exit 0
 fi
