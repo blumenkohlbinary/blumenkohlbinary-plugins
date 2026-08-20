@@ -57,9 +57,39 @@ SID=""
 command -v jq >/dev/null 2>&1 && SID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
 [ -z "$SID" ] && SID="nosession"
 SEEN="${OPEN}.seen-${SID}"
-# Bewusstes Schweigen — der WICHTIGERE der beiden Eintraege: genau dieser Zustand sah in der
-# Fehlersuche vom 17.08.2026 aus wie "der Hook hat gar nicht gefeuert".
-[ -f "$SEEN" ] && { _slog INFO "still: Schuld besteht, aber in dieser Sitzung schon gemeldet (sid=$SID)"; exit 0; }
+# ⛔ v5.5.1 — WARUM DIE SPERRE NICHT MEHR "EINMAL UND NIE WIEDER" IST.
+#
+# Gemessen 20.08.2026 im Projekt "APP - Palvedo" (Plugin v5.5.0, die JEDEN Stop-Aufruf
+# protokolliert): nach einer Kompaktierung mit `trigger: manual` gibt es **keinen einzigen**
+# Eintritts-Log des Stop-Hooks. Er wurde nicht still beendet — er lief GAR NICHT.
+# Nach `trigger: auto` laeuft er dagegen (belegt am selben Tag: 01:16 -> 01:25).
+# Vier bekannte Faelle, alle konsistent.
+#
+# FOLGE: Bei einem manuellen /compact gibt es nur EINE Meldung (aus session-start) — und
+# danach Stille, weil dieser Hook sich selbst stummschaltet. Der Zwang (`decision:block`)
+# kann nur vom Stop-Hook kommen; dieser hier kann nicht blocken. Er ist damit die EINZIGE
+# verbliebene Stimme — und schwieg ausgerechnet dann.
+#
+# Jetzt: wiederholte Erinnerung mit ABSTAND statt Dauerschweigen. Der Zaehler steht in der
+# seen-Datei. Nicht bei jeder Nachricht (das waere Laerm), aber auch nicht nur einmal.
+# Der Eintrag "still" bleibt erhalten — er ist weiter der wichtigere der beiden, weil sonst
+# "schweigt bewusst" und "ist tot" wieder gleich aussehen (Fehlersuche 17.08.2026).
+_N=0
+[ -f "$SEEN" ] && _N=$(cat "$SEEN" 2>/dev/null)
+case "$_N" in ''|*[!0-9]*) _N=0 ;; esac
+_C=$(grep -m1 '^compactions=' "$OPEN" 2>/dev/null | cut -d= -f2-)
+case "$_C" in ''|*[!0-9]*) _C=1 ;; esac
+# Je mehr Kompaktierungen verschleppt wurden, desto kuerzer der Abstand.
+_JEDE="${MIND_REMIND_EVERY:-5}"
+[ "$_C" -ge 2 ] 2>/dev/null && _JEDE=3
+[ "$_C" -ge 4 ] 2>/dev/null && _JEDE=2
+
+if [ "$_N" -gt 0 ] && [ $(( _N % _JEDE )) -ne 0 ]; then
+  echo "$((_N + 1))" > "$SEEN" 2>/dev/null
+  _slog INFO "still: Schuld besteht, naechste Erinnerung in $(( _JEDE - (_N % _JEDE) )) Nachricht(en) (n=$_N, sid=$SID)"
+  exit 0
+fi
+[ "$_N" -gt 0 ] && _slog INFO "ERNEUTE Erinnerung (n=$_N, alle $_JEDE Nachrichten, compactions=$_C)"
 
 RESCUE_PATH=$(grep -m1 '^path='        "$OPEN" 2>/dev/null | cut -d= -f2-)
 RESUME_FILE=$(grep -m1 '^resume='      "$OPEN" 2>/dev/null | cut -d= -f2-)
@@ -93,8 +123,9 @@ RESCUE_PATH=$(printf '%s\n' "$_ALIVE" | tail -1)   # die JUENGSTE ist die Leitre
 
 
 # Sperre VOR der Ausgabe setzen: bricht danach etwas ab, gibt es lieber keine zweite
-# Ankuendigung in DIESER Sitzung als eine Endlosschleife bei jeder Folgenachricht.
-: > "$SEEN" 2>/dev/null
+# Ankuendigung in DIESER Nachricht als eine Endlosschleife.
+# v5.5.1: ZAEHLER statt leerer Datei — er steuert den Abstand der Wiederholungen.
+echo "$((_N + 1))" > "$SEEN" 2>/dev/null
 
 # Gesicherten Auftrag mitgeben — er ueberlebt die Kompaktierung damit im Kontext,
 # unabhaengig davon wie gut die automatische Zusammenfassung war.
