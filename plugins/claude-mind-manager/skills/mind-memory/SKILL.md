@@ -280,19 +280,68 @@ Der ungeprueft bei jedem Start geladene Speicher faellt unter **ASI06 „Memory 
 Poisoning"** (OWASP Top 10 for Agentic Applications 2026). Anders als klassische
 Prompt-Injection **ueberdauert die Vergiftung Sitzungen**.
 
+**Umsetzung: `mind_scan_poisoning <datei>` aus `lib.sh`** — nicht hier inline. Dieselbe
+Bedrohung betrifft `.claude/rules/*.md` und `CLAUDE.md`; einmal gebaut, dreifach nutzbar.
+
+```bash
+source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+for f in "$MEMORY_DIR"/*.md; do mind_scan_poisoning "$f"; done
+# Ausgabe je Fund: BEFUND|<art>|<zeile>|<detail>  bzw.  HINWEIS|...
+```
+
 | Muster | Klasse |
 |---|---|
 | **unsichtbare Unicode-Zeichen** (Zero-Width, Bidi-Steuerzeichen, Tag U+E0000-E007F) | **Befund** |
-| Anweisungs-Formulierungen („ignoriere", „vergiss", „ab jetzt gilt", „system:") | **Hinweis** |
-| URLs mit eingebetteten Daten, `curl`/`wget` auf fremde Hosts | Befund |
-| Zugangsdaten (`sk-ant-`, `AKIA`, `BEGIN … PRIVATE KEY`, `password=`) | Befund |
+| Zugangsdaten (`sk-ant-`, `AKIA`, `BEGIN … PRIVATE KEY`, `password=`) | **Befund** |
+| `curl`/`wget` auf fremde Hosts, `data:`-URLs mit base64 | **Befund** |
+| Anweisungs-Formulierungen **am Zeilenanfang** („ignoriere", „vergiss", „ab jetzt gilt", „system:") | **Hinweis** |
 
-⛔ **Die Wortliste ist bewusst nur ein HINWEIS.** Formulierungen wie „NIEMALS" oder „ab jetzt
-gilt" sind in anweisungsreichen deutschen Regeldateien **Alltag** — als Befund waere eine Flut
-von Fehlalarmen der wahrscheinlichste Fehlschlag des ganzen Checks.
+⛔ **Die Wortliste ist bewusst nur ein HINWEIS und ankert am ZEILENANFANG.** Formulierungen
+wie „NIEMALS" mitten im Satz sind in anweisungsreichen deutschen Regeldateien Alltag — ohne
+Anker waere eine Fehlalarm-Flut der wahrscheinlichste Fehlschlag des ganzen Checks.
+**Gemessen 20.08.2026:** ueber alle 18 Bestaende **und** die globalen `~/.claude/rules/*.md`
+zusammen **0 Befunde, 0 Hinweise** — bei nachgewiesener Trefferfaehigkeit (eingefuegtes
+`U+200B`, `sk-ant-`, `curl https://…` und eine Anweisungszeile wurden alle gefunden).
 
 ⛔ **Nur melden, nie automatisch entfernen.** Ein Fehltreffer, der autonom Inhalt loescht,
 waere schlimmer als der Fund.
+
+### 11. Widersprueche CLAUDE.md <-> MEMORY.md (NEU v6)
+
+Es gibt **keine Vorrangregel** — offizielle Doku: *„if two rules contradict each other,
+Claude may pick one arbitrarily"*. Beide sind *„context, not enforced configuration"*.
+
+⚠ **Anthropic hat den Auftrag selbst formuliert**, im Auto-Dream-Prompt (Flag
+`tengu_onyx_plover`, Vorgabe aus): *„Resolve contradictions — if two files disagree, fix the
+wrong one."* Wir bauen also keinen neuen Begriff, sondern aktivieren einen vorhandenen.
+
+**Umsetzung:** Aufgabe des `context-analyzer` (Step 3) — semantisch, nicht mechanisch.
+Eigene Befundklasse **`KONFLIKT`**, mit **beiden** Fundstellen.
+
+⛔ **NIE autonom aufloesen.** Ein Widerspruch zwischen einer vom Nutzer geschriebenen Regel
+und einer von Claude gelernten Erinnerung ist eine inhaltliche Frage, keine mechanische.
+Nur melden.
+
+**Abgrenzung zu Check 3/4 (Duplikate):** Ein Duplikat sagt zweimal dasselbe, ein Konflikt sagt
+zweimal Verschiedenes. „nutze vitest" gegen „User bevorzugt jest" ist **kein** Duplikat.
+
+### 12. `AUTO-MANAGED`-Marker respektieren (NEU v6)
+
+```markdown
+<!-- AUTO-MANAGED: index -->
+- [Titel](datei.md) — Aufhaenger
+<!-- /AUTO-MANAGED -->
+```
+
+Sind solche Marker vorhanden, fassen autonome Fixes **ausschliesslich** den Bereich dazwischen
+an. Alles davor und danach bleibt unberuehrt.
+
+⚠ **Rueckwaertskompatibel:** Ohne Marker verhaelt sich der Skill wie bisher (ganze Datei) —
+**meldet das aber im Bericht**, damit der Unterschied sichtbar ist.
+
+⛔ **Der Skill legt die Marker NICHT selbst an.** Das waere eine Formatanderung an einer Datei,
+die Claudes internes System schreibt. Er schlaegt sie vor, wenn eine `MEMORY.md` von Hand
+gepflegte Abschnitte enthaelt (erkennbar an Fliesstext ausserhalb der Zeiger-Liste).
 
 ## Step 5: Ergebnisse konsolidieren + praesentieren
 
@@ -301,14 +350,50 @@ Merge agent results with inline checks. Display as:
 **PFLICHT-Self-Check-Block am Anfang (NEU v3.3.1):**
 
 ```
-=== MEMORY.md Audit Report v3.3.2 — Self-Check ===
-[Step 3 context-analyzer] Agent dispatched: <N> Findings (Duplicates: <D>, Stale: <S>, Misplaced: <M>)
+=== MEMORY.md Audit Report v5.5.0 — Self-Check ===
+[Step 3 context-analyzer] Agent dispatched: <N> Findings (Duplicates: <D>, Stale: <S>, Misplaced: <M>, Konflikte: <K>)
   Beleg: context-analyzer Tool-Call #<N>
-[Step 4 Inline-Checks] Budget: <X>/200 lines, Cross-File-Duplikate: <Y>, Stale-Pfade: <Z>
+[Step 4 Inline-Checks] Sichtbarkeit: <T> Topic-Dateien / <L> sichtbar / <U> unsichtbar
+  description: <O> ohne, <K> zu kurz  ·  Index: <P> PRAEFIX, <TT> TOT, <V> VERWAIST
+  Budget: <X>/200 Zeilen, <B>/25 KB (Byte-Grenze <aktiv|inaktiv, Version <V>>)
+  Sicherheit: <SB> Befunde, <SH> Hinweise  ·  AUTO-MANAGED: <ja|nein>
   Beleg: Bash-Tool-Call #<N>
 ```
 
 Fehlt der Self-Check-Block oder enthaelt `(SKIPPED)`: User darf zurueckweisen.
+
+**NEU v5.5.0 — Der Bericht beginnt mit der Sichtbarkeit, nicht mit dem Budget:**
+
+```
+=== MEMORY.md Audit Report v5.5.0 ===
+
+SICHTBARKEIT
+  40 Topic-Dateien · 5 werden pro Anfrage ausgewaehlt · 35 UNSICHTBAR
+  Die Auswahl erfolgt ueber Dateiname + description, nicht ueber den Inhalt.
+  -> 7 Dateien ohne description sind praktisch unauffindbar.
+  ⚠ Grenze 5 aus Quellcode-Leak v2.1.88, hier NICHT verifiziert.
+     Nachpruefen mit /context (Abschnitt "Memory files").
+  ⚠ Sichtbarkeit ist notwendig, nicht hinreichend: eine geladene Erinnerung
+     kann ignoriert werden (Issue #37586). Fuer Garantien: PreToolUse-Hooks.
+
+BUDGET
+  Zeilen  66/200   OK
+  Bytes   16747/25600  WARNUNG (65 %) — Byte-Grenze INAKTIV in v2.1.81
+
+--- BEFUNDE (werden angewendet) ---
+[1] BEFUND   ohne-description   routen-auftrag-laufend.md    -> unsichtbar fuer die Auswahl
+[2] BEFUND   PRAEFIX            MEMORY.md:7                  -> "memory/x.md" -> "x.md"
+[3] BEFUND   sammeldatei        lessons.md (59 622 B)        -> Aufteilung VORSCHLAGEN
+
+--- HINWEISE (kein Punktabzug, nichts wird angewendet) ---
+[H1] node_type fehlt in 2 Dateien — nicht offiziell dokumentiert, nur beobachtet
+[H2] globale Rule zeigt auf memory/km-dynamic-must-stay.md (nur im Zustellplan vorhanden)
+[H3] KONFLIKT: CLAUDE.md:12 "nutze vitest" <-> memory/tools.md:4 "User bevorzugt jest"
+```
+
+⛔ **Befunde und Hinweise nie in einer Liste mischen** — sonst stehen harte Messungen neben
+Verdachtsmomenten, und der Leser kann beides nicht trennen. Dieselbe Regel wie in
+`/mind-claudemd` v5.4.0.
 
 ```
 === MEMORY.md Audit Report ===

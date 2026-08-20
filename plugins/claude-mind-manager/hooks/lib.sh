@@ -575,3 +575,64 @@ EOF
   echo "$snap"
   return 0
 }
+
+# --- mind_scan_poisoning: Kontext-Dateien auf Vergiftung pruefen (NEU v5.5.0) ---
+#
+# Der ungeprueft bei jedem Start geladene Speicher faellt unter OWASP ASI06
+# "Memory and Context Poisoning" (Agentic Top 10 2026). Anders als klassische
+# Prompt-Injection UEBERDAUERT die Vergiftung Sitzungen — sie wirkt Tage nach dem Schreiben.
+#
+# ⛔ WARUM HIER UND NICHT IM SKILL: dieselbe Bedrohung betrifft .claude/rules/*.md und
+#    CLAUDE.md genauso wie memory/*.md. Einmal bauen, dreifach nutzen — sonst muss die
+#    Logik beim naechsten Skill dupliziert werden.
+#
+# ⛔ MELDET NUR, LOESCHT NIE. Ein Fehltreffer, der autonom Inhalt entfernt, waere
+#    schlimmer als der Fund.
+#
+# Args:    $1 = Datei
+# Ausgabe: je Fund eine Zeile "BEFUND|<art>|<zeile>|<detail>" bzw. "HINWEIS|..."
+# Rueckgabe: immer 0 — der AUFRUFER wertet die Zeilen aus. Ein Rueckgabewert waere hier
+#            irrefuehrend, weil die Unterpruefungen in Subshells laufen (Pipes) und ihre
+#            Zaehler nicht zurueckgeben koennen. Lieber ehrlich als scheingenau.
+mind_scan_poisoning() {
+  local f="$1"
+  [ -f "$f" ] || return 0
+
+  # 1) Unsichtbare Zeichen — Zero-Width, Bidi-Steuerung, Tag-Zeichen.
+  #    Das ist der einzige Fund, der praktisch nie ein Fehlalarm ist: solche Zeichen
+  #    haben in einer Notizdatei keinen legitimen Zweck.
+  if command -v python >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1; then
+    local PY; PY=$(command -v python3 || command -v python)
+    "$PY" - "$f" <<'PYEOF'
+import io, sys
+p = sys.argv[1]
+UNSICHTBAR = set(range(0x200B, 0x2010)) | {0xFEFF} | set(range(0x202A, 0x202F)) \
+           | set(range(0x2066, 0x206A)) | set(range(0xE0000, 0xE0080))
+try:
+    zeilen = open(p, encoding="utf-8", errors="replace").read().split("\n")
+except Exception:
+    sys.exit(0)
+for i, z in enumerate(zeilen, 1):
+    treffer = sorted({ord(c) for c in z if ord(c) in UNSICHTBAR})
+    if treffer:
+        print("BEFUND|unsichtbares-zeichen|%d|%s" % (i, " ".join("U+%04X" % t for t in treffer)))
+PYEOF
+  fi
+
+  # 2) Zugangsdaten — echter Befund, gleiche Muster wie in mind-claudemd v5.4.0
+  grep -nE 'sk-ant-|AKIA[0-9A-Z]{16}|BEGIN [A-Z ]*PRIVATE KEY|password[[:space:]]*=' "$f" 2>/dev/null \
+    | while IFS=: read -r ln _; do echo "BEFUND|zugangsdaten|$ln|Muster erkannt"; done
+
+  # 3) Abfluss-Versuche — Netzwerkaufrufe in einer Notizdatei sind erklaerungsbeduerftig
+  grep -nE '(curl|wget)[[:space:]]+[^|]*https?://|data:[a-z/]+;base64,' "$f" 2>/dev/null \
+    | while IFS=: read -r ln _; do echo "BEFUND|abfluss|$ln|Netzwerk-/Daten-URL"; done
+
+  # 4) Anweisungs-Formulierungen — NUR HINWEIS.
+  # ⛔ Formulierungen wie "NIEMALS" oder "ab jetzt gilt" sind in anweisungsreichen
+  #    deutschen Regeldateien ALLTAG. Als Befund waere eine Fehlalarm-Flut der
+  #    wahrscheinlichste Fehlschlag dieses ganzen Checks — deshalb bewusst herabgestuft.
+  grep -niE '^[[:space:]]*(ignoriere|vergiss|ab jetzt gilt|system:|disregard|ignore (all|previous))' "$f" 2>/dev/null \
+    | while IFS=: read -r ln _; do echo "HINWEIS|anweisungsform|$ln|pruefen, ob beabsichtigt"; done
+
+  return 0
+}
