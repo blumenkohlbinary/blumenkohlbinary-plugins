@@ -81,6 +81,30 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
         RESUME_FILE=""
       fi
 
+      # --- ARBEITSSTAND (NEU v5.6.0) ---
+      # Vier Kategorien aus dem Transkript: Entscheidungen, Bugs, geaenderte Dateien,
+      # Constraints. BEWUSST eine eigene Datei und NICHT in RESUME.md:
+      # Die Erinnerungs-Hooks kappen RESUME.md mit `sed -n '/^## /,$p' | head -30`
+      # (prompt-submit.sh:96,133 · session-start.sh:121 · stop.sh:117 · mind-all:96).
+      # Vier zusaetzliche Kategorien fielen dort aus dem Fenster — technisch gruen,
+      # Zweck verfehlt, ohne Fehlermeldung. Die Kappung ist RICHTIG: eine Erinnerung
+      # soll kurz sein. Der ausfuehrliche Stand gehoert dorthin, wo er ganz gelesen
+      # wird (/mind-all Step 0).
+      #
+      # ⛔ FAIL-OPEN, wie bei --orders: schlaegt das fehl, laeuft der Hook WEITER.
+      #    pre-compact.sh ist der einzige Hook, der den Chat rettet. Ein Fehlschlag
+      #    der Anreicherung darf die Rettung niemals gefaehrden.
+      ARBEITSSTAND_FILE="$RESCUE_DIR/${RTS}_ARBEITSSTAND.json"
+      if command -v cygpath >/dev/null 2>&1; then RA_WIN=$(cygpath -w "$ARBEITSSTAND_FILE"); else RA_WIN="$ARBEITSSTAND_FILE"; fi
+      if "$RPY" "$RS_WIN" --arbeitsstand "$RT_WIN" "$RA_WIN" - >/dev/null 2>&1 && [ -s "$ARBEITSSTAND_FILE" ]; then
+        mind_log "arbeitsstand saved -> $ARBEITSSTAND_FILE"
+        echo "[Mind Manager] Arbeitsstand gesichert: ${ARBEITSSTAND_FILE##*/}"
+      else
+        mind_log WARN "Arbeitsstand fehlgeschlagen (Chat-Rettung und Auftrag sind trotzdem da)"
+        rm -f "$ARBEITSSTAND_FILE" 2>/dev/null
+        ARBEITSSTAND_FILE=""
+      fi
+
       # --- SCHULD-Merker OPEN (NEU v5.2.1 — loest PENDING ab) ---
       # WARUM die Umbenennung mehr ist als ein neuer Name: PENDING wurde beim ANKUENDIGEN
       # geloescht (prompt-submit.sh/session-start.sh benannten es in .announced um), nicht beim
@@ -95,13 +119,14 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
       # da, war aber als Quelle unerreichbar, weil alle Leser `grep -m1 '^path='` nahmen.
       # Belegt im eigenen Projekt: 20260816-194132_chat.md, 412 KB, nie eingespeist.
       PREV_C=0
-      PREV_PATHS=""; PREV_RESUMES=""
+      PREV_PATHS=""; PREV_RESUMES=""; PREV_ARB=""
       if [ -f "$RESCUE_DIR/OPEN" ]; then
         PREV_C=$(grep -m1 '^compactions=' "$RESCUE_DIR/OPEN" 2>/dev/null | cut -d= -f2-)
         case "$PREV_C" in ''|*[!0-9]*) PREV_C=0 ;; esac
         # Nur uebernehmen, was es noch GIBT — ein toter Zeiger soll die Liste nicht belasten.
         OLD_P=$(grep '^path='   "$RESCUE_DIR/OPEN" 2>/dev/null | cut -d= -f2-)
         OLD_R=$(grep '^resume=' "$RESCUE_DIR/OPEN" 2>/dev/null | cut -d= -f2-)
+        OLD_A=$(grep '^arbeitsstand=' "$RESCUE_DIR/OPEN" 2>/dev/null | cut -d= -f2-)
         while IFS= read -r _p; do
           [ -n "$_p" ] && [ -f "$_p" ] && PREV_PATHS="${PREV_PATHS}path=${_p}
 "
@@ -114,12 +139,20 @@ EOF
         done <<EOF
 $OLD_R
 EOF
+        while IFS= read -r _a; do
+          [ -n "$_a" ] && [ -f "$_a" ] && PREV_ARB="${PREV_ARB}arbeitsstand=${_a}
+"
+        done <<EOF
+$OLD_A
+EOF
       fi
       {
         printf '%s' "$PREV_PATHS"            # aeltere zuerst -> chronologisch
         echo "path=$RESCUE_FILE"
         printf '%s' "$PREV_RESUMES"
         echo "resume=$RESUME_FILE"
+        printf '%s' "$PREV_ARB"
+        echo "arbeitsstand=$ARBEITSSTAND_FILE"
         echo "events=${RESCUE_N:-?}"
         echo "ts=$RTS"
         echo "trigger=$TRIGGER"
@@ -144,8 +177,8 @@ EOF
       # also genau den Beleg, der noch eingespeist werden musste. Geschuetzte Dateien zaehlen
       # nicht gegen KEEP; wer nie synct, sammelt an. Das ist gewollt: Platte ist billiger als
       # verlorene Arbeit, und die Warnung unten wird mit jeder Kompaktierung lauter.
-      GESCHUETZT=$(grep -E '^(path|resume)=' "$RESCUE_DIR/OPEN" 2>/dev/null | cut -d= -f2-)
-      for pat in '*_chat.md' '*_RESUME.md'; do
+      GESCHUETZT=$(grep -E '^(path|resume|arbeitsstand)=' "$RESCUE_DIR/OPEN" 2>/dev/null | cut -d= -f2-)
+      for pat in '*_chat.md' '*_RESUME.md' '*_ARBEITSSTAND.json'; do
         ls -t "$RESCUE_DIR"/$pat 2>/dev/null | tail -n +$((RESCUE_KEEP + 1)) | while IFS= read -r f; do
           [ -n "$f" ] && [ -f "$f" ] || continue
           case "

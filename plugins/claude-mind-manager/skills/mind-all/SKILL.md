@@ -66,6 +66,9 @@ if [ -f "$OPEN" ]; then
   RESCUED_ALL=$(grep '^path=' "$OPEN" | cut -d= -f2- | while IFS= read -r p; do
                   [ -n "$p" ] && [ -f "$p" ] && echo "$p"; done)
   RESUME_FILE=$(grep '^resume='      "$OPEN" | cut -d= -f2- | tail -1)   # der juengste Auftrag
+  # v5.6.0: der ausfuehrliche Arbeitsstand. Er steht BEWUSST nicht in RESUME.md —
+  # die Erinnerungs-Hooks kappen die dort bei 30 Zeilen, und das ist richtig so.
+  ARBEITSSTAND=$(grep '^arbeitsstand=' "$OPEN" | cut -d= -f2- | tail -1)
   COMPACTIONS=$(grep -m1 '^compactions=' "$OPEN" | cut -d= -f2-)
 fi
 # Rueckfall, falls OPEN fehlt (Rettung aus einer aelteren Version)
@@ -94,6 +97,14 @@ fi
 # Der Auftrags-Merker ist KLEIN (wenige KB) und wird gelesen — er wird am Ende zurueckgegeben.
 [ -n "$RESUME_FILE" ] && [ -f "$RESUME_FILE" ] && \
   { echo "Unterbrochener Auftrag gefunden:"; sed -n "/^## /,\$p" "$RESUME_FILE" | head -30; }
+
+# Arbeitsstand OHNE Kappung — hier gehoert der ausfuehrliche Stand hin (v5.6.0).
+# Vier Kategorien: Entscheidungen, aktive Bugs, geaenderte Dateien, Constraints.
+if [ -n "$ARBEITSSTAND" ] && [ -s "$ARBEITSSTAND" ]; then
+  echo "Arbeitsstand vor der Kompaktierung:"
+  python "$CLAUDE_PLUGIN_ROOT/references/arbeitsstand_render.py" "$ARBEITSSTAND" 2>/dev/null \
+    || echo "  (Arbeitsstand nicht lesbar — der Lauf geht trotzdem weiter)"
+fi
 ```
 
 > ⛔ **KONTEXT-FLUT-SPERRE (NEU v5.2.1, Hard Constraint).** Die Rettungsdatei `*_chat.md` wird

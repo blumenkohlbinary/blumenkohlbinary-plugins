@@ -199,6 +199,151 @@ def dump_orders(jsonl_path, out_path, keep=5, min_len=30, max_chars=800):
     return len(recent)
 
 
+
+# ---------------------------------------------------------------------------
+# --arbeitsstand (NEU v5.6.0): die 4 Kategorien fuer den Arbeitsstand.
+#
+# Herkunft: die Muster und die Klassifikation standen bis v5.5.2 als HEREDOC in
+# skills/mind-compact/SKILL.md und wurden zur Laufzeit nach /tmp geschrieben.
+# Das ist genau der Weg, den "Befund 9" (siehe Kopf dieser Datei) fuer diese
+# Datei bereits als Windows-fragil verworfen hat.
+#
+# ⛔ Die Ausgabe ist BYTE-GLEICH zur alten Heredoc-Fassung — mind-compact rendert
+#    sie mit seinem eigenen Renderer weiter. Wer hier etwas an der JSON-Struktur
+#    aendert, bricht mind-compact Step 5, ohne dass eine Fehlermeldung erscheint.
+TOP_N = 10
+LONG_SESSION_TOP_N = 5
+LONG_SESSION_THRESHOLD = 500
+
+DECISION_PATTERNS_ASSISTANT = [
+    re.compile(r'\bdecision\s*:', re.IGNORECASE),
+    re.compile(r'\barchitekt(?:ur)?\b', re.IGNORECASE),
+    re.compile(r'\bpattern\s*:', re.IGNORECASE),
+    re.compile(r'\bwir\s+(?:entscheiden|nehmen\s+.{0,30}\s+statt|nutzen\s+.{0,30}\s+statt)', re.IGNORECASE),
+    re.compile(r'\binstead\s+of\b', re.IGNORECASE),
+    re.compile(r'\bwir\s+machen\s+.{0,40}?\b(?:weil|because|denn)\b', re.IGNORECASE),
+    re.compile(r'\bentschieden\s*:', re.IGNORECASE),
+]
+
+BUG_PATTERNS = [
+    re.compile(r'tool_use_error', re.IGNORECASE),
+    re.compile(r'\bcancelled\s*:', re.IGNORECASE),
+    re.compile(r'\bcrash(?:ed|t)?\b', re.IGNORECASE),
+    re.compile(r'\bfix\s*:', re.IGNORECASE),
+    re.compile(r'\bbug\s+#\d+', re.IGNORECASE),
+    re.compile(r'\berror\s*:\s', re.IGNORECASE),
+    re.compile(r'\bfailed\s*:', re.IGNORECASE),
+    re.compile(r'Traceback', re.IGNORECASE),
+]
+
+# Constraints: NUR USER, mind. 10 Zeichen Kontext-Match
+CONSTRAINT_PATTERNS_USER = [
+    re.compile(r'\bMUST\b.{10,}', re.IGNORECASE),
+    re.compile(r'\bNEVER\b.{10,}', re.IGNORECASE),
+    re.compile(r'\bniemals\b.{10,}', re.IGNORECASE),
+    re.compile(r'\bimmer\b.{10,}', re.IGNORECASE),
+    re.compile(r'\bwichtig\b.{10,}', re.IGNORECASE),
+    re.compile(r'\bkein(?:e[rn]?)?\s+push\b', re.IGNORECASE),
+    re.compile(r'\bnicht\s+.{0,30}(?:committen|pushen|loeschen|ueberschreiben)', re.IGNORECASE),
+]
+
+
+def dump_arbeitsstand(jsonl_path, out_path, self_cmd="mind-compact"):
+    """4-Kategorie-Extraktion -> JSON. Aufrufer rendern selbst.
+
+    self_cmd steuert die Self-Exclusion: mind-compact schliesst seinen eigenen
+    Aufruf aus, pre-compact.sh braucht das nicht (uebergibt None).
+    """
+    self_re = (re.compile(r'<command-name>/(?:[^/<]+:)?' + re.escape(self_cmd) +
+                          r'</command-name>') if self_cmd else None)
+    exclude_from = None
+    if self_re:
+        with open(jsonl_path, encoding='utf-8', errors='replace') as f:
+            for lineno, line in enumerate(f, 1):
+                if self_re.search(line):
+                    exclude_from = lineno
+
+    user_texts, assistant_texts = [], []
+    modified_files = set()
+    total_events = parse_errors = 0
+
+    with open(jsonl_path, encoding='utf-8', errors='replace') as f:
+        for lineno, line in enumerate(f, 1):
+            if exclude_from and lineno >= exclude_from:
+                break
+            try:
+                obj = json.loads(line.strip())
+            except json.JSONDecodeError:
+                parse_errors += 1
+                continue
+            if obj.get('isSidechain') or obj.get('type') == 'queue-operation':
+                continue
+            msg = obj.get('message', {}) or {}
+            content = msg.get('content')
+            if obj.get('type') == 'user' and isinstance(content, str):
+                user_texts.append((lineno, content))
+                total_events += 1
+            elif obj.get('type') == 'assistant' and isinstance(content, list):
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    btype = block.get('type')
+                    if btype == 'text':
+                        assistant_texts.append((lineno, block.get('text', '')))
+                        total_events += 1
+                    elif btype == 'tool_use' and block.get('name') in ('Write', 'Edit', 'NotebookEdit'):
+                        inp = block.get('input', {})
+                        if isinstance(inp, dict):
+                            fp = inp.get('file_path') or inp.get('notebook_path')
+                            if fp:
+                                modified_files.add(fp)
+
+    top_n = LONG_SESSION_TOP_N if total_events > LONG_SESSION_THRESHOLD else TOP_N
+
+    def _sammle(quellen, muster, vor, nach, kappe, mit_quelle=False):
+        treffer = []
+        for eintrag in quellen:
+            src, lineno, text = eintrag if mit_quelle else ('', eintrag[0], eintrag[1])
+            for p in muster:
+                m = p.search(text)
+                if m:
+                    a = max(0, m.start() - vor)
+                    e = min(len(text), m.end() + nach)
+                    schnipsel = text[a:e].replace('\n', ' ').strip()[:kappe]
+                    treffer.append((lineno, schnipsel, src) if mit_quelle else (lineno, schnipsel))
+                    break
+        treffer.sort(key=lambda x: -x[0])
+        return treffer[:top_n], len(treffer)
+
+    decisions, dec_total = _sammle(assistant_texts, DECISION_PATTERNS_ASSISTANT, 50, 150, 200)
+    alle = ([('U', l, t) for (l, t) in user_texts] +
+            [('A', l, t) for (l, t) in assistant_texts])
+    bugs, bug_total = _sammle(alle, BUG_PATTERNS, 30, 120, 180, mit_quelle=True)
+    constraints, con_total = _sammle(user_texts, CONSTRAINT_PATTERNS_USER, 20, 80, 160)
+
+    files_list = sorted(modified_files)[:top_n * 3]
+
+    result = {
+        "total_events": total_events,
+        "parse_errors": parse_errors,
+        "self_exclusion_line": exclude_from,
+        "top_n": top_n,
+        "long_session": total_events > LONG_SESSION_THRESHOLD,
+        "decisions": [{"line": l, "text": t} for (l, t) in decisions],
+        "decisions_total": dec_total,
+        "bugs": [{"line": l, "text": t, "src": s} for (l, t, s) in bugs],
+        "bugs_total": bug_total,
+        "files": files_list,
+        "files_total": len(modified_files),
+        "constraints": [{"line": l, "text": t} for (l, t) in constraints],
+        "constraints_total": con_total,
+    }
+    Path(out_path).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+    print("OK-ARBEITSSTAND: %d events, %d Entscheidungen / %d Bugs / %d Dateien / %d Constraints -> %s"
+          % (total_events, dec_total, bug_total, len(modified_files), con_total, out_path))
+    return total_events
+
+
 def main(argv):
     # --orders: Auftrags-Sicherung (v5.2.0)
     if len(argv) > 1 and argv[1] == "--orders":
@@ -206,6 +351,20 @@ def main(argv):
             print("usage: session_sampler.py --orders <transcript.jsonl> <out.md>", file=sys.stderr)
             return 2
         dump_orders(argv[2], argv[3])
+        return 0
+
+    # --arbeitsstand: 4-Kategorie-Extraktion (v5.6.0)
+    # ⛔ VOR dem Default-Check und mit return — faellt der Zweig durch, landet der
+    #    Aufruf im positional-Zweig und schreibt die falsche Datei.
+    if len(argv) > 1 and argv[1] == "--arbeitsstand":
+        if len(argv) < 4:
+            print("usage: session_sampler.py --arbeitsstand <transcript.jsonl> <out.json> [self_cmd]",
+                  file=sys.stderr)
+            return 2
+        selbst = argv[4] if len(argv) > 4 else "mind-compact"
+        if selbst in ("-", "none", "None"):
+            selbst = None
+        dump_arbeitsstand(argv[2], argv[3], selbst)
         return 0
 
     # --full: Voll-Rettung (v5.1.0)
