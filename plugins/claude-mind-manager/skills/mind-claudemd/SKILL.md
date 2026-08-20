@@ -234,7 +234,7 @@ Lauf: die **gute** Datei loeste **8 Befunde** aus. Kein einziger war ein Mangel 
 Regressionsfaelle, davon **13 Gegenproben** (soll NICHT anschlagen) — alle bestanden.
 
 > **Die Lehre:** Eine Pruefliste, die nie gelaufen ist, sieht genauso gut aus wie eine, die
-> laeuft. Drei von 15 harten Checks waren falsch, und alle drei sahen auf dem Papier richtig aus.
+> laeuft. Drei von 16 harten Checks waren falsch, und alle drei sahen auf dem Papier richtig aus.
 
 #### Gemeinsame Sektionsliste (Check 1 **und** Step 3d — EINE Quelle)
 
@@ -270,7 +270,7 @@ Agent-Ergebnisse + eigene Inline-Checks zusammenführen. Anzeigen als:
 [Step 4b context-analyzer] Agent dispatched: <N> Findings (Severity: <C> CRITICAL, <W> WARNING, <I> INFO), Health-Score <X>/100
   Beleg: context-analyzer Tool-Call #<N>
 [Step 4c Pipeline v5.4.0] Instrumentenkontrolle: <bestanden/ABBRUCH> (Kontrolle <K> vs. Ziel <N>)
-  Schritt 2: <B> Befunde aus 15 harten Checks  ·  Schritt 3: <H> Hinweise aus 8 Heuristiken
+  Schritt 2: <B> Befunde aus 16 harten Checks  ·  Schritt 3: <H> Hinweise aus 8 Heuristiken
   Pfade: <D> DEAD, <E> EXTERN (Hinweis), <S> SKIP  ·  Versionen: <ok/mismatch>, <T> Tags in Ueberschriften
   Git-Check: <Z> unreflektierte Commits
   Beleg: Bash-Tool-Call #<N>

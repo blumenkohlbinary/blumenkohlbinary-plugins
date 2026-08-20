@@ -446,28 +446,66 @@ zu wissen glaubt. Diese Findings speisen Step 3.5 mit konkreten Pruef-Punkten.
 # Commit-Coverage: welche Feature-Commits sind NICHT in den Context-Dateien?
 # Stichwort-Wahl (N1-Fix): zuerst dev.NN, dann der conventional-commit-SCOPE
 # (feat(SCOPE):), erst zuletzt ein Subject-Token — Stopwords ausgeschlossen.
-STOP='the|and|for|that|with|from|into|als|der|die|das|und|fix|feat|add|new|update'
-git log --oneline -30 | grep -iE '^[0-9a-f]+ (feat|fix|refactor|perf)(\(|:)' | while read -r line; do
+# Grep-Ziele als ARRAY, nie als Zeichenkette: ein Pfad mit Leerzeichen zerfaellt sonst in
+# Stuecke — derselbe Fehler, der in v5.2.1 die Rotation lahmlegte (xargs +
+# "Plugin - Entwicklung"). Die Zusatzziele kommen aus der CLAUDE.md SELBST; es wird nicht
+# geraten, welche Datei "kanonisch" ist. Gemessen: 2 -> 17 Ziele im Zustellplan-Projekt.
+ZIELE=("CLAUDE.md" "$MEMORY_MAIN")
+while IFS= read -r z; do
+  [ -n "$z" ] && [ -f "$z" ] && ZIELE+=("$z")
+done < <(grep -oE '`[A-Za-z0-9_./-]+\.md`' CLAUDE.md 2>/dev/null | tr -d '`' | sort -u)
+
+git log --oneline -30 | grep -iE '^[0-9a-f]+ (feat|fix|refactor|perf|docs)(\(|:)' | while read -r line; do
   hash=$(echo "$line" | cut -d' ' -f1)
   subj=$(echo "$line" | cut -d' ' -f2-)
-  # 1) dev.NN  2) scope aus feat(scope):  3) erstes Subject-Token >=4 chars, kein Stopword
-  key=$(echo "$subj" | grep -oiE 'dev\.[0-9]+' | head -1)
-  [ -z "$key" ] && key=$(echo "$subj" | sed -nE 's/^[a-z]+\(([a-z0-9_-]{3,})\).*/\1/p' | head -1)
-  [ -z "$key" ] && key=$(echo "$subj" | tr ' ' '\n' | grep -iE '^[a-z_]{4,}$' | grep -ivE "^($STOP)$" | head -1)
+  # 1) VERSION (fuehrendes v abgestreift)  2) dev.NN  3) Scope, Punkt erlaubt: docs(claude.md)
+  key=$(echo "$subj" | grep -oiE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^[vV]//')
+  [ -z "$key" ] && key=$(echo "$subj" | grep -oiE 'dev\.[0-9]+' | head -1)
+  [ -z "$key" ] && key=$(echo "$subj" | sed -nE 's/^[a-z]+\(([a-z0-9_.-]{3,})\).*/\1/p' | head -1)
   # KEIN -F: grep -iF auf UTF-8 (deutsche Umlaute in MEMORY.md) wirft auf Git-Bash/MSYS
   # "Aborted (core dumped)" -> non-zero -> falsche GAPs (real 2026-07-15: 24 Fake-GAPs aus
   # dem Crash). grep -qi (ohne -F) ist verifiziert crash-frei; Keys sind regex-safe. v4.1.0-Fix.
-  if [ -n "$key" ] && ! grep -qi "$key" CLAUDE.md "$MEMORY_MAIN" 2>/dev/null; then
-    echo "GAP: $hash '$subj' — Stichwort '$key' fehlt in CLAUDE.md+MEMORY.md"
+  if [ -z "$key" ]; then
+    # Sichtbar machen statt verschweigen: ohne belastbares Stichwort ist der Commit
+    # UNGEPRUEFT, nicht unauffaellig. Genau diese Stille war der Defekt bis v5.5.1.
+    echo "KEIN-STICHWORT: $hash '$subj' — ungeprueft, kein belastbares Stichwort"
+  elif ! grep -qi "$key" "${ZIELE[@]}" 2>/dev/null; then
+    echo "GAP: $hash '$subj' — Stichwort '$key' fehlt in ${#ZIELE[@]} Context-Dateien"
   fi
 done
 ```
 
-**N1-Hinweis:** Die Stichwort-Heuristik kann im Zweifel einen Gap *übersehen* (false-negative),
-aber nie einen *erfinden* (kein false-GAP) — die Gate-Evidenz bleibt verlässlich. Bei
-Unsicherheit lieber Step 3.5 trotzdem laufen lassen (Agents finden den semantischen Rest).
+**N1-Hinweis (neu gefasst v5.5.2 — die alte Zusicherung war teuer erkauft):** Der enge Weg
+bis v5.5.1 konnte einen Gap *übersehen*, aber nie einen *erfinden*. Der Preis dafür war, in
+einem Doku-Workspace **gar nichts** zu sehen: `docs:` fiel durch den Filter, und damit blieben
+dort **0 von 17** Commits ungeprüft — gemeldet wurde trotzdem „keine Lücken".
+
+Der neue Weg hält die Zusicherung anders: Ein Stichwort wird nur genommen, wenn es **belastbar**
+ist (Version · `dev.NN` · Scope). Gibt es keines, wird geraten — nein: wird der Commit als
+`KEIN-STICHWORT` **ausgewiesen**. Der Rückfall auf ein beliebiges Subject-Token ist entfallen;
+deutsche Subjects lieferten dort Verben („vereinheitlichen", „protokollieren"), die per
+Konstruktion nie in der Doku stehen und damit garantierte Fehlalarme waren.
+
+⛔ **`KEIN-STICHWORT` ist ein Ergebnis, kein Rauschen.** Es heißt „dieser Commit wurde nicht
+geprüft" — nicht „dieser Commit ist in Ordnung". Wer die Zeilen wegblendet, stellt genau die
+Stille wieder her, die der Defekt war.
+
+**Belege (2026-08-20, alle gegen echte Git-Historie, nicht gegen Kunstbeispiele):**
+Reproduktion am eigenen Repo — altes Gate **0** betrachtete Commits und **0** GAPs, während
+`v5.5.1` nachweislich in *keiner* Context-Datei stand; das neue Gate findet genau diesen Commit.
+**Negativkontrolle:** am Stand nach dem Nachtrag meldet es ihn nicht mehr — die Messung schlägt
+in beide Richtungen aus. Stichwort-Erkennung gegen **14 synthetische Subjects inkl. 3
+Gegenproben** (`95 -> 79`, `12.30 Uhr`, `3.2x` dürfen NICHT als Version durchgehen).
+**Flut-Kontrolle** in zwei realen Projekten: Zustellplan 23 → 28 betrachtete Commits bei
+weiterhin **0** GAPs, Grep-Ziele 2 → 17.
+
+⚠ **Was weiterhin blind bleibt:** Repos ohne Conventional-Commit-Präfixe. In `APP - Palvedo`
+trifft der Filter **0 von 30** Commits — vorher wie nachher. Das ist keine Regression, aber auch
+keine Lösung; es steht hier, damit niemand das Gate für vollständig hält.
 
 - Jeder `GAP:` = **objektives Knowledge-Gap-Finding** (Commit-Hash + Subject + fehlendes Stichwort).
+- Jedes `KEIN-STICHWORT:` = **ungeprueft** (v5.5.2). Zaehlt NICHT als Gap, darf aber auch nicht
+  als "sauber" gelten — beide Zahlen gehoeren getrennt in den Self-Check-Block.
 - Diese Liste geht als konkreter Input an Step 3.5 ("verifiziere/ergaenze diese unreflektierten Commits").
 - **WICHTIG:** Wenn die Commit-Coverage Gaps zeigt, MUSS Step 3.5 laufen — ein nicht-leeres Gap-Set widerlegt jede "alles synchron / ich kenne den Stand"-Annahme.
 
@@ -1002,9 +1040,12 @@ ist BUGGY — User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step
   - <pfad2> (mtime: YYYY-MM-DD HH:MM, size: <X>KB)
   ... (oder "0 Files — Bash-find Output in Tool-Call #<N>")
 
-[Step 3c Commit-Coverage] <K> unreflektierte feat/fix/refactor-Commits:
-  - <hash> "<subject>" — Stichwort "<key>" fehlt in CLAUDE.md+MEMORY.md
-  ... (oder "0 — alle Feature-Commits in Context-Files reflektiert")
+[Step 3c Commit-Coverage] <B> betrachtete Commits · <K> Gaps · <U> ohne Stichwort · <Z> Grep-Ziele
+  - <hash> "<subject>" — Stichwort "<key>" fehlt in <Z> Context-Dateien
+  - KEIN-STICHWORT: <hash> "<subject>" — ungeprueft
+  ... (oder "0 Gaps bei <B> betrachteten Commits")
+  ⛔ <B> == 0 ist KEIN gutes Ergebnis, sondern eine Blindstelle — dann ausdruecklich sagen,
+     dass das Gate nichts pruefen konnte (Repo ohne Conventional Commits?).
   Beleg: git-log + grep Output in Tool-Call #<N>
 
 [Step 3.5 Per-Bereich Knowledge-Sync] 4 Agents dispatched (sequenziell/≤2 pro Welle, NIE ≥3):
