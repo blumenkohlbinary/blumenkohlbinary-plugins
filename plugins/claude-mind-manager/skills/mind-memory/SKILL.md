@@ -108,9 +108,82 @@ Launch **context-analyzer** with scope=memory:
 
 While the agent runs, perform these checks directly:
 
-1. **Budget-Check**: Count lines in MEMORY.md.
-   - >200 lines = CRITICAL: "Truncation imminent — Claude truncates MEMORY.md at ~200 lines"
-   - >150 lines = WARNING: "Approaching truncation limit"
+---
+
+### 4.0 SICHTBARKEIT — der wichtigste Check (NEU v6)
+
+⛔ **Der Abruf waehlt pro Anfrage hoechstens FUENF Topic-Dateien aus** — ueber eine
+Sonnet-Seitenabfrage, anhand von **Dateiname und `description`**, NICHT anhand des Inhalts.
+Alles darueber ist pro Turn unerreichbar, egal wie relevant.
+
+```bash
+LIMIT="${MIND_MEMORY_VISIBILITY_LIMIT:-5}"
+N=$(ls "$MEMORY_DIR"/*.md 2>/dev/null | grep -v '/MEMORY\.md$' | wc -l)
+[ "$N" -gt "$LIMIT" ] && echo "SICHTBARKEIT: $N Topic-Dateien, $LIMIT sichtbar, $((N-LIMIT)) pro Anfrage UNSICHTBAR"
+```
+
+⚠ **`MEMORY.md` zaehlt NICHT mit** — der Index wird ohnehin immer geladen und steht nicht zur
+Auswahl. Wer ihn mitzaehlt, meldet eine Datei zu viel.
+
+⚠ **Die Zahl 5 stammt aus einem Quellcode-Leak (v2.1.88) und ist am lokal installierten Bundle
+NICHT verifiziert.** Deshalb per `MIND_MEMORY_VISIBILITY_LIMIT` einstellbar. **Nachpruefbar mit
+`/context`** — dort steht unter „Memory files", welche Dateien wirklich geladen wurden.
+
+⛔ **Sichtbarkeit ist notwendig, nicht hinreichend.** GitHub-Issue #37586: eine Erinnerung war
+geladen und trotzdem wirkungslos — Memory ist *„context, not enforced configuration"*. Fuer
+erzwingbares Verhalten braucht es `PreToolUse`-Hooks. **Der Bericht darf keine Garantie
+behaupten, die es nicht gibt.**
+
+### 4.0b `description`-Qualitaet — der einzige Hebel auf Sichtbarkeit
+
+| Pruefung | Schwelle | Klasse |
+|---|---|---|
+| `description` fehlt | — | **Befund** — die Datei ist praktisch unsichtbar |
+| `description` zu kurz | < `MIND_MEMORY_DESC_MIN` (40) | **Befund** |
+| nur generische Woerter (`Notizen`, `Infos`, `Sonstiges`) | Wortliste | Hinweis |
+| zwei Beschreibungen zu aehnlich | Ueberlappung > 70 % | Hinweis |
+
+```bash
+for f in "$MEMORY_DIR"/*.md; do
+  case "$f" in */MEMORY.md) continue;; esac
+  D=$(sed -n 's/^description:[[:space:]]*//p' "$f" | head -1)
+  [ -z "$D" ] && echo "BEFUND ohne description: $(basename "$f")"
+  [ -n "$D" ] && [ ${#D} -lt "${MIND_MEMORY_DESC_MIN:-40}" ] && echo "BEFUND description zu kurz (${#D}): $(basename "$f")"
+done
+```
+
+**Dateiname ist das zweite Signal.** Generische Namen (`notes-2.md`) verschenken die Haelfte.
+**Hinweis, nie automatisch umbenennen** — der Index zeigt auf den Namen.
+
+⛔ **Folge fuer den Fix-Typ „Offload to topic file":** Auslagern **erhoeht** die Dateizahl.
+Liegt der Bestand ueber dem Limit, muss der Vorschlag die **neue `description` mitliefern** —
+sonst verschiebt er Inhalt in die Unsichtbarkeit. Oberhalb des Limits ist **Zusammenfuehren**
+oft besser. ⛔ **Nie autonom zusammenfuehren — nur Vorschlag**, genau wie beim Aufteilen.
+
+---
+
+1. **Budget-Check**: MEMORY.md gegen **ZWEI** Grenzen (NEU v6).
+
+   | Grenze | Wert | gilt ab |
+   |---|---|---|
+   | Zeilen | **200** | seit jeher (`DH=200` im Bundle v2.1.81 belegt) |
+   | **Bytes** | **25 KB** | **ab v2.1.198** — aeltere Versionen kennen sie nicht |
+
+   Es gilt, **was zuerst kommt**. Schwellen: optimal `<150` (`<19 KB`) · akzeptabel `<180`
+   (`<22 KB`) · Warnung `180-195` (`22-24 KB`) · kritisch `>195` (`>24 KB`).
+
+   ```bash
+   L=$(wc -l < "$MEMORY_DIR/MEMORY.md"); B=$(wc -c < "$MEMORY_DIR/MEMORY.md")
+   CCV=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+   ```
+
+   ⚠ **Der Byte-Check gilt erst ab v2.1.198.** Bei aelterer Version als **Hinweis** ausgeben
+   („greift in dieser Version noch nicht"), nicht als Befund — sonst meldet der Skill ein
+   Limit, das die laufende Version gar nicht hat.
+
+   ⚠ **Ab v2.1.211** werden YAML-Frontmatter und Block-HTML-Kommentare vor dem Laden entfernt
+   und zaehlen nicht mit. Bei Zweifel **beide** Rechnungen ausweisen.
+
    - Also count topic files and their line counts
 
 2. **Misplaced Content**: Grep MEMORY.md for patterns that belong in CLAUDE.md:
@@ -132,6 +205,94 @@ While the agent runs, perform these checks directly:
    - File paths that no longer exist (Bash `test -e`)
    - Version numbers that don't match current package.json/plugin.json
    - Features/tools that are no longer in the project
+
+   ⚠ **Claude Code kennzeichnet alte Erinnerungen SELBST** (NEU v6). Beim Lesen wird ab
+   mehr als einem Tag vorangestellt: *„This memory is N days old. Memories are point-in-time
+   observations, not live state — claims about code behavior or file:line citations may be
+   outdated."* **Nicht melden, was das System schon kennzeichnet.** Der Check zielt auf das,
+   was die Warnung NENNT, aber nicht prueft: **`file:line`-Zitate und Versionsnummern in
+   Dateien aelter als `MIND_MEMORY_STALE_DAYS` (Vorgabe 14)** — und ob sie noch stimmen.
+
+### 6. Index-Integritaet — DREI Klassen, nicht zwei (NEU v6)
+
+| Klasse | Bedeutung | Fix |
+|---|---|---|
+| `TOT` | Datei existiert nirgends | Zeile korrigieren oder entfernen |
+| **`PRAEFIX`** | Datei existiert, der Zeiger hat ein Verzeichnis davor (`memory/datei.md` statt `datei.md`) | **Praefix entfernen — NICHT die Zeile loeschen** |
+| `VERWAIST` | Datei ohne Zeiger im Index | Zeile ergaenzen |
+
+```bash
+grep -o '](\([^)]*\.md\))' "$MEMORY_DIR/MEMORY.md" | sed 's/](//;s/)//' | while read -r z; do
+  [ -f "$MEMORY_DIR/$z" ] && continue
+  b=$(basename "$z")
+  if [ -f "$MEMORY_DIR/$b" ]; then echo "PRAEFIX: $z -> $b"; else echo "TOT: $z"; fi
+done
+```
+
+⛔ **Eine reine Existenzpruefung meldet `PRAEFIX` als „fehlt"** — und ein autonomer Fix wuerde
+die Zeile dann **loeschen** statt sie zu reparieren. Dieselbe Fehlerklasse wie der
+v5.3.1-Beinahe-Schaden bei den Pfaden.
+
+**Nach jedem Index-Umbau die Zeiger nachpruefen — ein Arbeitsschritt, nicht zwei.**
+
+### 7. Zeiger von AUSSERHALB (NEU v6)
+
+Globale Regeln koennen auf Erinnerungen zeigen, die nur in EINEM Projekt existieren:
+`~/.claude/rules/plan-mode.md` verweist auf `memory/km-dynamic-must-stay.md` — vorhanden nur im
+Zustellplan-Projekt. Aus 17 von 18 Projekten zeigt das ins Leere, und der Pfad `memory/…` ist
+ohne Projektbezug **prinzipiell nicht aufloesbar**.
+
+```bash
+grep -rn 'memory/[a-z0-9-]*\.md' "$HOME/.claude/rules/" "$HOME/.claude/CLAUDE.md" 2>/dev/null
+```
+
+⚠ **Hinweis, kein Befund** — die Datei liegt ausserhalb unserer Zustaendigkeit, und sie zu
+aendern ist eine Nutzerentscheidung.
+
+### 8. Frontmatter (NEU v6)
+
+| Feld | fehlt oder ungueltig -> |
+|---|---|
+| `name`, `description`, `type` (aus `user`/`feedback`/`project`/`reference`) | **Befund** |
+| `node_type`, `originSessionId`, `modified` | **Hinweis** |
+
+⛔ **`node_type` und `originSessionId` sind NICHT offiziell dokumentiert** — nur durch
+Datei-Lektuere belegt (91 von 91 realen Dateien). Auch die vier `type`-Werte sind nicht
+offiziell enumeriert. **Kein Punktabzug**, solange ihre Rolle ungeprueft ist.
+
+**Datei ganz ohne Frontmatter = eigener Befundtyp:** Claude Code fuegt **nie** welches hinzu,
+wo keines ist. Solche Dateien zaehlen **voll** gegen das Limit (kein Stripping) **und** sind
+fuer den Auswaehler fast unsichtbar (keine `description`). **Fix ist ergaenzen, nicht loeschen.**
+
+### 9. Sammeldateien (NEU v6)
+
+Fuer Topic-Dateien gibt es **kein hartes Limit** — nur die Empfehlung „< 200 Zeilen".
+
+**Befund ab > 200 Zeilen ODER > 20 KB** (beide Zweige pruefen, nicht nur einen), mit
+Aufteilungsvorschlag.
+
+⛔ **Nie autonom aufteilen** — Inhalt zerschneiden ist keine mechanische Operation. Und siehe
+4.0b: Aufteilen erhoeht die Dateizahl und kann die Sichtbarkeit verschlechtern.
+
+### 10. Sicherheit — OWASP ASI06 (NEU v6)
+
+Der ungeprueft bei jedem Start geladene Speicher faellt unter **ASI06 „Memory and Context
+Poisoning"** (OWASP Top 10 for Agentic Applications 2026). Anders als klassische
+Prompt-Injection **ueberdauert die Vergiftung Sitzungen**.
+
+| Muster | Klasse |
+|---|---|
+| **unsichtbare Unicode-Zeichen** (Zero-Width, Bidi-Steuerzeichen, Tag U+E0000-E007F) | **Befund** |
+| Anweisungs-Formulierungen („ignoriere", „vergiss", „ab jetzt gilt", „system:") | **Hinweis** |
+| URLs mit eingebetteten Daten, `curl`/`wget` auf fremde Hosts | Befund |
+| Zugangsdaten (`sk-ant-`, `AKIA`, `BEGIN … PRIVATE KEY`, `password=`) | Befund |
+
+⛔ **Die Wortliste ist bewusst nur ein HINWEIS.** Formulierungen wie „NIEMALS" oder „ab jetzt
+gilt" sind in anweisungsreichen deutschen Regeldateien **Alltag** — als Befund waere eine Flut
+von Fehlalarmen der wahrscheinlichste Fehlschlag des ganzen Checks.
+
+⛔ **Nur melden, nie automatisch entfernen.** Ein Fehltreffer, der autonom Inhalt loescht,
+waere schlimmer als der Fund.
 
 ## Step 5: Ergebnisse konsolidieren + praesentieren
 
@@ -232,3 +393,22 @@ Topic files: 3 (was 2, created api-patterns.md)
 - ALWAYS show before/after line counts
 - If MEMORY.md does not exist: inform user and STOP — do NOT attempt to create it
 - Misplaced content: MOVE (not just delete) — show destination file
+
+### NEU v6
+
+- ⛔ **NIEMALS eine Umgebungsvariable oder einen `settings.json`-Schluessel schreiben** — auch
+  nicht „hilfsweise", auch nicht bei `--auto`. **Warum das eine harte Regel ist:** Das Plugin
+  `claude-mem` setzte bei der Installation still `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`
+  (Issue #2836) — **75 native Memory-Dateien waren ueber Nacht unsichtbar**, nicht geloescht,
+  aber nicht mehr geladen, ohne Rueckfrage. Ein Memory-Werkzeug, das die Memory-Umgebung
+  still umstellt, ist die schlimmste Form von Nebenwirkung.
+- ⛔ **NIEMALS autonom Topic-Dateien zusammenfuehren ODER aufteilen** — beides ist inhaltliche
+  Arbeit, keine mechanische. Nur Vorschlag, nie Ausfuehrung.
+- ⛔ **NIEMALS eine Datei umbenennen** — der Index zeigt auf den Dateinamen, und
+  `originSessionId` verknuepft ihn mit einer Sitzung.
+- ⛔ **Keine Inhalte fremder Memory-Bestaende** in Berichte, Logs oder Commits. Nur Struktur,
+  Groessen, Feldnamen. In den realen Bestaenden stehen Abonnenten-, Routen- und
+  Geschaeftsdaten.
+- **`PRAEFIX`-Befunde werden repariert, nicht geloescht** — die Datei existiert ja.
+- **Der Bericht behauptet keine Wirkung, nur Sichtbarkeit.** Memory ist „context, not enforced
+  configuration"; eine geladene Erinnerung kann ignoriert werden (Issue #37586).

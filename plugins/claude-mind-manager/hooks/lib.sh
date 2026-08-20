@@ -222,22 +222,97 @@ hash_project_dir() {
   echo "$win_path" | sed 's|[\\: ()]|-|g' | sed 's|^-*||'
 }
 
+# --- _resolve_memory_dir: die EINZIGE Stelle, die den Memory-Pfad bildet (NEU v6) ---
+#
+# ⛔ WARUM ES DIESE FUNKTION GIBT. Der Pfad wurde bis v5.4.1 an VIER Stellen unabhaengig
+#    zusammengesetzt: get_memory_dir (2x), create_backup und mind_snapshot. Wer nur eine
+#    davon erweitert, laesst die anderen auf den alten Pfad zeigen — der Skill faende das
+#    verlegte Verzeichnis, die SICHERUNG aber sicherte weiter das Falsche, ohne Fehler.
+#    Gefunden bei der Phase-4-Pruefung des v6-Plans (Pruefung 4O, "geteilte Ressource").
+#
+# Drei Wege koennen den Ort verlegen, keinen kannte hash_project_dir():
+#   1. CLAUDE_CODE_REMOTE_MEMORY_DIR  (Umgebungsvariable, im Bundle v2.1.81 belegt)
+#   2. autoMemoryDirectory            (settings.json, jeder Scope; ab v2.1.198 dokumentiert)
+#   3. Worktrees                      (Slug aus dem GIT-REPO, nicht aus dem Arbeitsverzeichnis)
+#
+# ⛔ REIHENFOLGE IST SICHERHEIT, NICHT GESCHMACK: Der bisherige Pfad wird ZUERST geprueft.
+#    Nur wenn er NICHT existiert, kommen die neuen Wege dran. Sonst wuerde die
+#    Worktree-Ableitung (Repo-Wurzel statt cwd) bei jedem Projekt, das in einem Unterordner
+#    eines Repos liegt, auf einen ANDEREN Slug zeigen — und die vorhandenen Erinnerungen
+#    waeren von einem Tag auf den anderen unauffindbar. Additiv, nie ersetzend.
+#
+# Args:    $1 = project_dir (default $(pwd))
+# Ausgabe: der Pfad
+# Rueckgabe: 0 = echtes Verzeichnis gefunden · 1 = nichts gefunden, Pfad ist nur geraten
+_resolve_memory_dir() {
+  local project_dir="${1:-$(pwd)}"
+  local slug cand root common
+
+  slug=$(hash_project_dir "$project_dir")
+
+  # (0) Der bisherige Weg zuerst — bricht garantiert nichts.
+  cand="$HOME/.claude/projects/$slug/memory"
+  [ -d "$cand" ] && { echo "$cand"; return 0; }
+
+  # (1) CLAUDE_CODE_REMOTE_MEMORY_DIR
+  if [ -n "$CLAUDE_CODE_REMOTE_MEMORY_DIR" ]; then
+    cand="$CLAUDE_CODE_REMOTE_MEMORY_DIR/projects/$slug/memory"
+    [ -d "$cand" ] && { mind_log INFO "memory-dir via CLAUDE_CODE_REMOTE_MEMORY_DIR: $cand"; echo "$cand"; return 0; }
+  fi
+
+  # (2) autoMemoryDirectory aus settings.json — Projekt-Scope vor User-Scope.
+  # ⚠ UNGEPRUEFT, ob der Schluessel das WURZEL- oder das Projektverzeichnis meint. Hier als
+  #   fertiger Memory-Pfad behandelt; erweist sich das als falsch, ist es EINE Zeile.
+  if command -v jq >/dev/null 2>&1; then
+    local s v
+    for s in "$project_dir/.claude/settings.local.json" "$project_dir/.claude/settings.json" \
+             "$HOME/.claude/settings.json"; do
+      [ -f "$s" ] || continue
+      v=$(jq -r '.autoMemoryDirectory // empty' "$s" 2>/dev/null)
+      [ -z "$v" ] && continue
+      case "$v" in "~/"*) v="$HOME/${v#\~/}" ;; esac
+      [ -d "$v" ] && { mind_log INFO "memory-dir via autoMemoryDirectory ($s): $v"; echo "$v"; return 0; }
+    done
+  fi
+
+  # (3) Worktree: Slug aus der Repo-Wurzel. --git-common-dir zeigt beim Worktree auf das
+  #     HAUPT-.git; dessen Elternverzeichnis ist die Wurzel, aus der Claude Code den Pfad
+  #     ableitet ("derived from the git repository").
+  if command -v git >/dev/null 2>&1; then
+    common=$(git -C "$project_dir" rev-parse --git-common-dir 2>/dev/null)
+    if [ -n "$common" ]; then
+      case "$common" in /*|[A-Za-z]:*) : ;; *) common="$project_dir/$common" ;; esac
+      root=$(dirname "$common")
+      if [ "$root" != "$project_dir" ]; then
+        cand="$HOME/.claude/projects/$(hash_project_dir "$root")/memory"
+        [ -d "$cand" ] && { mind_log INFO "memory-dir via Git-Repo-Wurzel ($root): $cand"; echo "$cand"; return 0; }
+      fi
+    fi
+  fi
+
+  # Nichts gefunden — Pfad zurueckgeben, aber ehrlich mit Rueckgabewert 1.
+  echo "$HOME/.claude/projects/$slug/memory"
+  return 1
+}
+
 # --- get_memory_dir: Project-spezifisches MEMORY-Verzeichnis (v3.2.2 NEU) ---
 # Mit Fallback auf neuestes Projekt-Dir (mtime) bei Slug-Mismatch
 # Args: optional $1 = project_dir (default $(pwd))
 # Returns: 0 wenn primary dir gefunden, 1 wenn Fallback verwendet wurde (H2-Fix)
 get_memory_dir() {
-  local hash
+  local hash resolved
   hash=$(hash_project_dir "$@")
-  local memory_dir="$HOME/.claude/projects/$hash/memory"
 
-  if [ -d "$memory_dir" ]; then
-    echo "$memory_dir"
+  # v6: alle Wege ueber die gemeinsame Funktion. Findet sie ein echtes Verzeichnis,
+  # sind wir fertig — sie deckt auch den frueheren Direkt-Pfad ab (Weg 0).
+  if resolved=$(_resolve_memory_dir "$@") && [ -n "$resolved" ]; then
+    echo "$resolved"
     return 0
   fi
 
-  # Fallback: neuestes Projekt-Dir
-  local projects_dir
+  # Ab hier: nichts gefunden. Fallback auf das neueste Projekt-Verzeichnis — unveraendert
+  # seit v3.2.2, samt Rueckgabewert 1 und stderr-Warnung.
+  local memory_dir projects_dir
   projects_dir=$(ls -td "$HOME"/.claude/projects/*/ 2>/dev/null | head -1 | sed 's|/$||')
   memory_dir="$projects_dir/memory"
 
@@ -276,9 +351,10 @@ create_backup() {
   local transcript_keep="${MIND_TRANSCRIPT_KEEP_COUNT:-3}"
   local mind_dir="$project_dir/.claude-mind"
   local backup_dir="${MIND_BACKUP_DIR:-$mind_dir/backups}"
-  local hash
-  hash=$(hash_project_dir "$project_dir")
-  local memory_dir="$HOME/.claude/projects/$hash/memory"
+  # v6: ueber die gemeinsame Aufloesung, nicht mehr selbst zusammengesetzt. Sonst sichert
+  # create_backup weiter den alten Pfad, waehrend der Skill schon am neuen arbeitet.
+  local memory_dir
+  memory_dir=$(_resolve_memory_dir "$project_dir" 2>/dev/null) || memory_dir=""
 
   mkdir -p "$backup_dir"
   local ts
@@ -360,13 +436,17 @@ mind_snapshot() {
   # Jetzt: den Pfad DIREKT aus hash_project_dir bilden und nur nehmen, wenn genau DIESES
   # Verzeichnis existiert. Kein Fallback = keine Fremd-Gefahr, und gesichert wird immer dann,
   # wenn es etwas zu sichern gibt.
+  # v6: ueber _resolve_memory_dir. Deren Rueckgabewert 0 heisst "echtes Verzeichnis
+  # gefunden" — genau die Bedingung, die hier seit v5.2.1 gilt. Der Fremd-Projekt-Schutz
+  # bleibt damit erhalten: die Funktion faellt NIE auf ein fremdes Projekt zurueck.
   local mem_slug
   mem_slug=$(hash_project_dir "$project_dir" 2>/dev/null)
   memory_dir=""
   if [ -n "$mem_slug" ] && [ "${mem_slug#ERROR}" = "$mem_slug" ]; then
-    if [ -d "$HOME/.claude/projects/$mem_slug/memory" ]; then
-      memory_dir="$HOME/.claude/projects/$mem_slug/memory"
+    if memory_dir=$(_resolve_memory_dir "$project_dir" 2>/dev/null); then
+      : # gefunden
     else
+      memory_dir=""
       mind_log INFO "mind_snapshot: kein Memory-Verzeichnis fuer Slug '$mem_slug' (nichts zu sichern)"
     fi
   else
