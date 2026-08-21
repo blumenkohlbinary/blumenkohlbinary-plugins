@@ -85,6 +85,24 @@ def classify_path(p):
             or ("{" in p and "}" in p) or "$" in p or "*" in p
             or ("[" in p and "](" in p)):
         return "SKIP"
+    # 3z) SKIP: Escape-Sequenz, Code-Fragment, Endungspaar (NEU 21.08.2026).
+    #     Aufgedeckt am Lauf gegen die globale CLAUDE.md: dort galten \n, \r, \v,
+    #     \udc90, `"hooks": "hooks/hooks.json"` und `.tsx/.jsx` als tote Pfade. Alle tragen
+    #     einen Schraegstrich oder Backslash und kamen deshalb bis hierher durch.
+    if re.fullmatch(r'(\\+[a-zA-Z0-9]{1,8})+', p):
+        return 'SKIP'                      # reine Escape-Sequenz
+    if re.search(r'\\x[0-9a-fA-F]{2}|\\u[0-9a-fA-F]{4}', p):
+        return 'SKIP'                      # Hex-/Unicode-Escape im Span
+    if '"' in p or "'" in p:
+        return 'SKIP'                      # Code- oder JSON-Fragment, kein Pfad
+    if all(t.startswith('.') for t in p.split('/') if t):
+        return 'SKIP'                      # Endungspaar wie .tsx/.jsx
+    # 3a) SKIP: FORMEL, kein Pfad (NEU nach dem ersten echten Lauf, 21.08.2026).
+    #     `min(Fenster-12 %, Fenster x Prozent/100, Fenster-13000)` hat einen
+    #     Schraegstrich und keines der Zeichen aus 3). Ein Span mit Leerzeichen UND
+    #     Klammern ist nie ein Dateipfad — Pfade mit Leerzeichen haben keine Klammerpaare.
+    if ' ' in p and (('(' in p and ')' in p) or ',' in p or '=' in p):
+        return 'SKIP'
     # 3b) SKIP: Slash-Command — fuehrender /, GENAU ein Segment, MIT Bindestrich.
     #     ⛔ Kriterium bewusst ENG: NICHT "ein Segment ohne Punkt" — das verschluckte
     #     /etc, /tmp, /usr, /var, /opt. Der Bindestrich trennt Befehlsnamen sauber ab.
@@ -277,7 +295,16 @@ def pruefe(pfad, projekt):
         if k == "UNSURE":
             unsure += 1
             continue
-        rel = s.replace("\\", "/").rstrip("/")
+        # ⛔ '~' EXPANDIEREN. Ohne das galt jeder `~/.claude/...`-Pfad als tot — auch
+        #    solche, die nachweislich existieren. 8 von 13 Fehlbefunden im ersten Lauf.
+        roh = s.replace(chr(92), '/').rstrip('/')
+        if roh.startswith('~'):
+            voll = os.path.expanduser(roh)
+            if os.path.exists(voll):
+                continue
+            dead.append(s)
+            continue
+        rel = roh
         if any(os.path.exists(os.path.join(w, rel)) for w in wurzeln[:1]) or os.path.exists(rel):
             continue
         # EXTERN: existiert unter einer der erkannten Wurzeln. Nur Hinweis, nie Befund.
@@ -405,6 +432,18 @@ def selbsttest():
         ("example.com/pfad", "SKIP", "Web-Adresse ohne Protokoll"),
         ("https://a.b/c", "SKIP", "Protokoll explizit"),
         ("src/{name}.ts", "SKIP", "Platzhalter"),
+        ("min(Fenster-12 %, Fenster x Prozent/100, Fenster-13000)", "SKIP",
+         "FORMEL, kein Pfad — vom ersten echten Lauf aufgedeckt"),
+        ("a b/c (d)", "SKIP", "Leerzeichen + Klammern = nie ein Pfad"),
+        ("APP - Zustellplan/dist", "CHECK",
+         "Leerzeichen ALLEIN macht keinen Formel-Treffer"),
+        (chr(92) + "n", "SKIP", "Escape-Sequenz, kein Pfad"),
+        (chr(92) + "r" + chr(92) + "n", "SKIP", "zwei Escapes hintereinander"),
+        (chr(92) + "udc90", "SKIP", "Unicode-Escape"),
+        ("C:" + chr(92) + "x0bdd_settings.xml", "SKIP", "zerstoerter Beispielpfad"),
+        ('"hooks": "hooks/hooks.json"', "SKIP", "JSON-Fragment"),
+        (".tsx/.jsx", "SKIP", "Endungspaar"),
+        (".claude/rules/x.md", "CHECK", "fuehrender Punkt ALLEIN ist ein echter Pfad"),
         ("hooks/lib.sh", "CHECK", "normaler relativer Pfad"),
         ("/c/Users/x/y.md", "CHECK", "MSYS-Laufwerk ist pruefbar"),
     ]
@@ -487,11 +526,19 @@ def main():
     with open(kpfad, "w", encoding="utf-8") as f:
         f.write(KONTROLLE)
     k = pruefe(kpfad, projekt)
-    gueltig = len(k["befunde"]) > len(r["befunde"])
+    # ⛔ NACH DICHTE vergleichen, nicht nach Anzahl (korrigiert 21.08.2026).
+    #    Die Kontrolldatei hat 17 Zeilen, eine echte CLAUDE.md hat 85-200. Absolut
+    #    gerechnet gewinnt die kurze Datei IMMER, und jede lange Datei galt als
+    #    'Messung ungueltig'. Gemessen: Kontrolle 0,76 Befunde/Zeile gegen 0,19 beim Ziel.
+    #    Dieselbe Fehlerklasse stand schon im Debug-Ordner — sie ist mir trotzdem
+    #    ein zweites Mal passiert.
+    d_k = len(k['befunde']) / max(1, k['zeilen'])
+    d_r = len(r['befunde']) / max(1, r['zeilen'])
+    gueltig = d_k >= d_r * 2.0
 
     if "--json" in sys.argv:
-        r["instrumentenkontrolle"] = {"kontrolle": len(k["befunde"]),
-                                      "ziel": len(r["befunde"]), "gueltig": gueltig}
+        r["instrumentenkontrolle"] = {"dichte_kontrolle": round(d_k, 3),
+                                      "dichte_ziel": round(d_r, 3), "gueltig": gueltig}
         print(json.dumps(r, ensure_ascii=False, indent=2))
         return 3 if not gueltig else (1 if r["befunde"] else 0)
 
@@ -511,11 +558,12 @@ def main():
     for h in r["hinweise"]:
         print("    [Check %-2d] Z%-4d %s" % (h["check"], h["zeile"], h["text"]))
     print()
-    print("  Instrumentenkontrolle: Kontrolldatei %d Befunde gegen Ziel %d -> %s"
-          % (len(k["befunde"]), len(r["befunde"]), "GUELTIG" if gueltig else "UNGUELTIG"))
+    print("  Instrumentenkontrolle: Kontrolle %.2f Befunde/Zeile gegen Ziel %.2f -> %s"
+          % (d_k, d_r, "GUELTIG" if gueltig else "UNGUELTIG"))
     if not gueltig:
         print()
         print("  ABBRUCH: die bekannt schlechte Kontrolldatei schneidet nicht schlechter ab.")
+        print("  Erwartet: Kontrolldichte mindestens doppelt so hoch wie die Zieldichte.")
         print("  Das Instrument misst nichts — alle Zahlen oben sind ungueltig.")
         return 3
     return 1 if r["befunde"] else 0

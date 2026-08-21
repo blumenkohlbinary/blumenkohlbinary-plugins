@@ -19,6 +19,20 @@ allowed-tools: Read Glob Grep Edit Write Bash Agent
 
 Ein Snapshot -> 5 Skills sequenziell -> alle Befunde angewendet -> ein Bericht.
 
+## Step -1: Was ist hier schon einmal schiefgegangen? (PFLICHT, NEU v5.7.1)
+
+```bash
+mind_debug_top 3      # still, wenn MIND_DEBUG_DIR fehlt oder es keine Wiederholung gibt
+```
+
+⛔ **Das steht VOR Step 0, und das ist der ganze Punkt.** Der Debug-Ordner sammelte bis v5.7.0
+nur ein — gelesen wurde er nie *vor* der Arbeit. Belegt am 21.08.2026: die Klasse
+„Instrumentenkontrolle verglich nur Befund-ANZAHLEN" stand seit dem Vortag darin, und derselbe
+Fehler wurde am naechsten Tag erneut gebaut. **Sichtbarkeit ohne Lese-Anlass ist wirkungslos.**
+
+Die Ausgabe ist kein Befund und blockt nichts — sie ist eine Erinnerung an drei Zeilen.
+
+
 ## Step 0: Modus + EIN Snapshot fuer den ganzen Durchlauf (PFLICHT)
 
 ```bash
@@ -166,6 +180,18 @@ unterdruecken.** Uebersprungen wird nur, was mit **demselben Modus** schon lief.
 
 Praktisch heisst das: in der Kette laufen die 4 knowledge-sync-Agents **normal**. Der Dedup
 greift erst, wenn ein Skill kuenftig selbst `knowledge-sync` faehrt.
+
+⛔ **Ein Agent mit LEERER Rueckgabe ist ein Problem, kein „unauffaellig" (NEU v5.7.1).**
+Gemessen 21.08.2026: der `rules`-Agent meldete „completed" nach 163 s und 31 Werkzeugaufrufen —
+und hinterliess **0 Byte**. Wer das als „nichts gefunden" verbucht, traegt eine ungeprueftes
+Feld als geprueft ein.
+
+**Pflicht bei leerer Rueckgabe:**
+1. Den Bereich als **UNGEPRUEFT** in den Bericht schreiben, nicht als „keine Befunde".
+2. **Sofort auf den grep-Weg zurueckfallen** statt den Agenten neu zu starten. Am 21.08. hat
+   das unter einer Minute gedauert und genau den Befund geliefert, den der Agent finden sollte.
+3. Den Ausfall als Klasse `agent-gestorben` in die Befundzeilen aufnehmen (Step 2.95).
+
 
 **Ersparnis ist KEIN Skip-Grund** (M4-Fix): Wenn der Modus nicht uebereinstimmt, wird
 dispatcht — egal was das kostet. Der Knowledge-Sync ist laut `mind-update` Teil der

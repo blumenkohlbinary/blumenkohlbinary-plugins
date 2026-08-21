@@ -658,6 +658,45 @@ EOF
   return 0
 }
 
+# --- mind_debug_top: was ist hier schon einmal schiefgegangen? (NEU v5.7.1) ---
+#
+# ⛔ WARUM ES DIESE FUNKTION GIBT — belegt am eigenen Fehler, 21.08.2026.
+#    Der Debug-Ordner hatte bis dahin nur einen SCHREIB-Anlass. Er hatte die Klasse
+#    "Instrumentenkontrolle verglich nur Befund-ANZAHLEN" seit dem 20.08. sauber
+#    aufgezeichnet — und ich habe exakt denselben Fehler am naechsten Tag wiederholt,
+#    weil niemand vor der Arbeit hineinsieht. Sichtbarkeit ohne Lese-Anlass ist wirkungslos.
+#
+# Args: $1 = wie viele Klassen (Vorgabe 3)
+# Ausgabe: je eine Zeile, oder NICHTS wenn MIND_DEBUG_DIR fehlt / es keine Wiederholung gibt
+mind_debug_top() {
+  local n="${1:-3}" dir="${MIND_DEBUG_DIR:-}" py
+  [ -n "$dir" ] && [ -f "$dir/index.jsonl" ] || return 0
+  py=$(command -v python3 2>/dev/null || command -v python 2>/dev/null) || return 0
+  [ -n "$py" ] || return 0
+  "$py" -c '
+import json, sys
+from collections import Counter
+c, bsp = Counter(), {}
+try:
+    for roh in open(sys.argv[1], "rb"):
+        try: e = json.loads(roh.decode("utf-8", "replace"))
+        except Exception: continue
+        k = e.get("klasse")
+        if k:
+            c[k] += 1
+            bsp.setdefault(k, e.get("kurz", ""))
+except Exception:
+    sys.exit(0)
+top = [(k, v) for k, v in c.most_common(int(sys.argv[2])) if v >= 2]
+if not top: sys.exit(0)
+print("Schon dagewesen — die haeufigsten Wiederholungen aus dem Debug-Ordner:")
+for k, v in top:
+    print("  %-26s %dx   z.B. %s" % (k, v, bsp.get(k, "")[:88]))
+print("  -> vor dem Bauen einer Pruefung hier hineinsehen, nicht danach.")
+' "$dir/index.jsonl" "$n" 2>/dev/null
+}
+
+
 # --- mind_scan_poisoning: Kontext-Dateien auf Vergiftung pruefen (NEU v5.5.0) ---
 #
 # Der ungeprueft bei jedem Start geladene Speicher faellt unter OWASP ASI06
