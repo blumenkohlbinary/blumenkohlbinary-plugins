@@ -47,8 +47,9 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 #    stehen in jeder Regeldatei. Wer sie als Emoji meldet, erzeugt Rauschen statt Messung.
 PIKTOGRAMME = [(0x1F300, 0x1FAFF)]
 DEKORATIV = {0x2728, 0x26A1, 0x2600, 0x2601, 0x2604, 0x2615, 0x263A, 0x2665, 0x2764,
-             0x270C, 0x270A, 0x261D, 0x2B50, 0x1F44D}
-MARKER_ERLAUBT = {0x26D4, 0x26A0, 0x2705, 0x274C, 0x23ED, 0x2192, 0x2014, 0x2026, 0x00B7}
+             0x270C, 0x270A, 0x261D, 0x1F44D}
+MARKER_ERLAUBT = {0x26D4, 0x26A0, 0x2705, 0x274C, 0x23ED, 0x2192, 0x2014, 0x2026,
+                  0x00B7, 0x2B50}   # ⭐ = „besonders wichtig“, gemessen am Regelwerk 21.08.2026
 
 
 def ist_emoji(zeichen):
@@ -280,8 +281,16 @@ def pruefe(pfad, projekt):
     for i, z in enumerate(ohne, 1):
         if not z:
             continue
+        # ⛔ Eine eingerueckte FORTSETZUNG eines Bullets ist strukturiert, nicht Prosa.
+        #    Ohne das meldete der Lauf gegen die globale CLAUDE.md acht Fehltreffer in
+        #    Folge — alle im selben Aufzaehlungsabsatz. Schritt 0.2 fasst Fortsetzungen
+        #    fuer Check 7 laengst zusammen; Check 6 mass weiter Zeile fuer Zeile.
+        _vorher = next((x for x in reversed(ohne[:i - 1]) if x and x.strip()), '')
+        _fortsetzung = (z.startswith('  ') and z.strip()
+                        and bool(re.match(r'^\s*([-*+]\s|\d+\.\s)', _vorher)
+                                 or (_vorher.startswith('  ') and _vorher.strip())))
         strukt = bool(re.match(r"^\s*([-*+]\s|\d+\.\s|\||>)", z) or z.startswith("#"))
-        grenze = 250 if strukt else 100
+        grenze = 250 if (strukt or _fortsetzung) else 100
         if len(z) > grenze:
             befund(6, i, "%d Zeichen > %d (%s)" % (len(z), grenze,
                                                    "strukturiert" if strukt else "Prosa"))
@@ -290,7 +299,8 @@ def pruefe(pfad, projekt):
     for nr, e in bullets:
         low = e.lower()
         if "never" in low and not any(w in low for w in
-                                      ("stattdessen", "instead", "->", "→", "sondern")):
+                                      ("stattdessen", "instead", "->", "→", "sondern",
+                                       "always", "nutze", "nimm", "use ")):
             befund(7, nr, "NEVER ohne Alternative: %s" % e.strip()[:70])
 
     # --- 11 · Zeilenzahl, ZWEI Skalen ---------------------------------------
@@ -537,6 +547,7 @@ def selbsttest():
     print()
     print("=== Emoji-Abgrenzung ===")
     for z, soll, warum in ((chr(0x1F680), True, "Rakete = Emoji"),
+                           ("⭐", False, "Stern = Wichtig-Marker, kein Schmuck"),
                            ("⛔", False, "Verbotsmarker = KEIN Befund"),
                            ("⚠", False, "Warnmarker = KEIN Befund"),
                            ("→", False, "Pfeil ist erlaubt"),

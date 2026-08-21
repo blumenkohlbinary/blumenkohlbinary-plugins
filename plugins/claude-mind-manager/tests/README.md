@@ -1,0 +1,40 @@
+# Prüfsammlungen
+
+**Am gebauten Paket fahren, nicht am Quellbaum** (`~/.claude/rules/fertig-heisst-fertig.md` §1):
+
+```bash
+export CLAUDE_PLUGIN_ROOT=~/.claude/plugins/cache/kohlosseum/claude-mind-manager/<version>
+bash "$CLAUDE_PLUGIN_ROOT/tests/test_teil1.sh"
+bash "$CLAUDE_PLUGIN_ROOT/tests/test_debug.sh"
+bash "$CLAUDE_PLUGIN_ROOT/tests/test_precompact.sh"
+python "$CLAUDE_PLUGIN_ROOT/references/claudemd_pipeline.py" --selbsttest
+python "$CLAUDE_PLUGIN_ROOT/references/slug_regression.py" --live
+```
+
+| Datei | Prüffälle | Gegenstand |
+|---|---|---|
+| `test_teil1.sh` | 15 | Token-Schwellen, Mahnung, Zwang, `lib.sh`-Ausfall |
+| `test_debug.sh` | 12 | Debug-Ordner, Wiederholungserkennung, Zeilenenden |
+| `test_precompact.sh` | 11 | Chat-Rettung, Arbeitsstand, `sync-stand`, Fail-open |
+| `test_precompact.py` | — | Hilfsteil für `test_precompact.sh` |
+
+## ⛔ Jede Sammlung enthält eine Gegenprobe, die scheitern KANN
+
+Das ist keine Zierde. Eine Messung ohne Negativkontrolle liefert weiter Zahlen und greift am
+Fehler vorbei — siehe `~/.claude/rules/messung-vor-glauben.md` §1. Konkret hier:
+
+- **`test_teil1.sh`** sabotiert `lib.sh` und verlangt, dass der Schuld-Zwang **trotzdem** blockt.
+- **`test_precompact.sh`** sabotiert **nur** die Übergabe-Marke und verlangt, dass Chat-Rettung,
+  Auftrag und `OPEN` trotzdem entstehen.
+- **`test_debug.sh`** prüft, dass zwei **verschiedene** Klassen **kein** `WIEDERHOLT` erzeugen —
+  ohne diesen Fall wäre die Wiederholungserkennung nicht von „meldet immer WIEDERHOLT" zu
+  unterscheiden.
+
+## ⛔ Was hier NICHT hineingehört
+
+**Nichts, was `~/.claude/settings.json` oder Umgebungsvariablen schreibt.** Ein Plugin, das
+seine eigenen Regler setzt, macht genau den Fehler von `claude-mem` (#2836): dort wurden so
+75 Erinnerungen unsichtbar. Die Schwellen setzt der Mensch von Hand.
+
+Der Beleg der Schwellen-Kalibrierung vom 21.08.2026 liegt deshalb im Workspace unter
+`Debug/messungen/`, nicht im ausgelieferten Paket.

@@ -41,6 +41,16 @@ KLASSEN = {
     "sonstiges": "passt in keine der obigen Klassen",
 }
 
+# ⛔ WEM GEHOERT DER BEFUND? (NEU v5.7.3)
+#    Der Debug-Ordner ist fuer PLUGIN-Fehler da — das war die ausdrueckliche Absicht.
+#    Die Laufberichte mischen aber drei Sorten: Fehler im Plugin, Fehler im Projekt und
+#    eigene Methodenfehler. In einem Topf sieht der Plugin-Betreiber nicht, was IHN
+#    angeht. Deshalb trennt BEFUNDE.md sie ab jetzt.
+PLUGIN_KLASSEN = {
+    "instrument-nachgebaut", "instrument-misst-nichts", "plugin-defekt",
+    "agent-fehlbericht", "agent-gestorben", "sichtbarkeit",
+}
+
 
 def lies(pfad):
     eintraege, kaputt = [], 0
@@ -114,11 +124,23 @@ def main():
                  "verhindert — es braucht eine mechanische Sperre.")
     z.append("")
 
+    plugin = {a: b for a, b in nach_klasse.items() if a in PLUGIN_KLASSEN}
+    projekt = {a: b for a, b in nach_klasse.items() if a not in PLUGIN_KLASSEN}
+    z.append("## Zustaendigkeit")
+    z.append("")
+    z.append("| | Befunde | Klassen |")
+    z.append("|---|---|---|")
+    z.append("| **Plugin** — hier ist der Mind Manager selbst zu reparieren | **%d** | %d |"
+             % (sum(len(v) for v in plugin.values()), len(plugin)))
+    z.append("| Projekt / Methode — gehoert in das jeweilige Projekt | %d | %d |"
+             % (sum(len(v) for v in projekt.values()), len(projekt)))
+    z.append("")
     z.append("## Alle Klassen")
     z.append("")
     for k, v in sorted(nach_klasse.items(), key=lambda x: -len(x[1])):
         marke = "  — **WIEDERHOLT**" if len(v) >= 2 else ""
-        z.append("### %s (%d×)%s" % (k, len(v), marke))
+        wem = "PLUGIN" if k in PLUGIN_KLASSEN else "Projekt"
+        z.append("### [%s] %s (%d×)%s" % (wem, k, len(v), marke))
         beschreibung = KLASSEN.get(k)
         if beschreibung:
             z.append("")
