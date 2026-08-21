@@ -159,36 +159,59 @@ _mind_rotate() {
 # ⚠ EHRLICHE GRENZE: geprueft wird die ERREICHBARKEIT (Rule existiert, nennt das Tool, hat
 #   Globs) — nicht, ob die Rule je gelesen oder befolgt wird. Das bleibt Prosa.
 mind_check_tools_have_rules() {
-  # ⛔ v5.7.1, Befund aus dem Zustellplan-Lauf vom 21.08.2026:
-  #    Diese Pruefung sah bis dahin NUR das Verzeichnis tools/. Ein Projekt, das seine
-  #    Werkzeuge im Wurzelverzeichnis liegen hat, bekam einen LEEREN Nachweis — und der
-  #    Lauf meldete trotzdem "OK". Ein leerer Nachweis ist kein bestandener Nachweis.
-  #    Deshalb zaehlt jetzt auch, was im Wurzelverzeichnis liegt und in CLAUDE.md oder
-  #    einer Rule namentlich genannt wird.
-  local _wurzel_py
-  _wurzel_py=$(ls "$1"/*.py 2>/dev/null | head -20)
-  local project_dir="$1" rc=0 tool base r rulehit found=0
+  # ⛔ v5.7.3 — der zweite Anlauf. Befund aus dem Zustellplan-Lauf vom 21.08.2026:
+  #    Diese Pruefung sah NUR das Verzeichnis tools/. Ein Projekt mit Werkzeugen im
+  #    Wurzelverzeichnis bekam einen LEEREN Nachweis, und der Lauf meldete trotzdem "OK".
+  #
+  #    v5.7.1 hat das ANGEBLICH behoben: es sammelte `_wurzel_py` — und benutzte die
+  #    Variable nie. Zwei Zeilen darunter stieg die Funktion bei fehlendem tools/ mit
+  #    `return 0` aus. Der Kommentar behauptete den Fix, der Code hatte ihn nicht.
+  #    Das war SCHLECHTER als vorher: vorher log die Pruefung nicht ueber sich selbst.
+  #
+  #    Zwei Regeln daraus, die hier verdrahtet sind statt aufgeschrieben:
+  #    1. Kein frueher `return 0`, solange noch Kandidaten offen sind.
+  #    2. Ein Werkzeug im WURZELVERZEICHNIS zaehlt nur, wenn CLAUDE.md es namentlich
+  #       nennt. Sonst waeren setup.py, conftest.py und jedes Wegwerfskript ein Befund.
+  local project_dir="$1" rc=0 tool base r rulehit found=0 kandidaten="" muster
   local tools_dir="$project_dir/tools"
-  if [ ! -d "$tools_dir" ]; then
-    echo "  Tool->Rule-Nachweis: kein tools/ vorhanden — nichts zu pruefen"
+
+  for tool in "$tools_dir"/*.py "$tools_dir"/*.sh; do
+    [ -f "$tool" ] && kandidaten="${kandidaten}${tool}"$'\n'
+  done
+  # Wurzelverzeichnis: nur was CLAUDE.md ausdruecklich nennt = ein dokumentiertes Werkzeug.
+  if [ -f "$project_dir/CLAUDE.md" ]; then
+    for tool in "$project_dir"/*.py "$project_dir"/*.sh; do
+      [ -f "$tool" ] || continue
+      base=$(basename "$tool")
+      grep -q -- "$base" "$project_dir/CLAUDE.md" 2>/dev/null \
+        && kandidaten="${kandidaten}${tool}"$'\n'
+    done
+  fi
+
+  if [ -z "$kandidaten" ]; then
+    if [ -d "$tools_dir" ]; then
+      echo "  Tool->Rule-Nachweis: tools/ vorhanden, aber keine .py/.sh darin"
+    else
+      echo "  Tool->Rule-Nachweis: kein tools/ und kein in CLAUDE.md genanntes Werkzeug im Wurzelverzeichnis"
+    fi
     return 0
   fi
-  for tool in "$tools_dir"/*.py "$tools_dir"/*.sh; do
-    [ -f "$tool" ] || continue
-    found=$((found + 1))
+
+  printf '%s' "$kandidaten" | while IFS= read -r tool; do
+    [ -n "$tool" ] || continue
     base=$(basename "$tool")
+    case "$tool" in
+      "$tools_dir"/*)
+        # Aufrufform verlangen — eine Nutzungs-Rule nennt den Pfad, eine Historie nur den Namen.
+        muster="tools/$base" ;;
+      *)
+        # Im Wurzelverzeichnis gibt es keinen Pfad-Praefix. Ersatz: ein Aufrufwort davor.
+        muster="\(python3\?\|bash\|sh\|\./\)[[:space:]]*$base" ;;
+    esac
     rulehit=""
     for r in "$project_dir/.claude/rules"/*.md; do
       [ -f "$r" ] || continue
-      # ⛔ FIX v5.2.2 — hier stand nur:  grep -q -- "$base" "$r"  … && break
-      # Das nahm JEDE Nennung des Dateinamens und brach beim ERSTEN Treffer ab. Gemessen im
-      # /mind-all-Lauf 2026-08-16: fuer mutation_guard.py schlug architecture.md an — eine
-      # blosse Aufzaehlung in einer Versions-Historie, alphabetisch vor backup-usage.md — und
-      # die Pruefung meldete PASS, obwohl die Companion-Rule das Tool gar nicht nennt.
-      # Ein gruener Nachweis ueber einen Zufallstreffer ist kein Nachweis.
-      # Jetzt: die AUFRUFFORM "tools/<name>" verlangen. Eine Nutzungs-Rule nennt den Aufrufpfad
-      # ("python tools/backup_tools.py verify …"), eine Historie nennt nur den Namen.
-      grep -q -- "tools/$base" "$r" 2>/dev/null || continue
+      grep -q -- "$muster" "$r" 2>/dev/null || continue
       head -12 "$r" | grep -qi '^globs:' || continue    # ohne Globs triggert die Rule nie
       # KEIN break: alle Treffer sammeln, damit Mehrdeutigkeit sichtbar wird statt verdeckt.
       rulehit="${rulehit}${rulehit:+, }$(basename "$r")"
@@ -196,11 +219,16 @@ mind_check_tools_have_rules() {
     if [ -n "$rulehit" ]; then
       echo "  PASS  $base  ->  .claude/rules/$rulehit"
     else
-      echo "  FAIL  $base  ->  KEINE glob-getriggerte Rule nennt 'tools/$base' (totes Tool)"
-      rc=1
+      echo "  FAIL  $base  ->  KEINE glob-getriggerte Rule ruft '$base' auf (totes Tool)"
+      echo "__MIND_TOOLRULE_FAIL__" >> "${TMPDIR:-/tmp}/.mind_toolrule_$$"
     fi
   done
-  [ "$found" -eq 0 ] && echo "  Tool->Rule-Nachweis: tools/ vorhanden, aber keine .py/.sh darin"
+
+  # ⛔ Die Schleife laeuft in einer Subshell (Pipe) — `rc=1` darin waere verloren.
+  #    Genau daran ist schon einmal ein Rueckgabewert stillschweigend verschwunden.
+  if [ -f "${TMPDIR:-/tmp}/.mind_toolrule_$$" ]; then
+    rc=1; rm -f "${TMPDIR:-/tmp}/.mind_toolrule_$$"
+  fi
   return "$rc"
 }
 

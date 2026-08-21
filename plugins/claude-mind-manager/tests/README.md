@@ -16,6 +16,7 @@ python "$CLAUDE_PLUGIN_ROOT/references/slug_regression.py" --live
 | `test_teil1.sh` | 15 | Token-Schwellen, Mahnung, Zwang, `lib.sh`-Ausfall |
 | `test_debug.sh` | 12 | Debug-Ordner, Wiederholungserkennung, Zeilenenden |
 | `test_precompact.sh` | 11 | Chat-Rettung, Arbeitsstand, `sync-stand`, Fail-open |
+| `test_toolrule.sh` | 7 | Tool→Rule-Nachweis, auch für Werkzeuge im Wurzelverzeichnis |
 | `test_precompact.py` | — | Hilfsteil für `test_precompact.sh` |
 
 ## ⛔ Jede Sammlung enthält eine Gegenprobe, die scheitern KANN
@@ -26,6 +27,10 @@ Fehler vorbei — siehe `~/.claude/rules/messung-vor-glauben.md` §1. Konkret hi
 - **`test_teil1.sh`** sabotiert `lib.sh` und verlangt, dass der Schuld-Zwang **trotzdem** blockt.
 - **`test_precompact.sh`** sabotiert **nur** die Übergabe-Marke und verlangt, dass Chat-Rettung,
   Auftrag und `OPEN` trotzdem entstehen.
+- **`test_toolrule.sh`** fährt einen blinden Stub gegen denselben Fall und verlangt, dass er
+  **durchfällt**. Ohne diesen Lauf wäre nicht belegt, dass die übrigen Zusicherungen überhaupt
+  etwas messen — und genau das war der Defekt, den diese Sammlung fängt: der Wurzel-Fix von
+  v5.7.1 stand nur im **Kommentar**, die Variable wurde gesammelt und nie benutzt.
 - **`test_debug.sh`** prüft, dass zwei **verschiedene** Klassen **kein** `WIEDERHOLT` erzeugen —
   ohne diesen Fall wäre die Wiederholungserkennung nicht von „meldet immer WIEDERHOLT" zu
   unterscheiden.
