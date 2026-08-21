@@ -99,10 +99,26 @@ fi
 _CFA="$PROJ/.claude-mind/rescued/COMPACT-FAELLIG"
 if [ -f "$_CFA" ]; then
   _CFT=$(grep -m1 '^ts=' "$_CFA" 2>/dev/null | cut -d= -f2-)
-  echo "[Mind Manager] Kompaktierung steht aus: /mind-all lief um ${_CFT:-?}, seither wurde"
-  echo "nicht kompaktiert. Den Nutzer bitten, /compact zu tippen — der Sync-Ertrag von"
-  echo "40-60k Tokens wandert sonst in das naechste Kontextfenster."
+  # ⛔ Als JSON ausgeben und AUSSTEIGEN — nicht per echo weiterlaufen. (v5.7.6)
+  #    Die erste Fassung schrieb Klartext und lief weiter; kam danach die OPEN-Erinnerung
+  #    als JSON, standen Klartext UND JSON im selben stdout eines einzigen Hook-Aufrufs.
+  #    Das ist kein gueltiges JSON mehr, und der strukturierte additionalContext wirkt
+  #    dann nur noch als literaler Text. Der UEBERGABE-Block darueber macht es seit jeher
+  #    richtig; nur dieser scherte aus.
+  _MSGC="[Mind Manager] Kompaktierung steht aus: /mind-all lief um ${_CFT:-?}, seither wurde
+nicht kompaktiert. Den Nutzer bitten, /compact zu tippen — der Sync-Ertrag von 40-60k
+Tokens wandert sonst in das naechste Kontextfenster.
+
+Eine Kompaktierung ist NICHT ausloesbar: weder aus einem Hook noch vom Assistenten.
+Nur der Mensch kann /compact eingeben."
   _slog INFO "COMPACT-FAELLIG gemeldet (seit ${_CFT:-?})"
+  if command -v jq >/dev/null 2>&1; then
+    jq -nc --arg ctx "$_MSGC" \
+      '{hookSpecificOutput:{hookEventName:"UserPromptSubmit", additionalContext:$ctx}}'
+  else
+    echo "$_MSGC"
+  fi
+  exit 0
 fi
 
 _SCHWELLE="${MIND_SYNC_AT_TOKENS:-0}"

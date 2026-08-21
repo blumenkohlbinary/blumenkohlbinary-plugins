@@ -168,6 +168,84 @@ grep -q 'Sync lief vor dieser Kompaktierung' "$LG" && A=ja || A=nein
 janein "Protokollzeile haengt an sync-stand, nicht an COMPACT-FAELLIG" ja "$A"
 rm -rf "$P"
 
+# ======================================================================
+#  v5.7.6 — die Befunde der adversarischen Pruefung von v5.7.5
+# ======================================================================
+echo
+echo "=== v5.7.6: adversarische Befunde ==="
+
+# --- 13 · Datei enthaelt NUR blocks= -> `grep -v` gibt 1 zurueck ----------
+#     In v5.7.5 fiel das Zurueckschreiben damit in den else-Zweig: der Zaehler blieb
+#     stehen, der Notausgang wurde NIE erreicht, und jeder Stop-Event blockte erneut mit
+#     derselben Nummer. Eine echte Endlosschleife, nur von Hand aufloesbar.
+P=$(neu_projekt)
+printf 'blocks=0\n' > "$P/.claude-mind/rescued/COMPACT-FAELLIG"
+O=$(stop_lauf "$P")
+printf '%s' "$O" | grep -q '"decision"' && A=ja || A=nein
+janein "nur blocks= in der Datei: blockt trotzdem" ja "$A"
+B=$(grep -m1 '^blocks=' "$P/.claude-mind/rescued/COMPACT-FAELLIG" 2>/dev/null | cut -d= -f2-)
+janein "und der Zaehler kommt WIRKLICH an (sonst Endlosschleife)" 1 "${B:-fehlt}"
+rm -rf "$P"
+
+# --- 14 · Zaehler nicht schreibbar -> KEIN Block, Merker weg -------------
+#     Grundsatz: wer nicht zaehlen kann, blockt nicht. Ein entfallener Zwang kostet eine
+#     Kompaktierung; ein unaufloesbarer kostet die Sitzung.
+P=$(neu_projekt); marker "$P"
+chmod 500 "$P/.claude-mind/rescued" 2>/dev/null
+if ( : > "$P/.claude-mind/rescued/.schreibprobe" ) 2>/dev/null; then
+  rm -f "$P/.claude-mind/rescued/.schreibprobe" 2>/dev/null
+  echo "  [ -- ] Schreibsperre wirkt auf diesem Dateisystem nicht — Fall UEBERSPRUNGEN"
+  echo "         (kein gruenes Ergebnis vortaeuschen: hier wurde nichts gemessen)"
+else
+  O=$(stop_lauf "$P")
+  printf '%s' "$O" | grep -q '"decision"' && A=ja || A=nein
+  janein "unschreibbarer Zaehler: KEIN Block" nein "$A"
+fi
+chmod 700 "$P/.claude-mind/rescued" 2>/dev/null; rm -rf "$P"
+
+# --- 15 · pre-compact raeumt auf, AUCH wenn die Chat-Rettung scheitert ---
+#     In v5.7.5 lag die Entfernung im Erfolgspfad der Rettung. Scheiterte sie, blockte
+#     stop.sh danach fuer eine Kompaktierung, die bereits gelaufen war.
+P=$(neu_projekt); marker "$P"          # KEIN Transkript -> die Rettung kann nicht gelingen
+LG="$P/log.txt"; : > "$LG"
+printf '{"hook_event_name":"PreCompact","cwd":"%s","session_id":"S1","transcript_path":"%s","trigger":"auto"}' \
+  "$P" "$P/gibtesnicht.jsonl" \
+  | CLAUDE_PROJECT_DIR="$P" MIND_LOG_FILE="$LG" bash "$H/pre-compact.sh" >/dev/null 2>&1
+[ -f "$P/.claude-mind/rescued/COMPACT-FAELLIG" ] && A=ja || A=nein
+janein "Merker weg auch OHNE gelungene Chat-Rettung" nein "$A"
+rm -rf "$P"
+
+# --- 16 · prompt-submit liefert GUELTIGES JSON ---------------------------
+#     Die erste Fassung schrieb Klartext und lief weiter; kam danach die OPEN-Erinnerung
+#     als JSON, standen beide im selben stdout — kein gueltiges JSON mehr.
+if command -v jq >/dev/null 2>&1; then
+  P=$(neu_projekt); marker "$P"
+  printf 'path=%s/x_chat.md\nresume=\nevents=1\ncompactions=1\nblocks=0\n' "$P/.claude-mind/rescued" \
+    > "$P/.claude-mind/rescued/OPEN"
+  : > "$P/.claude-mind/rescued/x_chat.md"; echo "## [x]" >> "$P/.claude-mind/rescued/x_chat.md"
+  O=$(printf '{"session_id":"s","transcript_path":"","prompt":"hi","cwd":"%s"}' "$P" \
+      | CLAUDE_PROJECT_DIR="$P" MIND_SYNC_AT_TOKENS=0 bash "$H/prompt-submit.sh" 2>/dev/null)
+  printf '%s' "$O" | jq -e . >/dev/null 2>&1 && A=ja || A=nein
+  janein "Ausgabe ist gueltiges JSON (auch mit OPEN daneben)" ja "$A"
+  rm -rf "$P"
+else
+  echo "  [ -- ] kein jq — JSON-Fall UEBERSPRUNGEN, nichts gemessen"
+fi
+
+# --- 17 · Der Token-Zwang-Text sagt NICHT mehr "kommt von selbst" --------
+#     stop.sh widersprach sich selbst: der eine Codepfad sagte, nur der Mensch koenne
+#     kompaktieren, der andere, es komme von allein.
+P=$(neu_projekt)
+printf '{"type":"assistant","message":{"role":"assistant","content":"y","usage":{"input_tokens":900000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5}}}\n' \
+  > "$P/t.jsonl"
+O=$(printf '{"session_id":"s","transcript_path":"%s","stop_hook_active":false,"cwd":"%s"}' "$P/t.jsonl" "$P" \
+    | CLAUDE_PROJECT_DIR="$P" MIND_SYNC_FORCE_TOKENS=770000 bash "$H/stop.sh" 2>/dev/null)
+printf '%s' "$O" | grep -q '"decision"' && A=ja || A=nein
+janein "Token-Zwang blockt bei 900k" ja "$A"
+printf '%s' "$O" | grep -q 'von selbst' && A=ja || A=nein
+janein "und sagt NICHT mehr 'kommt von selbst'" nein "$A"
+rm -rf "$P"
+
 echo
 echo "=================================="
 echo "  $OK bestanden, $ROT rot"

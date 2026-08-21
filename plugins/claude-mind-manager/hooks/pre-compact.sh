@@ -136,10 +136,9 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
       #    nennt. Gefunden beim Nachlesen der Verschachtelung: `bash -n` sagt nur
       #    "syntaktisch gueltig", nie "logisch richtig". Deshalb prueft test_precompact.sh
       #    diese Zeile jetzt ausdruecklich.
-      if [ -f "$RESCUE_DIR/COMPACT-FAELLIG" ]; then
-        mind_log INFO "COMPACT-FAELLIG erledigt (Kompaktierung laeuft)"
-        rm -f "$RESCUE_DIR/COMPACT-FAELLIG" 2>/dev/null
-      fi
+      # (Die Entfernung steht bewusst NICHT hier, sondern ganz am Ende des Hooks —
+      #  siehe dort. Dieser Zweig laeuft nur, wenn die Chat-Rettung GELUNGEN ist.)
+      :
 
 
       # --- SCHULD-Merker OPEN (NEU v5.2.1 — loest PENDING ab) ---
@@ -245,6 +244,22 @@ $f
   else
     mind_log WARN "session_sampler.py nicht gefunden: $SAMPLER"
   fi
+fi
+
+# --- v5.7.6: COMPACT-FAELLIG verbrauchen — UNBEDINGT, ausserhalb jedes Erfolgspfads ---
+# Die Kompaktierung LAEUFT gerade; damit ist die Faelligkeit erledigt, ganz gleich ob die
+# Chat-Rettung geklappt hat.
+#
+# ⛔ In v5.7.5 stand diese Entfernung INNERHALB des Erfolgspfads der Rettung
+#    (`if RESCUE_OUT=$(…) && [ -s "$RESCUE_FILE" ]`). Scheiterte die Rettung — kein
+#    Transkriptpfad, Sampler nicht gefunden, Python-Fehler — blieb der Merker liegen, und
+#    stop.sh blockte danach fuer eine Kompaktierung, die bereits gelaufen war. Genau der
+#    "Zwang ohne Gegenstand", den der Kommentar dort zu verhindern versprach.
+#    Gefunden von der adversarischen Pruefung, nicht von den Tests: die pruefen den
+#    Normalfall, und im Normalfall gelingt die Rettung.
+if [ -n "$RESCUE_DIR" ] && [ -f "$RESCUE_DIR/COMPACT-FAELLIG" ]; then
+  mind_log INFO "COMPACT-FAELLIG erledigt (Kompaktierung laeuft)"
+  rm -f "$RESCUE_DIR/COMPACT-FAELLIG" 2>/dev/null
 fi
 
 # --- Report ---

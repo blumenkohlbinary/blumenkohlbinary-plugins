@@ -43,7 +43,11 @@ _TOKZWANG="nein"
 _FSCHWELLE="${MIND_SYNC_FORCE_TOKENS:-0}"
 if [ "$_FSCHWELLE" -gt 0 ] 2>/dev/null && [ -n "$CLAUDE_PLUGIN_ROOT" ] \
    && [ -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ] && command -v jq >/dev/null 2>&1; then
-  _PROJ=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+  # v5.7.6: dieselbe Aufloesung wie unten fuer PROJ. Vorher las dieser Block NUR .cwd,
+  # waehrend PROJ CLAUDE_PROJECT_DIR bevorzugt. Weichen beide ab, suchte der Token-Zwang
+  # sync-stand am falschen Ort — und feuerte, obwohl der Sync laengst gelaufen war.
+  _PROJ="${CLAUDE_PROJECT_DIR:-}"
+  [ -z "$_PROJ" ] && _PROJ=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
   _TP=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
   _STAND="$_PROJ/.claude-mind/rescued/sync-stand"
   if [ -n "$_TP" ] && [ ! -f "$_STAND" ]; then
@@ -104,14 +108,34 @@ if [ -f "$CFA" ]; then
     rm -f "$CFA" 2>/dev/null
   else
     _CT=$(grep -m1 '^tokens=' "$CFA" 2>/dev/null | cut -d= -f2-)
+    # ⛔ WER NICHT ZAEHLEN KANN, BLOCKT NICHT. (v5.7.6, adversarische Pruefung)
+    #    Die erste Fassung erhoehte den Zaehler "so gut es geht" und blockte in jedem Fall.
+    #    Schlug das Schreiben fehl — schreibgeschuetztes Verzeichnis, volle Platte, oder
+    #    schlicht `grep -v` mit Rueckgabe 1, wenn NUR eine blocks=-Zeile in der Datei steht —
+    #    las der naechste Aufruf denselben alten Wert und blockte erneut mit derselben
+    #    Nummer. Der Notausgang war damit unerreichbar: eine Endlosschleife, die nur von
+    #    Hand aufzuloesen war. Der Fehler hatte drei Gesichter und EINE Ursache — der
+    #    Notausgang hing am Erfolg des Schreibens.
+    #
+    #    Deshalb jetzt: schreiben, ZURUECKLESEN, und nur blocken, wenn der neue Wert wirklich
+    #    in der Datei steht. Sonst faellt der Merker weg und der Zwang entfaellt. Ein
+    #    entfallener Zwang kostet eine Kompaktierung; ein unaufloesbarer kostet die Sitzung.
+    _CNEU=$((_CB + 1))
     _CTMP="${CFA}.tmp.$$"
-    if grep -v '^blocks=' "$CFA" > "$_CTMP" 2>/dev/null; then
-      printf 'blocks=%s\n' "$((_CB + 1))" >> "$_CTMP" 2>/dev/null
-      mv -f "$_CTMP" "$CFA" 2>/dev/null || rm -f "$_CTMP" 2>/dev/null
-    else
-      rm -f "$_CTMP" 2>/dev/null
+    _CSCHREIB="nein"
+    # Befehlsgruppe statt if-grep: der Rueckgabewert ist der von printf, nicht der von grep.
+    if { grep -v '^blocks=' "$CFA" 2>/dev/null; printf 'blocks=%s\n' "$_CNEU"; } \
+         > "$_CTMP" 2>/dev/null && [ -s "$_CTMP" ] && mv -f "$_CTMP" "$CFA" 2>/dev/null \
+       && [ "$(grep -m1 '^blocks=' "$CFA" 2>/dev/null | cut -d= -f2-)" = "$_CNEU" ]; then
+      _CSCHREIB="ja"
     fi
-    _slog INFO "block (COMPACT-FAELLIG #$((_CB + 1))/$_CMAX, Kontext beim Sync: ${_CT:-?})"
+    rm -f "$_CTMP" 2>/dev/null
+    if [ "$_CSCHREIB" = "nein" ]; then
+      _slog WARN "COMPACT-FAELLIG: Zaehler nicht zurueckschreibbar -> Merker entfernt, KEIN Block"
+      rm -f "$CFA" 2>/dev/null
+      exit 0
+    fi
+    _slog INFO "block (COMPACT-FAELLIG #$_CNEU/$_CMAX, Kontext beim Sync: ${_CT:-?})"
     jq -nc --arg r "[Mind Manager] /mind-all ist durch. JETZT ist die Kompaktierung faellig.
 
 Der Sync hat den Kontext um 40-60k Tokens gefuellt (Stand beim Sync: ${_CT:-unbekannt}).
@@ -145,7 +169,9 @@ if [ ! -f "$OPEN" ]; then
 JETZT /mind-all ausfuehren. Die Kompaktierung steht unmittelbar bevor; laeuft der Sync erst
 danach, fuellt er den frisch geleerten Kontext sofort wieder mit 40-60k Tokens.
 
-Nach dem Sync kommt die Kompaktierung von selbst — es ist nichts weiter zu tun.
+Nach dem Sync ist die Kompaktierung der naechste Schritt — und sie ist NICHT
+ausloesbar: weder aus einem Hook noch vom Assistenten. Nur der Mensch tippt /compact.
+Bitte ihn nach dem Sync ausdruecklich darum.
 Ist /mind-all hier nicht ausfuehrbar, sage das ausdruecklich und nenne den Grund." \
       '{decision:"block", reason:$r}'
     exit 0
