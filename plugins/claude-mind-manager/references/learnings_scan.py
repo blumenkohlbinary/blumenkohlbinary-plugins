@@ -132,16 +132,43 @@ def pruefe(projekt):
     if md:
         topics = [x for x in sorted(os.listdir(md))
                   if x.endswith(".md") and x != "MEMORY.md"]
-        ohne_desc, offen, arbeit = [], [], []
+        ohne_desc, offen, arbeit, lang, projekt_typ = [], [], [], [], []
         for x in topics:
             t = lies(os.path.join(md, x))
-            kopf = "\n".join(t.replace("\r\n", "\n").split("\n")[:10])
-            if not re.search(r"^description:", kopf, re.M):
+            kopf = "\n".join(t.replace("\r\n", "\n").split("\n")[:14])
+            d = re.search(r"^description:[ \t]*(.*)$", kopf, re.M)
+            if not d:
                 ohne_desc.append(x)
+            elif len(d.group(1).strip()) > 200:
+                lang.append((x, len(d.group(1).strip())))
+            if re.search(r"^[ \t]*type:[ \t]*project\b", kopf, re.M):
+                projekt_typ.append(x)
             if frontmatter_offen(t):
                 offen.append(x)
             if ARBEIT.search(kopf):
                 arbeit.append(x)
+
+        # ⭐ Am Binaerprogramm gelesen (2.1.237, 21.08.2026): der Auswaehler ist ein
+        #    MODELL, das NUR Dateiname und `description` sieht — nie den Inhalt. Woertlich:
+        #    "Only include memories that you are certain will be helpful based on their
+        #    name and description." Eine ueberlange Beschreibung ist damit kein Detail,
+        #    sondern der ganze Zugang zur Datei.
+        if lang:
+            f("sichtbarkeit",
+              "%d Memory-Beschreibungen ueber 200 Zeichen (laengste %d) — der Auswaehler "
+              "sieht NUR Name und description und ist auf Zurueckhaltung getrimmt "
+              "(\"if you are unsure … do not include it\"): %s"
+              % (len(lang), max(n for _, n in lang),
+                 ", ".join("%s (%d)" % (a, b) for a, b in
+                           sorted(lang, key=lambda z: -z[1])[:3])), md)
+        # ⛔ `[user]` und `[project]` behandelt der Auswaehler AUSDRUECKLICH zurueckhaltender:
+        #    "These describe the user's ongoing focus, not what every question is about."
+        if topics and len(projekt_typ) > len(topics) * 0.6:
+            f("sichtbarkeit",
+              "%d von %d Memory-Dateien tragen `type: project` — diesen Topf fasst der "
+              "Auswaehler nur bei DIREKTEM Bezug an (\"not what every question is "
+              "about\"). Was Arbeitsweise oder Werkzeug betrifft, gehoert eher nach "
+              "`feedback`/`reference`" % (len(projekt_typ), len(topics)), md)
         if ohne_desc:
             f("sichtbarkeit",
               "%d Memory-Topic-Dateien ohne `description` — der Auswaehler hat kein "
