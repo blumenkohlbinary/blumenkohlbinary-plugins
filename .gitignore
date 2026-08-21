@@ -1,0 +1,4 @@
+
+# Python-Bytecode — entsteht beim Import von references/learnings_quellen.py
+__pycache__/
+*.pyc
