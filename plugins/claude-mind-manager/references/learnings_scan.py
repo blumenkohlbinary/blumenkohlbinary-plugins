@@ -144,8 +144,26 @@ def pruefe(projekt, q):
           % (len(tot), ", ".join(tot[:5])), projekt)
 
     # --- Skills / Agents / Commands --------------------------------------
+    # ⛔ NUR echte Claude-Code-Einstiegsdateien pruefen: ein Skill ist `SKILL.md`,
+    #    ein Agent bzw. Command eine `.md` DIREKT in `agents/` oder `commands/`.
+    #    Alles andere darunter sind Inhaltsdateien.
+    #
+    #    Der erste Stand nahm JEDE `.md` unter `skills/`. Gemessen 21.08.2026: er
+    #    meldete "36 Skills ohne description" in syncclipboard-mobile — alle 36 lagen
+    #    in `vercel-react-native-skills/`, einem eingekauften Fremdpaket mit eigenem
+    #    Frontmatter-Schema (`title`, `impact`, `impactDescription`, `tags`). Die sind
+    #    sauber beschrieben, nur nicht in Claude Codes Schema. Sie zu "reparieren"
+    #    haette 36 fremde Dateien veraendert, die beim naechsten Update ueberschrieben
+    #    werden — und nichts behoben.
+    def ist_einstieg(p):
+        b = os.path.basename(p)
+        if b.upper() == "SKILL.MD":
+            return True
+        eltern = os.path.basename(os.path.dirname(p)).lower()
+        return eltern in ("agents", "commands") and b.endswith(".md")
+
     s_ohne, s_offen = [], []
-    for p in q["skills"]:
+    for p in [x for x in q["skills"] if ist_einstieg(x)]:
         t = lies(p)
         if frontmatter_offen(t):
             s_offen.append(os.path.relpath(p, projekt))

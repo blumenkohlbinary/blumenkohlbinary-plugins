@@ -30,6 +30,7 @@ python "$CLAUDE_PLUGIN_ROOT/references/slug_regression.py" --live
 | `test_toolrule.sh` | 7 | Tool→Rule-Nachweis, auch für Werkzeuge im Wurzelverzeichnis |
 | `test_compact_faellig.sh` | 23 | `COMPACT-FAELLIG`: Zwang, Zähler, Notausgang, Fail-open |
 | `test_notfall.sh` | 8 | `MIND_NOTFALL_TOKENS`: Schwelle, die nichts stumm schaltet |
+| `test_skill_einstieg.py` | 6 | nur echte `SKILL.md`/`agents/`/`commands/` gelten als Einstieg |
 | `test_precompact.py` | — | Hilfsteil für `test_precompact.sh` |
 
 ## ⛔ Jede Sammlung enthält eine Gegenprobe, die scheitern KANN
