@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Projektuebergreifender Strukturpruefer — meldet nach Debug (NEU v5.8.0).
+"""Projektuebergreifender Strukturpruefer + Lehren-Sammler (v5.9.0).
 
-WOZU. Die Phase-0-Messung am 21.08.2026 hat gezeigt, dass ein Uebertrag von
-LEHREN zwischen Projekten wenig bringt: von 207 Bulletpoints blieben nach beiden
-Toren ~3 echte uebrig, und die staerksten standen bereits woertlich in der globalen
-CLAUDE.md. Der Kanal existiert und ist gefuellt.
+Zwei Aufgaben, beide nur LESEND:
 
-Was NICHT gefuellt ist: strukturelle Befunde ueber Projekte hinweg. Die entstehen
-heute nur, wenn in einem Projekt zufaellig `/mind-all` laeuft. Ein Projekt, das
-monatelang keinen Lauf hat, meldet nichts — und niemand sieht, dass dort 7
-Memory-Dateien ohne `description` liegen und damit fuer die Auswahl unsichtbar sind.
+  1. Strukturbefunde  ->  in den zentralen Debug-Ordner (Wiederholungserkennung)
+  2. Lehren           ->  in einen Bestand, der NIRGENDS geladen wird
 
-Dieser Pruefer sieht ALLE Projekte an und schreibt in denselben Debug-Ordner, der
-schon die Wiederholungserkennung traegt. Am 21.08.2026 hat dieser Kanal vier echte
-Plugin-Fehler aus FREMDEN Projekten geliefert — er funktioniert, er war nur zu
-schmal gespeist.
+⛔ Was sich gegenueber v5.8 geaendert hat, und warum:
 
-⛔ Er AENDERT NICHTS. Nur lesen und melden. Wer Befunde behebt, entscheidet der Mensch.
+   Die Projektfindung stieg genau ZWEI Ebenen ab und uebersprang alles mit '.' am
+   Anfang. Gemessen: 3 Projekte uebersehen, `.claude/` nie betreten. Sie liegt jetzt
+   in `learnings_quellen.py` und arbeitet voll rekursiv — mit einer sorgfaeltigen
+   Ausschlussliste, weil blosse Rekursion 57 statt 23 Projekte fand (37 davon aus den
+   Sicherungskopien des Plugins selbst).
 
-Aufruf:  python learnings_scan.py <wurzel> [--jsonl <datei>] [--bericht <datei>]
-Rueckgabe: 0 = gelaufen (auch mit Befunden) · 2 = Aufruffehler
+   Und die Quellen waren zu eng: nur `memory`, `rules` (flach), `CLAUDE.md`, `tools`.
+   Jetzt zusaetzlich Skills, Agents, Commands, Hooks — und `rules/` rekursiv.
+
+Aufruf:  learnings_scan.py <wurzel> [--jsonl F] [--bericht F] [--bestand F] [--ts T]
+Rueckgabe: 0 = gelaufen · 2 = Aufruffehler
 """
 import io
 import json
@@ -28,10 +27,11 @@ import os
 import re
 import sys
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from learnings_quellen import (AUS, lehren, lies,  # noqa: E402
+                               memory_pfad, projekte, quellen)
 
-UEBERSPRINGEN = ("node_modules", ".git", "_claude_backups", "Beispiele",
-                 "dist", "build", ".venv", "__pycache__")
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 # Wortstaemme, an denen ein Memory-Eintrag als ARBEITSMATERIAL erkennbar ist.
 # Der Nutzer trennt das ausdruecklich: was jemand AUSFUEHREN wuerde, ist kein Wissen.
@@ -39,12 +39,7 @@ ARBEIT = re.compile(r"laufender auftrag|dauerauftrag|wortlaut gesichert|"
                     r"stand der|offene punkte|roadmap|fahrplan|nacharbeiten|"
                     r"was noch offen|todo|batch", re.I)
 
-
-def lies(p):
-    try:
-        return open(p, "rb").read().decode("utf-8", "replace")
-    except Exception:
-        return ""
+ZEIGER = re.compile(r"\bPointer\b|\bZeiger\b|globale Rule|~/\.claude/")
 
 
 def frontmatter_offen(t):
@@ -57,17 +52,16 @@ def frontmatter_offen(t):
 
 def globs_treffer(regel, projekt):
     """Trifft das `globs:`-Muster ueberhaupt eine Datei im Projekt?"""
-    t = lies(regel)
-    m = re.search(r"^globs:\s*(.+)$", t, re.M)
+    m = re.search(r"^globs:\s*(.+)$", lies(regel), re.M)
     if not m:
         return None                      # kein globs -> laedt immer, kein Befund
-    roh = m.group(1).strip().strip("[]")
-    muster = [x.strip().strip('"\'') for x in roh.split(",") if x.strip()]
+    muster = [x.strip().strip('"\'') for x in
+              m.group(1).strip().strip("[]").split(",") if x.strip()]
     if not muster:
         return None
     import fnmatch
     for wz, dirs, ds in os.walk(projekt):
-        dirs[:] = [d for d in dirs if d not in UEBERSPRINGEN]
+        dirs[:] = [d for d in dirs if d not in AUS]
         for d in ds:
             rel = os.path.relpath(os.path.join(wz, d), projekt).replace("\\", "/")
             for mu in muster:
@@ -76,218 +70,197 @@ def globs_treffer(regel, projekt):
     return False
 
 
-def ist_projekt(p):
-    return os.path.isfile(os.path.join(p, "CLAUDE.md")) \
-        or os.path.isdir(os.path.join(p, ".claude"))
-
-
-def projekte(wurzel):
-    """Ein Projekt ist ein Verzeichnis mit CLAUDE.md oder .claude/.
-
-    ⛔ Es wird IMMER eine Ebene tiefer weitergesucht, auch wenn das Elternverzeichnis
-       selbst schon ein Projekt ist. Der erste Stand stieg nur ab, wenn der Vater
-       KEIN Projekt war — dadurch fehlten `Plugin - Entwicklung/Claude Mind Manager`
-       und `.../hackj-plugins` vollstaendig in der Pruefung: der Vater hat ein
-       `.claude/`, also galt er als das Projekt und die Kinder wurden nie besucht.
-       Aufgefallen nur, weil ein bekanntes Projekt weder unter den Befunden noch
-       unter "ohne Befund" auftauchte — eine Liste, die etwas AUSLAESST, sieht
-       genauso aus wie eine, in der nichts zu melden war."""
-    raus = []
-    for e in sorted(os.listdir(wurzel)):
-        p = os.path.join(wurzel, e)
-        if not os.path.isdir(p) or e.startswith(("_", ".")):
-            continue
-        if ist_projekt(p):
-            raus.append(p)
-        try:
-            kinder = sorted(os.listdir(p))
-        except OSError:
-            continue
-        for e2 in kinder:
-            p2 = os.path.join(p, e2)
-            if not os.path.isdir(p2) or e2.startswith(("_", ".")) or e2 in UEBERSPRINGEN:
-                continue
-            if ist_projekt(p2):
-                raus.append(p2)
-    return raus
-
-
-def memory_dir(projekt):
-    """Slug-Regel von Claude Code: JEDES Nicht-Alphanumerische wird zu '-'."""
-    slug = re.sub(r"[^A-Za-z0-9]", "-", os.path.abspath(projekt))
-    d = os.path.join(os.path.expanduser("~"), ".claude", "projects", slug, "memory")
-    return d if os.path.isdir(d) else None
-
-
-def pruefe(projekt):
-    """Alle Befunde eines Projekts. Nur lesen."""
+def pruefe(projekt, q):
+    """Alle Strukturbefunde eines Projekts. Nur lesen."""
     b = []
-    name = os.path.basename(projekt)
 
     def f(klasse, kurz, datei=""):
         b.append({"klasse": klasse, "kurz": kurz, "datei": datei, "projekt": projekt})
 
-    # --- 1 · Memory ------------------------------------------------------
-    md = memory_dir(projekt)
-    if md:
-        topics = [x for x in sorted(os.listdir(md))
-                  if x.endswith(".md") and x != "MEMORY.md"]
-        ohne_desc, offen, arbeit, lang, zeiger = [], [], [], [], []
-        for x in topics:
-            t = lies(os.path.join(md, x))
-            kopf = "\n".join(t.replace("\r\n", "\n").split("\n")[:14])
-            d = re.search(r"^description:[ \t]*(.*)$", kopf, re.M)
-            besch = d.group(1).strip() if d else ""
-            if not d:
-                ohne_desc.append(x)
-            elif len(besch) > 200:
-                lang.append((x, len(besch)))
-            # Zeiger-Fall: bezeichnet sich selbst als Verweis, ist aber nicht `reference`
-            if besch and not re.search(r"^[ \t]*type:[ \t]*reference\b", kopf, re.M):
-                if re.search(r"\bPointer\b|\bZeiger\b|globale Rule|~/\.claude/", besch):
-                    zeiger.append(x)
-            if frontmatter_offen(t):
-                offen.append(x)
-            if ARBEIT.search(kopf):
-                arbeit.append(x)
+    # --- Memory ----------------------------------------------------------
+    topics = [p for p in q["memory"] if os.path.basename(p) != "MEMORY.md"]
+    ohne_desc, offen, arbeit, lang, zeiger = [], [], [], [], []
+    for p in topics:
+        x = os.path.basename(p)
+        t = lies(p)
+        kopf = "\n".join(t.replace("\r\n", "\n").split("\n")[:14])
+        d = re.search(r"^description:[ \t]*(.*)$", kopf, re.M)
+        besch = d.group(1).strip() if d else ""
+        if not d:
+            ohne_desc.append(x)
+        elif len(besch) > 200:
+            lang.append((x, len(besch)))
+        if besch and not re.search(r"^[ \t]*type:[ \t]*reference\b", kopf, re.M) \
+                and ZEIGER.search(besch):
+            zeiger.append(x)
+        if frontmatter_offen(t):
+            offen.append(x)
+        if ARBEIT.search(kopf):
+            arbeit.append(x)
 
-        # ⭐ Am Binaerprogramm gelesen (2.1.237, 21.08.2026): der Auswaehler ist ein
-        #    MODELL, das NUR Dateiname und `description` sieht — nie den Inhalt. Woertlich:
-        #    "Only include memories that you are certain will be helpful based on their
-        #    name and description." Eine ueberlange Beschreibung ist damit kein Detail,
-        #    sondern der ganze Zugang zur Datei.
-        if lang:
-            f("sichtbarkeit",
-              "%d Memory-Beschreibungen ueber 200 Zeichen (laengste %d) — der Auswaehler "
-              "sieht NUR Name und description und ist auf Zurueckhaltung getrimmt "
-              "(\"if you are unsure … do not include it\"): %s"
-              % (len(lang), max(n for _, n in lang),
-                 ", ".join("%s (%d)" % (a, b) for a, b in
-                           sorted(lang, key=lambda z: -z[1])[:3])), md)
-        # ⛔ `[user]` und `[project]` behandelt der Auswaehler AUSDRUECKLICH zurueckhaltender:
-        #    "These describe the user's ongoing focus, not what every question is about."
-        #
-        # ⚠ Ein frueherer Stand meldete hier "ueber 60 % tragen type: project". Das war
-        #   falsch gedacht: eine PROJEKT-Memory SOLL ueberwiegend `project` sein. Nicht der
-        #   Anteil ist der Fehler, sondern eine EINZELNE Datei, die in den zurueckhaltenden
-        #   Topf gehoert und dort nicht hingehoert. Gemessen an Zustellplan: von 25
-        #   `project`-Dateien waren DREI falsch getypt, nicht 25.
-        #
-        # Mechanisch erkennbar ist davon nur der Zeiger-Fall — eine Datei, die sich selbst
-        # als Verweis bezeichnet oder auf einen Pfad ausserhalb des Projekts zeigt, ist
-        # `reference`. Der feedback-Fall ("sagt, WIE gearbeitet werden soll") laesst sich
-        # aus einer Beschreibung nicht zuverlaessig ableiten und wird deshalb NICHT geraten.
-        if zeiger:
-            f("sichtbarkeit",
-              "%d Memory-Dateien beschreiben sich als Verweis (Pointer / globale Rule / "
-              "Pfad ausserhalb des Projekts), tragen aber nicht `type: reference`: %s"
-              % (len(zeiger), ", ".join(zeiger[:5])), md)
-        if ohne_desc:
-            f("sichtbarkeit",
-              "%d Memory-Topic-Dateien ohne `description` — der Auswaehler hat kein "
-              "Signal, sie zaehlen aber voll gegen das Budget: %s"
-              % (len(ohne_desc), ", ".join(ohne_desc[:5])), md)
-        if offen:
-            f("sichtbarkeit",
-              "%d Memory-Dateien mit OFFENEM Frontmatter (erste Zeile `---`, keine "
-              "zweite) — das ganze Dokument gilt als Kopf: %s"
-              % (len(offen), ", ".join(offen[:5])), md)
-        if arbeit:
-            f("sonstiges",
-              "%d Memory-Dateien tragen ARBEITSMATERIAL statt Wissen (Auftraege, "
-              "Staende, Roadmaps): %s — Wissen gehoert ins Memory, Auszufuehrendes "
-              "in eine Projektdatei" % (len(arbeit), ", ".join(arbeit[:5])), md)
+    md = memory_pfad(projekt) or ""
+    if ohne_desc:
+        f("sichtbarkeit",
+          "%d Memory-Topic-Dateien ohne `description` — der Auswaehler hat kein Signal, "
+          "sie zaehlen aber voll gegen das Budget: %s"
+          % (len(ohne_desc), ", ".join(ohne_desc[:5])), md)
+    if offen:
+        f("sichtbarkeit",
+          "%d Memory-Dateien mit OFFENEM Frontmatter (erste Zeile `---`, keine zweite) — "
+          "das ganze Dokument gilt als Kopf: %s" % (len(offen), ", ".join(offen[:5])), md)
+    # ⭐ Am Binaerprogramm gelesen (2.1.237): der Auswaehler ist ein MODELL, das NUR
+    #    Dateiname und `description` sieht — nie den Inhalt.
+    if lang:
+        f("sichtbarkeit",
+          "%d Memory-Beschreibungen ueber 200 Zeichen (laengste %d) — der Auswaehler "
+          "sieht NUR Name und description und ist auf Zurueckhaltung getrimmt: %s"
+          % (len(lang), max(n for _, n in lang),
+             ", ".join("%s (%d)" % (a, n) for a, n in sorted(lang, key=lambda z: -z[1])[:3])), md)
+    if zeiger:
+        f("sichtbarkeit",
+          "%d Memory-Dateien beschreiben sich als Verweis, tragen aber nicht "
+          "`type: reference`: %s" % (len(zeiger), ", ".join(zeiger[:5])), md)
+    if arbeit:
+        f("sonstiges",
+          "%d Memory-Dateien tragen ARBEITSMATERIAL statt Wissen (Auftraege, Staende, "
+          "Roadmaps): %s — Wissen gehoert ins Memory, Auszufuehrendes in eine "
+          "Projektdatei" % (len(arbeit), ", ".join(arbeit[:5])), md)
 
-    # --- 2 · Rules -------------------------------------------------------
-    rd = os.path.join(projekt, ".claude", "rules")
-    if os.path.isdir(rd):
-        tot, offen = [], []
-        for x in sorted(os.listdir(rd)):
-            if not x.endswith(".md"):
-                continue
-            p = os.path.join(rd, x)
-            if frontmatter_offen(lies(p)):
-                offen.append(x)
-            if globs_treffer(p, projekt) is False:
-                tot.append(x)
-        if offen:
-            f("sichtbarkeit",
-              "%d Regeldateien mit OFFENEM Frontmatter: %s"
-              % (len(offen), ", ".join(offen[:5])), rd)
-        if tot:
-            f("sichtbarkeit",
-              "%d Regeldateien, deren `globs:` KEINE Datei im Projekt trifft: %s "
-              "(⚠ gemessen 2026-08: ein Muster ohne Treffer verhindert das Laden "
-              "NICHT — der Befund ist ein Hinweis, kein Beweis)"
-              % (len(tot), ", ".join(tot[:5])), rd)
+    # --- Rules (REKURSIV, auch Unterordner) ------------------------------
+    tot, r_offen = [], []
+    for p in q["rules"]:
+        rel = os.path.relpath(p, projekt)
+        if frontmatter_offen(lies(p)):
+            r_offen.append(rel)
+        if globs_treffer(p, projekt) is False:
+            tot.append(rel)
+    if r_offen:
+        f("sichtbarkeit", "%d Regeldateien mit OFFENEM Frontmatter: %s"
+          % (len(r_offen), ", ".join(r_offen[:5])), projekt)
+    if tot:
+        f("sichtbarkeit",
+          "%d Regeldateien, deren `globs:` KEINE Datei im Projekt trifft: %s "
+          "(⚠ ein Muster ohne Treffer verhindert das Laden NICHT — Hinweis, kein Beweis)"
+          % (len(tot), ", ".join(tot[:5])), projekt)
 
-    # --- 3 · CLAUDE.md ---------------------------------------------------
-    cm = os.path.join(projekt, "CLAUDE.md")
-    if os.path.isfile(cm):
-        n = len(lies(cm).replace("\r\n", "\n").split("\n"))
-        if n > 200:
-            f("sonstiges",
-              "CLAUDE.md hat %d Zeilen (kritisch ueber 200) — sie laedt bei JEDEM "
-              "Start; Context Rot setzt ab ~25 %% Fensterfuellung ein" % n, cm)
+    # --- Skills / Agents / Commands --------------------------------------
+    s_ohne, s_offen = [], []
+    for p in q["skills"]:
+        t = lies(p)
+        if frontmatter_offen(t):
+            s_offen.append(os.path.relpath(p, projekt))
+        kopf = "\n".join(t.replace("\r\n", "\n").split("\n")[:20])
+        if kopf.lstrip().startswith("---") and not re.search(r"^description:", kopf, re.M):
+            s_ohne.append(os.path.relpath(p, projekt))
+    if s_offen:
+        f("sichtbarkeit", "%d Skills/Agents mit OFFENEM Frontmatter: %s"
+          % (len(s_offen), ", ".join(s_offen[:4])), projekt)
+    if s_ohne:
+        f("sichtbarkeit",
+          "%d Skills/Agents mit Frontmatter, aber ohne `description` — ohne sie waehlt "
+          "Claude Code den Skill nie aus: %s" % (len(s_ohne), ", ".join(s_ohne[:4])), projekt)
+
+    # --- Hooks: Zeilenenden ----------------------------------------------
+    # ⛔ Ein .sh mit CRLF scheitert unter bash mit "\r: command not found" — und der
+    #    Hook schweigt dann, statt zu melden.
+    crlf = []
+    for p in q["hooks"]:
+        if not p.endswith(".sh"):
+            continue
+        try:
+            roh = open(p, "rb").read()
+        except Exception:
+            continue
+        if roh.count(b"\r\n") > 0:
+            crlf.append(os.path.relpath(p, projekt))
+    if crlf:
+        f("zeilenenden",
+          "%d Hook-Skripte mit CRLF — unter bash scheitern sie mit \"\\r: command not "
+          "found\" und schweigen dabei: %s" % (len(crlf), ", ".join(crlf[:4])), projekt)
+
+    # --- CLAUDE.md -------------------------------------------------------
+    if q["claudemd"]:
+        for p in q["claudemd"]:
+            n = len(lies(p).replace("\r\n", "\n").split("\n"))
+            if n > 200:
+                f("sonstiges",
+                  "%s hat %d Zeilen (kritisch ueber 200) — laedt bei JEDEM Start; "
+                  "Context Rot setzt ab ~25 %% Fensterfuellung ein"
+                  % (os.path.relpath(p, projekt), n), p)
     elif os.path.isdir(os.path.join(projekt, ".claude")):
         f("sonstiges", "Projekt hat .claude/, aber KEINE CLAUDE.md", projekt)
 
-    # --- 4 · Werkzeuge ohne Companion-Rule -------------------------------
+    # --- Werkzeuge ohne Companion-Rule -----------------------------------
     td = os.path.join(projekt, "tools")
-    if os.path.isdir(td) and os.path.isdir(rd):
-        regeln = "".join(lies(os.path.join(rd, x))
-                         for x in os.listdir(rd) if x.endswith(".md"))
-        tot = [x for x in sorted(os.listdir(td))
-               if x.endswith((".py", ".sh")) and ("tools/" + x) not in regeln]
-        if tot:
+    if os.path.isdir(td) and q["rules"]:
+        regeln = "".join(lies(p) for p in q["rules"])
+        tote = [x for x in sorted(os.listdir(td))
+                if x.endswith((".py", ".sh")) and ("tools/" + x) not in regeln]
+        if tote:
             f("plugin-defekt",
               "%d Werkzeuge in tools/ ohne glob-getriggerte Companion-Rule (totes "
-              "Werkzeug): %s" % (len(tot), ", ".join(tot[:5])), td)
-
-    return b, name
+              "Werkzeug): %s" % (len(tote), ", ".join(tote[:5])), td)
+    return b
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Aufruf: learnings_scan.py <wurzel> [--jsonl <datei>] [--bericht <datei>]",
-              file=sys.stderr)
+        print("Aufruf: learnings_scan.py <wurzel> [--jsonl F] [--bericht F] "
+              "[--bestand F] [--ts T]", file=sys.stderr)
         return 2
     wurzel = sys.argv[1]
     if not os.path.isdir(wurzel):
         print("kein Verzeichnis: %s" % wurzel, file=sys.stderr)
         return 2
 
-    def arg(name):
-        return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else None
+    def arg(n):
+        return sys.argv[sys.argv.index(n) + 1] if n in sys.argv else None
 
     ps = projekte(wurzel)
     alle, ohne_befund = [], []
-    print("=" * 72)
-    print("  Strukturpruefung ueber %d Projekte" % len(ps))
-    print("=" * 72)
+    lehr_bestand, quellzahl = [], {}
+
+    print("=" * 74)
+    print("  Strukturpruefung + Lehren-Sammlung ueber %d Projekte" % len(ps))
+    print("=" * 74)
     for p in ps:
-        b, name = pruefe(p)
+        q = quellen(p)
+        for schl, fs in q.items():
+            quellzahl[schl] = quellzahl.get(schl, 0) + len(fs)
+        # Lehren einsammeln — aus ALLEN Quellen
+        for schl, fs in q.items():
+            for datei in fs:
+                for text in lehren(datei):
+                    lehr_bestand.append({
+                        "projekt": os.path.basename(p), "quelle": schl,
+                        "datei": os.path.relpath(datei, wurzel)
+                                 if datei.startswith(os.path.abspath(wurzel)) else datei,
+                        "text": text,
+                    })
+        b = pruefe(p, q)
         if not b:
-            ohne_befund.append(name)
+            ohne_befund.append(os.path.basename(p))
             continue
         print()
-        print("  %s  (%d)" % (name, len(b)))
+        print("  %s  (%d)" % (os.path.relpath(p, wurzel), len(b)))
         for x in b:
             print("    [%s] %s" % (x["klasse"], x["kurz"][:150]))
         alle.extend(b)
 
     print()
-    print("-" * 72)
+    print("-" * 74)
+    print("  Quellen: " + " · ".join("%s %d" % (k, v) for k, v in sorted(quellzahl.items())))
     print("  %d Befunde in %d von %d Projekten" % (len(alle), len(ps) - len(ohne_befund), len(ps)))
+    print("  %d Lehr-Absaetze eingesammelt" % len(lehr_bestand))
     if ohne_befund:
         print("  ohne Befund: %s" % ", ".join(ohne_befund))
 
     jf = arg("--jsonl")
     if jf:
         ts = arg("--ts") or ""
-        with open(jf, "w", encoding="utf-8", newline="\n") as f:
+        with open(jf, "w", encoding="utf-8", newline="\n") as fh:
             for x in alle:
-                f.write(json.dumps({
+                fh.write(json.dumps({
                     "ts": ts, "projekt": x["projekt"], "klasse": x["klasse"],
                     "kurz": x["kurz"], "datei": x["datei"], "lauf": "mind-learnings",
                 }, ensure_ascii=True) + "\n")
@@ -299,20 +272,71 @@ def main():
              "Erzeugt von `references/learnings_scan.py`. **Nur gelesen, nichts geaendert.**",
              "", "| | |", "|---|---|",
              "| Projekte geprueft | %d |" % len(ps),
-             "| Befunde | **%d** |" % len(alle), ""]
-        nach_proj = {}
+             "| Befunde | **%d** |" % len(alle),
+             "| Lehr-Absaetze | %d |" % len(lehr_bestand), ""]
+        nach = {}
         for x in alle:
-            nach_proj.setdefault(os.path.basename(x["projekt"]), []).append(x)
-        for name in sorted(nach_proj, key=lambda k: -len(nach_proj[k])):
-            z.append("## %s (%d)" % (name, len(nach_proj[name])))
-            z.append("")
-            for x in nach_proj[name]:
-                z.append("- **[%s]** %s" % (x["klasse"], x["kurz"]))
+            nach.setdefault(os.path.basename(x["projekt"]), []).append(x)
+        for name in sorted(nach, key=lambda k: -len(nach[k])):
+            z += ["## %s (%d)" % (name, len(nach[name])), ""]
+            z += ["- **[%s]** %s" % (x["klasse"], x["kurz"]) for x in nach[name]]
             z.append("")
         if ohne_befund:
             z += ["## Ohne Befund", "", ", ".join(ohne_befund), ""]
         open(bf, "w", encoding="utf-8", newline="\n").write("\n".join(z))
         print("  Bericht -> %s" % bf)
+
+    sf = arg("--bestand")
+    if sf:
+        # ⛔ Dieser Bestand laedt NIRGENDS: kein `globs:`, keine Rule, kein Hook.
+        #    Er ist ein Lager, kein Kontext.
+        #
+        # ⭐ ENTDOPPELN und dabei die HERKUNFT zaehlen. Derselbe Absatz in zwei
+        #    Projekten ist der interessante Fall — genau der Zaehler, den kein
+        #    installierbares Werkzeug fuehrt (belegt 21.08.2026). Ohne ihn stuende
+        #    eine zwischen Projekten kopierte Regel hier fuenfmal und saehe aus wie
+        #    fuenf Belege, obwohl es einer ist.
+        import hashlib
+        gruppen = {}
+        for x in lehr_bestand:
+            schl = hashlib.sha256(" ".join(x["text"].split()).encode()).hexdigest()
+            g = gruppen.setdefault(schl, {"text": x["text"], "projekte": set(),
+                                          "quellen": set(), "dateien": []})
+            g["projekte"].add(x["projekt"])
+            g["quellen"].add(x["quelle"])
+            g["dateien"].append(x["datei"])
+
+        mehr = [g for g in gruppen.values() if len(g["projekte"]) >= 2]
+        z = ["# Lehren-Bestand", "",
+             "Erzeugt von `/mind-learnings`. **Wird von nichts automatisch geladen** — "
+             "kein `globs:`, keine Rule, kein Hook. Ein Lager, kein Kontext.", "",
+             "| | |", "|---|---|",
+             "| Absaetze gefunden | %d |" % len(lehr_bestand),
+             "| nach Entdopplung | **%d** |" % len(gruppen),
+             "| davon in **mehreren Projekten** | **%d** |" % len(mehr), ""]
+        if mehr:
+            z += ["## ⭐ In mehreren Projekten belegt", "",
+                  "Diese Absaetze stehen wortgleich in mehr als einem Projekt. Das ist "
+                  "der Evidenzzaehler, den kein installierbares Werkzeug fuehrt — und "
+                  "zugleich ein Hinweis auf **Kopien**, die besser einmal global "
+                  "staenden.", ""]
+            for g in sorted(mehr, key=lambda x: -len(x["projekte"]))[:40]:
+                z += ["### %d Projekte: %s" % (len(g["projekte"]),
+                                               ", ".join(sorted(g["projekte"]))), "",
+                      "*%s*" % ", ".join(sorted(set(g["dateien"])))[:200], "",
+                      g["text"], ""]
+        nachq = {}
+        for g in gruppen.values():
+            nachq.setdefault(sorted(g["quellen"])[0], []).append(g)
+        z += ["## Nach Quelle", ""]
+        for k, v in sorted(nachq.items(), key=lambda z2: -len(z2[1])):
+            z += ["### %s (%d)" % (k, len(v)), ""]
+            for g in v:
+                z += ["**%s** — `%s`" % (", ".join(sorted(g["projekte"])),
+                                         sorted(set(g["dateien"]))[0]), "", g["text"], ""]
+        open(sf, "w", encoding="utf-8", newline="\n").write("\n".join(z))
+        print("  Bestand -> %s (%d Absaetze, %d nach Entdopplung, %d mehrfach belegt)"
+              % (sf, len(lehr_bestand), len(gruppen), len(mehr)))
     return 0
 
 

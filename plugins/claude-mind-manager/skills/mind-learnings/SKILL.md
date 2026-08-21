@@ -66,14 +66,41 @@ TS=$(date '+%Y-%m-%dT%H:%M:%S')
 TMP=$(mktemp -d)
 PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
 
+BESTAND="${MIND_LEARNINGS_BESTAND:-$WURZEL/Plugin - Entwicklung/Claude Mind Manager/Learnings/bestand.md}"
+mkdir -p "$(dirname "$BESTAND")" 2>/dev/null
+
 "$PY" "$CLAUDE_PLUGIN_ROOT/references/learnings_scan.py" "$WURZEL" \
-      --jsonl "$TMP/befunde.jsonl" \
+      --jsonl   "$TMP/befunde.jsonl" \
       --bericht "$TMP/bericht.md" \
-      --ts "$TS"
+      --bestand "$BESTAND" \
+      --ts      "$TS"
 ```
 
 ⛔ **Der Pruefer AENDERT NICHTS.** Er liest, er meldet. Wer einen Befund behebt,
 entscheidet der Mensch — und zwar in dem Projekt, dem er gehoert.
+
+### Was er durchsucht — und was er ausdruecklich NICHT betritt
+
+| gesucht wird in | |
+|---|---|
+| `CLAUDE.md`, `.claude/CLAUDE.md`, `AGENTS.md` | je Projekt |
+| `.claude/rules/**` | **rekursiv**, auch Unterordner |
+| `.claude/skills/**`, `agents/**`, `commands/**` | |
+| `.claude/hooks/*` | `.sh`, `.py`, `.json`, `.md` |
+| Memory-Verzeichnis | ueber die Slug-Regel aufgeloest |
+
+⛔ **Die Projektsuche ist voll rekursiv — mit einer sorgfaeltigen Ausschlussliste.**
+Gemessen 21.08.2026: blosse Rekursion fand **57** Projekte statt 23. Die 34
+Ueberzaehligen kamen aus `.claude-mind/backups/` und `snapshots/` — den Sicherungen
+des Plugins selbst. Jede Lehre haette dort ein halbes Dutzend Mal gestanden, und ein
+Schnappschuss haette als eigenes Projekt gegolten.
+
+> **Wer rekursiv sucht, muss ebenso sorgfaeltig ausschliessen.** Die Liste steht in
+> `references/learnings_quellen.py` (`AUS`); jeder Eintrag hat einen Grund.
+
+Ausgeschlossen: `.claude-mind` · `_claude_backups` · `Beispiele` · `cache` ·
+`bundled-skills` · `worktrees` · `archive` · `node_modules` · `.git` · `dist` ·
+`build` · `.venv` · `target` · `vendor` · alles mit `_` am Anfang.
 
 ## Step 3: Nach Debug melden (PFLICHT, wenn `MIND_DEBUG_DIR` gesetzt ist)
 
