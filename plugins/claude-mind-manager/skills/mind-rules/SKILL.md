@@ -69,10 +69,31 @@ From `$ARGUMENTS`:
 - **list** — show all rules with frontmatter and line counts
 - **check** — validate syntax, detect issues
 - **create** — guided creation of a new rule
-- **migrate** — auto-convert paths: to globs:
+- **migrate** — auto-convert paths: to globs: ⚠ **siehe Widerspruch unten**
+- **budget** (NEU v5.12.0) — was laedt wirklich, wie ist der Bestand aufgebaut
 - No argument — default to `list`
 
-Optional flag: `--debug` (only with `check`) — enable InstructionsLoaded hook
+Optional flag: `--debug` (nur mit `check`) — Ladeprotokoll auswerten
+
+### ⛔ UNGEKLAERTER WIDERSPRUCH: `paths:` gegen `globs:`
+
+Dieser Skill migriert `paths:` → `globs:` und stuft `paths:` als *„won't work"* ein.
+**Die offizielle Doku sagt das Gegenteil** (Recherche 21.08.2026):
+
+| Quelle | Aussage |
+|---|---|
+| `[DOKU]` code.claude.com/docs/en/memory | **nur `paths:` ist dokumentiert**; *„Rules without a `paths` field are loaded unconditionally"*; *„Path-scoped rules trigger when Claude reads files matching the pattern"* |
+| `[ISSUE]` #17204 (*closed, not planned*) | `globs:` ist **undokumentiert** und funktioniert laut Nutzern, waehrend `paths:` in mehreren Konfigurationen versagt |
+| `[ISSUE]` #13905 · #16853 · #24112 · #63142 | konkrete `paths:`-Ausfaelle (Invalid-YAML bei `{`/`*`; feuert beim ANLEGEN einer Datei nicht) |
+| `[ISSUE]` #21858 · #22170 (**offen**) | fuer `~/.claude/rules/` (global) laedt `paths:` **gar nicht**; im Projekt funktioniert dieselbe Regel |
+
+⛔ **Der Widerspruch wird hier NICHT aufgeloest.** Beide Seiten haben Belege, keine
+hat eine Messung an dieser Maschine. **`migrate` bleibt wie es ist** — es folgt den
+Nutzerberichten, und die sind naeher am Verhalten als die Doku.
+
+**Was ihn aufloesen wuerde:** eine Sonde, die beide Feldnamen auf eine wirklich
+gelesene Datei setzt, plus das Ladeprotokoll (`budget`). Taucht `path_glob_match`
+auf, traegt `paths:` hier. Bis dahin gilt: **im Bericht beide Seiten nennen.**
 
 ---
 
@@ -124,19 +145,60 @@ Output:
 Fixable: 2 issues (run /mind-rules migrate)
 ```
 
-**With `--debug` flag:** Explain InstructionsLoaded hook:
-```
-To debug which files Claude loads and when, add this to .claude/settings.json:
+**Mit `--debug`:** ⛔ **Nichts mehr von Hand eintragen.** Seit v5.12.0 liefert das
+Plugin den Hook mit (`hooks/instructions-loaded.sh`, per Auto-Discovery registriert).
+Er laeuft in **jedem** Projekt und schreibt ein Ladeprotokoll:
 
-"hooks": {
-  "InstructionsLoaded": [{
-    "hooks": [{ "type": "command",
-      "command": "echo '[Debug] Files loaded:' && cat | jq -r '.files // empty'" }]
-  }]
-}
-
-View output with Ctrl+O (verbose mode). Remove after debugging.
+```bash
+python "$CLAUDE_PLUGIN_ROOT/references/ladeprotokoll_auswertung.py"
 ```
+
+*(Die frueher hier vorgeschlagene Handregistrierung riet den Feldnamen `.files` —
+die Feldnamen des Ereignisses sind **undokumentiert**. Der mitgelieferte Hook
+probiert mehrere Kandidaten und haengt bei Misserfolg die ROHE Zeile an, statt
+still leere zu schreiben.)*
+
+⚠ Der Hook feuert beim **Sitzungsstart**. Die laufende Sitzung zeigt nichts —
+es braucht eine neue.
+
+---
+
+### Subcommand: budget (NEU v5.12.0)
+
+**Beantwortet zwei Fragen, die bis v5.11.0 nur zu raten waren:** was laedt hier
+wirklich, und wie ist der Bestand aufgebaut?
+
+```bash
+# 1. Was wurde tatsaechlich geladen, wann, und mit welchem Grund?
+python "$CLAUDE_PLUGIN_ROOT/references/ladeprotokoll_auswertung.py"
+
+# 2. Wie ist der Bestand aufgebaut? (Beleg / Vorfall / Code / reine Anweisung)
+python "$CLAUDE_PLUGIN_ROOT/references/bestandsaufnahme.py" \
+       --ordner "$CLAUDE_PROJECT_DIR/.claude/rules"
+```
+
+**Danach je Regel einordnen** — nach dem Vier-Wege-Kriterium:
+
+| Woran ist der Moment erkennbar? | Mechanismus | Kosten |
+|---|---|---|
+| **am Werkzeugaufruf** (Pfad, Endung, Befehlswort) | **Hook** | 0 Tokens, erzwingt |
+| **an der Aufgabe** (der Nutzer sagt, was er will) | **Skill** | ~1 Zeile |
+| **der Nutzer ruft es beim Namen** | **Slash-Command** | ~1 Zeile, deterministisch |
+| **gar nicht** — gilt vor jedem Eingriff | **bleibt Rule** | volle Groesse |
+
+⛔ **Bei jedem Umzug bleibt die Leitplanke als Kurz-Rule zurueck und zeigt auf Hook
+oder Skill.** Ein Skill feuert nur, wenn er erkannt wird — *„nie auf dem Desktop des
+Nutzers starten"* muss man wissen, **bevor** man etwas startet. Ohne diesen Rest ist
+der Umzug ein Rueckschritt.
+
+### ⛔ Was der Bericht NICHT behaupten darf
+
+- **„nicht im Protokoll" heisst NICHT „laedt nicht".** Es kann auch heissen, dass
+  keine protokollierte Sitzung die Datei erreicht hat.
+- **Gezaehlt werden Ladevorgaenge, keine Tokens.** Ein Budget laesst sich daraus
+  nicht ableiten.
+- **Fehlt `path_glob_match`, ist das kein Befund gegen Scoping** — erst eine Sonde
+  mit `paths:` auf eine wirklich gelesene Datei macht es zu einem.
 
 ---
 
