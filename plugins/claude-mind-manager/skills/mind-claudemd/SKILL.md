@@ -370,7 +370,7 @@ Suggested actions:
 [F] Add dark mode feature to Architecture section
 [G] Remove generic advice line
 
-Apply:
+Apply (diese Auswahl gilt NUR bei `--ask`):
   [safe]    — Nur sichere Currency-Fixes (Drift, Versions, Pfade)
               Default bei vager Antwort ("ja"/"ok"/"update")
   [all]     — Inklusive struktureller Aenderungen (Modularize, Section-Adds)
@@ -382,10 +382,53 @@ Apply:
 **Bei `AUTO_MODE=yes` (Default): NICHT stoppen** — Findings anwenden (außer DESIGN),
 danach Step 6 mit Angewendet-Block. Bei `DRY_RUN=yes`: Liste zeigen, nichts ändern.
 
-**Disambiguation-Regel:** Bei vagen Antworten ("ja", "ok", "update", "los") IMMER
-die `safe` Variante wählen (keine Modularization, keine Datei-Restruktur). Dem
+⛔ **`AUTO_MODE=yes` entspricht `[all]` — EINSCHLIESSLICH Modularize**, nicht `[safe]`
+(Nutzer-Entscheidung 21.08.2026). Die `safe`/`all`-Trennung gilt **ausschliesslich fuer
+`--ask`**; im autonomen Lauf gibt es sie nicht.
+
+**Der Grund ist gemessen, nicht gewaehlt.** Bis v5.9.3 lag Modularize hinter `[all]` und
+war damit im autonomen Ablauf unerreichbar — waehrend Check 11 den Befund bei jedem Lauf
+neu meldete:
+
+| Projekt | gemeldet als | damals | nach 3 Laeufen |
+|---|---|---|---|
+| Creator | `[OFFEN] CLAUDE.md hat 406 Zeilen (Schwelle 200 = kritisch)` | 406 | **426** |
+| Palvedo | `[11] "278 Zeilen kritisch"` | 278 | **284** |
+
+**Die Dateien sind gewachsen, nachdem sie als kritisch gemeldet wurden.** Ein Befund,
+dessen einziger Fix hinter einer Handfreigabe liegt, wird in einem autonomen Ablauf nie
+erledigt. Er ist dann kein Schutz, sondern Laerm — und stumpft die Aufmerksamkeit fuer
+die echten Befunde ab.
+
+**Disambiguation-Regel (nur `--ask`):** Bei vagen Antworten ("ja", "ok", "update", "los")
+IMMER die `safe` Variante wählen (keine Modularization, keine Datei-Restruktur). Dem
 User transparent mitteilen: "Wähle `safe` (Currency only) — sage `all` wenn du
 auch strukturelle Änderungen willst."
+
+### Step 4e: Modularize autonom — die vier Gates (NEU v5.10.0)
+
+Modularize ist der einzige Fix, der Check 11 aufloest, und zugleich der eingreifendste im
+ganzen Skill: er zerschneidet die Wissensdatei des Nutzers. Autonom ist er deshalb **nur
+mit allen vier Gates** erlaubt. Bricht eines, wird die Sektion **nicht** ausgelagert und
+bleibt als Befund stehen.
+
+| Gate | Pruefung | Warum |
+|---|---|---|
+| **1 · Erhaltung** | Inhaltszeilen(CLAUDE.md neu) + Inhaltszeilen(neue Rule-Dateien, ohne Frontmatter) **>=** Inhaltszeilen(CLAUDE.md alt) | Modularize **verschiebt**, es kuerzt nicht. Verschwindet auch nur eine Zeile, ist es kein Modularize mehr, sondern ein Loeschen — und das hat einen eigenen Fix-Typ mit eigenem Bericht |
+| **2 · Erreichbarkeit** | die neue Rule bekommt **kein `globs:`**, ausser der Inhalt ist echt dateibezogen | ⛔ CLAUDE.md laedt **immer**. Eine glob-gesteuerte Rule ist im schlechtesten Fall situativ — dann waere Auslagern ein stilles Unsichtbarmachen genau des Wissens, das oben stand |
+| **3 · Zeiger** | in CLAUDE.md bleibt eine Zeile `Details: .claude/rules/<name>.md` zurueck | Ohne Zeiger weiss niemand, dass es die Datei gibt. Dieselbe Kern-Invariante wie "kein Tool ohne Companion-Rule" |
+| **4 · Menge** | hoechstens **3 Sektionen je Lauf** | Ein Lauf, der eine 426-Zeilen-Datei auf einmal in acht Teile zerlegt, ist im Bericht nicht mehr nachpruefbar. Drei sind es, und der naechste Lauf macht weiter |
+
+⚠ **Ehrlich zur Wirkung: Modularize spart KEINEN Kontext.** Gemessen an CC 2.1.237
+(`memory/globs-laden-trotz-null-treffer.md`): eine Rule laedt auch dann, wenn ihr `globs:`
+**null** Dateien trifft. Die ausgelagerten Zeilen stehen also weiter im Fenster. Was
+Modularize verbessert, ist die **Befolgung** (Check 11: ~71 % ab 400 Zeilen Summe), nicht
+das Budget. ⛔ **Der Bericht darf keine Token-Ersparnis behaupten** — er nennt die
+Zeilenzahl der Wurzeldatei vorher/nachher und sagt dazu, dass die Summe gleich bleibt.
+
+Gate 2 haengt bewusst **nicht** an dieser Messung: sie ist EINE Beobachtung an EINER
+Version in EINEM Projekt. Ohne `globs:` laedt die Rule so oder so — auch dann, wenn sich
+die Messung spaeter als versionsabhaengig erweist.
 
 ## Step 5: Fixes anwenden (nach User-OK)
 
@@ -427,7 +470,7 @@ Für jeden bestätigten Fix:
 | Fix-Typ | Tool | Aktion |
 |---|---|---|
 | Version updaten | Edit | `old_string: "2.3.0"` → `new_string: "2.6.0"` |
-| Modularize | Write + Edit | Write neue Rule-Datei, Edit CLAUDE.md: Sektion entfernen |
+| Modularize | Write + Edit | Write neue Rule-Datei (**ohne `globs:`**), Edit CLAUDE.md: Sektion durch **Zeiger** ersetzen. ⛔ **Die vier Gates aus Step 4e sind Pflicht** — ohne sie nicht anwenden, sondern listen |
 | Shorten | Edit | `old_string: verbose Zeile` → `new_string: kompakte Zeile` |
 | Deduplicate | Edit | Duplikat-Zeile aus CLAUDE.md entfernen |
 | Dead path (`DEAD`) | Edit | Pfad-Zeile entfernen oder aktualisieren. ⛔ **>5 auf einmal bleibt gesperrt** (Massenlösch-Sicherung) |
@@ -451,6 +494,11 @@ Token savings: ~270
 - **NEVER auto-apply DESIGN findings** — das sind Stellen, die eine Regel als "niemals anfassen" markiert; sie zu überschreiben bricht die Sperre des Users. Nur listen.
 - **ALWAYS report every applied change** mit `file:line` + before→after + Snapshot-Pfad + Restore-Einzeiler.
 - Bei `--ask`: Step 4d stoppt und wartet (altes Verhalten). Bei `--dry-run`: nichts ändern.
+- **NEVER Modularize ohne die vier Gates aus Step 4e** — Erhaltung, Erreichbarkeit
+  (kein `globs:`), Zeiger, hoechstens 3 je Lauf. Autonom seit v5.10.0; bricht ein Gate,
+  wird die Sektion **gelistet statt ausgelagert**.
+- **NEVER eine Token-Ersparnis fuer Modularize behaupten** — die ausgelagerte Rule laedt
+  weiter mit (gemessen). Modularize verbessert Befolgung, nicht Budget.
 - NEVER delete information without showing what will be lost
 - ALWAYS show before/after for every edit
 - ALWAYS backup CLAUDE.md before first edit (cp to .claude-mind/backups/)

@@ -29,7 +29,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from learnings_quellen import (AUS, lehren, lies,  # noqa: E402
-                               memory_pfad, projekte, quellen)
+                               memory_pfad, projekte, quellen, upstream_datei)
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
@@ -215,16 +215,28 @@ def pruefe(projekt, q):
           "found\" und schweigen dabei: %s" % (len(crlf), ", ".join(crlf[:4])), projekt)
 
     # --- CLAUDE.md -------------------------------------------------------
-    if q["claudemd"]:
-        for p in q["claudemd"]:
-            n = len(lies(p).replace("\r\n", "\n").split("\n"))
-            if n > 200:
-                f("sonstiges",
-                  "%s hat %d Zeilen (kritisch ueber 200) — laedt bei JEDEM Start; "
-                  "Context Rot setzt ab ~25 %% Fensterfuellung ein"
-                  % (os.path.relpath(p, projekt), n), p)
-    elif os.path.isdir(os.path.join(projekt, ".claude")):
-        f("sonstiges", "Projekt hat .claude/, aber KEINE CLAUDE.md", projekt)
+    for p in q["claudemd"]:
+        # ⛔ Kontextdateien eines FREMDEN Klons gehoeren dessen Entwicklern.
+        # Gemessen 21.08.2026: ComfyUIs AGENTS.md (338 Zeilen) stammt von
+        # `bigcat88`, nicht vom Nutzer — ein Befund darueber ist unbehebbar
+        # und damit Laerm. Eine selbst angelegte, unversionierte Datei im
+        # selben Klon bleibt dagegen geprueft.
+        if upstream_datei(projekt, p):
+            continue
+        n = len(lies(p).replace("\r\n", "\n").split("\n"))
+        if n > 200:
+            f("sonstiges",
+              "%s hat %d Zeilen (kritisch ueber 200) — laedt bei JEDEM Start; "
+              "Context Rot setzt ab ~25 %% Fensterfuellung ein"
+              % (os.path.relpath(p, projekt), n), p)
+
+    # ⛔ ENTFALLEN v5.10.0: "Projekt hat .claude/, aber KEINE CLAUDE.md".
+    # Kein Defekt — gemessen laedt eine Rule auch ohne CLAUDE.md und sogar ohne
+    # `globs:`-Treffer (memory/globs-laden-trotz-null-treffer.md, CC 2.1.237).
+    # Das Wissen ist also erreichbar. Es war ein SETUP-Hinweis, und dafuer ist
+    # /mind-files zustaendig, das die Datei anlegen kann. Als Dauerbefund in
+    # einem Defekt-Kanal war es genau der Laerm, der die Aufmerksamkeit fuer
+    # die echten Befunde abstumpft (5 von 16 Befunden am 21.08.2026).
 
     # --- Werkzeuge ohne Companion-Rule -----------------------------------
     td = os.path.join(projekt, "tools")

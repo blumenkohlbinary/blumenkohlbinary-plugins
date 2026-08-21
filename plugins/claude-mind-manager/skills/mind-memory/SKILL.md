@@ -125,9 +125,29 @@ N=$(ls "$MEMORY_DIR"/*.md 2>/dev/null | grep -v '/MEMORY\.md$' | wc -l)
 ⚠ **`MEMORY.md` zaehlt NICHT mit** — der Index wird ohnehin immer geladen und steht nicht zur
 Auswahl. Wer ihn mitzaehlt, meldet eine Datei zu viel.
 
-⚠ **Die Zahl 5 stammt aus einem Quellcode-Leak (v2.1.88) und ist am lokal installierten Bundle
-NICHT verifiziert.** Deshalb per `MIND_MEMORY_VISIBILITY_LIMIT` einstellbar. **Nachpruefbar mit
-`/context`** — dort steht unter „Memory files", welche Dateien wirklich geladen wurden.
+✅ **Die Zahl 5 ist am installierten Binaerprogramm VERIFIZIERT** (Claude Code 2.1.237,
+21.08.2026). Der Anweisungstext des Auswaehlers steht dort woertlich, direkt daneben sein
+Modell (`claude-opus-5`): *„Return a list of filenames for the memories that will clearly be
+useful … **(up to 5)**. Only include memories that you are certain will be helpful **based on
+their name and description**."* Der Regler `MIND_MEMORY_VISIBILITY_LIMIT` bleibt, falls sich
+die Zahl in einer kuenftigen Version aendert. **Nachpruefbar mit `/context`** — dort steht
+unter „Memory files", welche Dateien wirklich geladen wurden.
+
+⚠ **Die Grenze gilt PRO ANFRAGE, nicht pro Sitzung.** Derselbe Anweisungstext sagt: *„Do not
+re-select memories you already returned for an earlier query in this conversation."* Ueber ein
+langes Gespraech sammelt sich die Abdeckung also an. Die Rechnung „40 Dateien, Grenze 5, also
+88 % unerreichbar" ist fuer den einzelnen Prompt richtig und fuer den Tag falsch — **der
+Bericht muss das dazusagen**, sonst treibt er zu einer Verdichtung, die niemand braucht.
+
+**Schwellen fuer die Dateizahl** (bis v5.9.3 gab es dafuer gar keine — deshalb wuchs der
+Bestand ungebremst):
+
+| Anzahl Topic-Dateien | Stufe | Was der Skill tut |
+|---|---|---|
+| bis `LIMIT` (5) | optimal | nichts |
+| bis 3x`LIMIT` (15) | akzeptabel | Hinweis im Bericht |
+| bis 6x`LIMIT` (30) | Warnung | Zusammenfuehrungs-Gruppen **vorschlagen** |
+| ueber 6x`LIMIT` (30) | kritisch | Zusammenfuehren **anwenden**, Gates aus 4.0c, max 5 je Lauf |
 
 ⛔ **Sichtbarkeit ist notwendig, nicht hinreichend.** GitHub-Issue #37586: eine Erinnerung war
 geladen und trotzdem wirkungslos — Memory ist *„context, not enforced configuration"*. Fuer
@@ -171,7 +191,35 @@ done
 ⛔ **Folge fuer den Fix-Typ „Offload to topic file":** Auslagern **erhoeht** die Dateizahl.
 Liegt der Bestand ueber dem Limit, muss der Vorschlag die **neue `description` mitliefern** —
 sonst verschiebt er Inhalt in die Unsichtbarkeit. Oberhalb des Limits ist **Zusammenfuehren**
-oft besser. ⛔ **Nie autonom zusammenfuehren — nur Vorschlag**, genau wie beim Aufteilen.
+oft besser.
+
+✅ **Seit v5.10.0 fuehrt der Skill autonom zusammen** (Nutzer-Entscheidung 21.08.2026),
+gegen die vier Gates in 4.0c. Bis dahin galt „nur Vorschlag" — und das Ergebnis war eine
+**Einbahnstrasse**: gemessen im Zustellplan **40 Topic-Dateien bei gruenem Budget**
+(MEMORY.md 66/200 Zeilen, 16,9 KB/25 KB). Weil MEMORY.md gesund war, entstand nirgends
+Druck; der einzige Hebel, der die Dateizahl bewegte, war `Offload` — **und der erhoeht
+sie**. Jeder Lauf konnte hinzufuegen, keiner wegnehmen.
+
+### 4.0c Zusammenfuehren und Aufteilen — die vier Gates (NEU v5.10.0)
+
+Beides ist **inhaltliche** Arbeit, kein Textverschieben. Autonom deshalb nur, wenn **alle
+vier** Gates halten; bricht eines, bleibt es beim Vorschlag.
+
+| Gate | Pruefung | Warum |
+|---|---|---|
+| **1 · Erhaltung** | Inhaltszeilen vorher == nachher (Frontmatter ausgenommen) | Verdichten ja, fallen lassen nein. Was weg soll, ist ein **eigener** Fix-Typ (`Remove stale entry`) mit eigenem Berichtseintrag — sonst verschwindet Wissen unter der Ueberschrift „aufgeraeumt" |
+| **2 · Kein Umbenennen** | zusammengefuehrt wird **in eine der beiden bestehenden Dateien**, nie in eine dritte, neue | Der Index zeigt auf den Dateinamen, und `originSessionId` verknuepft ihn mit einer Sitzung |
+| **3 · Verweise** | nach dem Lauf zeigt **kein** `[[name]]` mehr auf eine entfernte Datei — weder im Bestand noch in MEMORY.md | Ein toter Wikilink ist genau die Unsichtbarkeit, die der Fix beseitigen sollte |
+| **4 · Beschreibung** | die ueberlebende `description` nennt **beide** Themen, 40-200 Zeichen | Der Auswaehler sieht **nur** Name und Beschreibung. Nennt sie nur das eine Thema, ist das andere unauffindbar — dann ist der Merge ein Verlust, kein Aufraeumen |
+
+⛔ **Zusammengefuehrt wird, was thematisch zusammengehoert — nie, um eine Zahl zu druecken.**
+Das Urteil darueber traut der autonome Modus dem Skill ausdruecklich zu; die Zahl allein ist
+kein Grund. Zwei unverwandte Erinnerungen in einer Datei sind **schlechter** auffindbar als
+zwei getrennte: der Auswaehler liest eine Beschreibung, und eine Beschreibung, die zwei
+fremde Dinge nennt, passt auf keine Anfrage richtig.
+
+**Mengenbegrenzung: hoechstens 5 Zusammenfuehrungen je Lauf.** Ein Lauf, der 40 Dateien auf
+12 zusammenzieht, ist im Bericht nicht mehr pruefbar — und der naechste Lauf macht weiter.
 
 ---
 
@@ -284,8 +332,14 @@ Fuer Topic-Dateien gibt es **kein hartes Limit** — nur die Empfehlung „< 200
 **Befund ab > 200 Zeilen ODER > 20 KB** (beide Zweige pruefen, nicht nur einen), mit
 Aufteilungsvorschlag.
 
-⛔ **Nie autonom aufteilen** — Inhalt zerschneiden ist keine mechanische Operation. Und siehe
-4.0b: Aufteilen erhoeht die Dateizahl und kann die Sichtbarkeit verschlechtern.
+✅ **Autonom seit v5.10.0** — ueber dieselben vier Gates wie das Zusammenfuehren (4.0c),
+**plus eine fuenfte Bedingung**: aufgeteilt wird nur, wenn die Datei wirklich **zwei
+unterscheidbare Themen** traegt, und nur, wenn der Bestand danach unter der kritischen
+Schwelle bleibt (4.0). Sonst verschlechtert Aufteilen die Sichtbarkeit, ohne etwas zu
+gewinnen — es erhoeht die Dateizahl, und die Grenze von 5 gilt pro Anfrage.
+
+⚠ **Im Zweifel nicht aufteilen.** Eine 220-Zeilen-Datei zu einem Thema ist ein kleineres
+Problem als zwei 110-Zeilen-Dateien zu anderthalb Themen.
 
 ### 10. Sicherheit — OWASP ASI06 (NEU v6)
 
@@ -466,7 +520,9 @@ For each confirmed fix:
 | Remove cross-file duplicate | Edit | Remove from MEMORY.md (keep in CLAUDE.md) |
 | Merge semantic duplicates | Edit | Replace both lines with single concise line |
 | Remove stale entry | Edit | Remove line(s) referencing dead paths/versions |
-| Offload to topic file | Write + Edit | Write new topic file, remove section from MEMORY.md |
+| Offload to topic file | Write + Edit | Write new topic file, remove section from MEMORY.md. ⛔ **Erhoeht die Dateizahl** — ab der kritischen Schwelle (4.0) stattdessen zusammenfuehren |
+| **Topic-Dateien zusammenfuehren** (NEU v5.10.0) | Read + Edit + Bash | Inhalt von B nach A, `description` von A um Bs Thema erweitern, `[[b]]`-Verweise auf `[[a]]` ziehen, B loeschen, MEMORY.md-Zeile entfernen. **Vier Gates aus 4.0c sind Pflicht**, max 5 je Lauf |
+| **Topic-Datei aufteilen** (NEU v5.10.0) | Read + Write + Edit | Nur ab 200 Zeilen / 20 KB **und** nur bei zwei unterscheidbaren Themen. Gates aus 4.0c + Abschnitt 9 |
 | Compress verbose | Edit | Replace multi-sentence with concise bullet |
 
 ## Step 7: Summary
@@ -500,8 +556,11 @@ Topic files: 3 (was 2, created api-patterns.md)
   (Issue #2836) — **75 native Memory-Dateien waren ueber Nacht unsichtbar**, nicht geloescht,
   aber nicht mehr geladen, ohne Rueckfrage. Ein Memory-Werkzeug, das die Memory-Umgebung
   still umstellt, ist die schlimmste Form von Nebenwirkung.
-- ⛔ **NIEMALS autonom Topic-Dateien zusammenfuehren ODER aufteilen** — beides ist inhaltliche
-  Arbeit, keine mechanische. Nur Vorschlag, nie Ausfuehrung.
+- **Zusammenfuehren und Aufteilen sind seit v5.10.0 autonom erlaubt** — aber **nur** gegen
+  die vier Gates aus 4.0c (Erhaltung · kein Umbenennen · keine toten `[[Verweise]]` ·
+  Beschreibung nennt beide Themen), hoechstens 5 je Lauf. ⛔ **Bricht ein Gate, bleibt es
+  beim Vorschlag.** Und ⛔ **nie zusammenfuehren, um eine Zahl zu druecken** — nur, was
+  thematisch zusammengehoert.
 - ⛔ **NIEMALS eine Datei umbenennen** — der Index zeigt auf den Dateinamen, und
   `originSessionId` verknuepft ihn mit einer Sitzung.
 - ⛔ **Keine Inhalte fremder Memory-Bestaende** in Berichte, Logs oder Commits. Nur Struktur,

@@ -17,10 +17,57 @@ import os
 import re
 
 # ⛔ Diese Liste ist der Kern. Jeder Eintrag hat einen Grund, keiner ist Vorsichtsmassnahme.
+# GitHub-Kennung des Nutzers. Ein Remote, das sie NICHT enthaelt, gehoert jemand
+# anderem — dessen Kontextdateien sind nicht unsere Baustelle.
+EIGNER = "blumenkohlbinary"
+
+
+def fremdklon(projekt):
+    """True, wenn das Projekt ein Klon eines FREMDEN Repos ist.
+
+    Exakt, nicht heuristisch: gemessen 21.08.2026 hat ComfyUI das Remote
+    `github.com/comfyanonymous/ComfyUI.git`, waehrend JEDES eigene Projekt des
+    Nutzers ueberhaupt kein Remote hat. Kein Remote -> nie fremd.
+
+    ⛔ Die Datei-Autorschaft taugt dafuer NICHT: Palvedo committet unter der
+    lokalen Identitaet `lauf1@palvedo.local`, ein Mail-Vergleich haette das
+    eigene Projekt als fremd eingestuft.
+    """
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", projekt, "remote", "get-url", "origin"],
+                           capture_output=True, text=True, timeout=10)
+    except Exception:
+        return False
+    if r.returncode != 0:
+        return False                      # kein Remote = eigenes Projekt
+    return EIGNER.lower() not in (r.stdout or "").lower()
+
+
+def upstream_datei(projekt, pfad):
+    """True, wenn die Datei in einem Fremdklon liegt UND dort versioniert ist.
+
+    Eine selbst angelegte, NICHT versionierte CLAUDE.md in einem Fremdklon
+    gehoert weiter dem Nutzer und wird geprueft.
+    """
+    import os
+    import subprocess
+    if not fremdklon(projekt):
+        return False
+    try:
+        r = subprocess.run(
+            ["git", "-C", projekt, "ls-files", "--error-unmatch",
+             os.path.relpath(pfad, projekt)],
+            capture_output=True, text=True, timeout=10)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 AUS = (
     # fremder Code, nie eigenes Wissen
     "node_modules", ".git", "vendor", "target", ".next", "__pycache__", ".pytest_cache",
-    ".venv", "venv", "dist", "build",
+    ".venv", "venv", "dist", "build", "publish",
     # ⛔ KOPIEN eigener Kontextdateien — hier entstehen Mehrfachzaehlungen
     ".claude-mind",        # Sicherungen und Schnappschuesse des Plugins
     "_claude_backups",     # Handsicherungen
