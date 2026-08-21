@@ -39,7 +39,16 @@ ARBEIT = re.compile(r"laufender auftrag|dauerauftrag|wortlaut gesichert|"
                     r"stand der|offene punkte|roadmap|fahrplan|nacharbeiten|"
                     r"was noch offen|todo|batch", re.I)
 
-ZEIGER = re.compile(r"\bPointer\b|\bZeiger\b|globale Rule|~/\.claude/")
+# ⛔ Nur SELBSTBEZEICHNUNG als Verweis zaehlt — der blosse Pfad nicht.
+#    Der erste Stand hatte `~/\.claude/` mit drin und meldete deshalb
+#    `globale-rules-nicht-anfassen.md` als falsch getypt. Deren Beschreibung lautet
+#    "der Nutzer hat abgelehnt, dass ich ~/.claude/rules/ bearbeite" — eine
+#    NUTZER-ENTSCHEIDUNG, in der der Pfad der GEGENSTAND ist, nicht das Ziel eines
+#    Verweises. Ein Muster, das den Unterschied nicht sieht, erzeugt Fehlalarme in
+#    fremden Projekten.
+ZEIGER = re.compile(r"^\s*[\"']?\s*(Pointer|Zeiger)\b|"
+                    r"\b(Pointer|Zeiger) (auf|zu|nach)\b|"
+                    r"\b(liegt|steht) (jetzt )?(als|in) (der )?globale[nr]? Rule\b", re.I)
 
 
 def frontmatter_offen(t):

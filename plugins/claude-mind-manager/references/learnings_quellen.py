@@ -38,9 +38,36 @@ LEHRMARKER = re.compile(
     r"\bgemessen\b|\bbelegt\b|\bnachgewiesen\b|\bFalle\b|\bLehre daraus\b")
 
 
+# Was in `.claude/` liegen muss, damit es ein PROJEKT ist und nicht nur ein Ordner
+# mit lokalen Einstellungen.
+KONTEXT_ORDNER = ("rules", "skills", "agents", "commands", "hooks")
+
+
 def ist_projekt(p):
-    return os.path.isfile(os.path.join(p, "CLAUDE.md")) \
-        or os.path.isdir(os.path.join(p, ".claude"))
+    """CLAUDE.md, oder ein `.claude/` mit echtem Kontext darin.
+
+    ⛔ ZWEI Fehlalarm-Klassen, beide am 21.08.2026 gemessen und beide hier behoben:
+
+    1. Ein `.claude/`, das NUR `settings.local.json` enthaelt, ist kein Projekt —
+       es ist eine Einstellungsdatei. `Plugin - Entwicklung` wurde so gefuehrt und
+       meldete "hat .claude/, aber keine CLAUDE.md": ein Befund ueber einen Ordner,
+       der gar keiner sein wollte.
+
+    2. Ein Verzeichnis INNERHALB von `skills/`, `agents/`, `commands/` oder `rules/`
+       ist nie ein Projekt, auch wenn dort eine `AGENTS.md` liegt. Fremde Skillpakete
+       bringen solche Dateien mit: `skills/vercel-react-native-skills/AGENTS.md`.
+       Ohne diese Sperre sprang die Projektzahl von 22 auf 30 — die 9 zusaetzlichen
+       waren allesamt Unterordner eingekaufter Pakete."""
+    teile = {x.lower() for x in os.path.abspath(p).replace("\\", "/").split("/")}
+    if teile & {"skills", "agents", "commands", "rules", ".agents"}:
+        return False
+    if os.path.isfile(os.path.join(p, "CLAUDE.md")) \
+            or os.path.isfile(os.path.join(p, "AGENTS.md")):
+        return True
+    cd = os.path.join(p, ".claude")
+    if not os.path.isdir(cd):
+        return False
+    return any(os.path.isdir(os.path.join(cd, u)) for u in KONTEXT_ORDNER)
 
 
 def projekte(wurzel):
