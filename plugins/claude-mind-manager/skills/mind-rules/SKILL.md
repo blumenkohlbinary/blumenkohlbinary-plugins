@@ -105,6 +105,7 @@ Total: 4 rules, 90 lines
 
 | Issue | Severity | Detection |
 |-------|----------|-----------|
+| **Frontmatter nicht mit `---` geschlossen** | **CRITICAL** | erste Zeile ist `---`, aber es gibt keine zweite `---`-Zeile |
 | Uses `paths:` instead of `globs:` | WARNING | Grep `^paths:` |
 | User-level rule uses `paths:` | ERROR | paths: in ~/.claude/rules/ never works |
 | YAML quoting issue | WARNING | `*` or `{` at line start without quotes |
@@ -226,6 +227,33 @@ After:
 - **ALWAYS report every applied change** mit `file:line` + before→after + Snapshot-Pfad.
 - Rules without globs: are valid — they always load (document this, don't warn)
 - **"No Dead Tools" (NEU v4.0):** Wird ein Tool ins Projekt installiert, MUSS eine Companion-Rule mit passendem `globs:`-Trigger dazu — sonst liegt das Tool tot im Ordner. Companion-Rule = WANN + WIE + load-bearing Fallen, nicht nur WAS. Ehrlich: Rule = erreichbar, nicht garantiert-genutzt.
+
+## ⛔ Der schwerste Befund, den bis v5.7.0 KEIN Check sah
+
+**Ein Frontmatter, das mit `---` beginnt und nie geschlossen wird.** Der Parser liest dann
+entweder die ganze Datei als Frontmatter oder gar keines — beides macht die Regel unwirksam,
+und **keine** der bisherigen Pruefungen bemerkte es.
+
+Gemeldet am 21.08.2026 aus dem Projekt **APP - Zustellplan**, nicht von hier. Der Befund
+kam ueber den zentralen Debug-Ordner (`MIND_DEBUG_DIR`) zurueck — der erste Fall, in dem ein
+anderes Projekt einen Fehler in diesem Skill gefunden hat.
+
+⚠ **Die dort genannte Zahl „6 von 12 Regeldateien" ist hier NICHT mehr nachpruefbar.**
+Nachgemessen am 21.08.2026 um 08:00: alle 12 Dateien haben vollstaendiges Frontmatter —
+derselbe Lauf, der den Befund meldete, hat ihn offenbar auch repariert. **Die Zahl steht
+deshalb als Meldung da, nicht als Tatsache.** Der Check bleibt trotzdem richtig: er faengt
+einen realen Fehlermodus, den kein anderer sieht.
+
+```bash
+# Die Pruefung, die gefehlt hat:
+for f in "$RULES_DIR"/*.md; do
+  head -1 "$f" | grep -q '^---$' || continue          # kein Frontmatter -> anderer Fall
+  [ "$(grep -c '^---$' "$f")" -ge 2 ] || echo "CRITICAL: $f — Frontmatter nie geschlossen"
+done
+```
+
+⚠ **Nicht verwechseln mit „ganz ohne Frontmatter".** Eine Datei ohne jedes `---` nutzt den
+alwaysApply-Weg und laedt korrekt. Eine Datei mit **einem** `---` ist kaputt.
 
 ## ⛔ `paths:` gegen `globs:` — Stand der Belege (NEU v5.7.0)
 

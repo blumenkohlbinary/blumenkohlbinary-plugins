@@ -85,6 +85,12 @@ def classify_path(p):
             or ("{" in p and "}" in p) or "$" in p or "*" in p
             or ("[" in p and "](" in p)):
         return "SKIP"
+    # 3y) SKIP: Interpreter-AUFRUF, kein zu pruefender Pfad (aus dem Zustellplan-Lauf,
+    #     21.08.2026). `.venv/Scripts/python` und `/usr/bin/python` sind Befehle und
+    #     gehoeren an Check 14, nicht an 13. Dort meldete Check 13 elf tote Pfade,
+    #     echte tote Pfade: null — dieselbe Fehlerklasse zum vierten Mal.
+    if re.search(r'/(Scripts|\.?bin)/(python|python3|node|bash|sh)[0-9.]*$', p):
+        return 'SKIP'
     # 3z) SKIP: Escape-Sequenz, Code-Fragment, Endungspaar (NEU 21.08.2026).
     #     Aufgedeckt am Lauf gegen die globale CLAUDE.md: dort galten \n, \r, \v,
     #     \udc90, `"hooks": "hooks/hooks.json"` und `.tsx/.jsx` als tote Pfade. Alle tragen
@@ -97,6 +103,13 @@ def classify_path(p):
         return 'SKIP'                      # Code- oder JSON-Fragment, kein Pfad
     if all(t.startswith('.') for t in p.split('/') if t):
         return 'SKIP'                      # Endungspaar wie .tsx/.jsx
+    # 3x) SKIP: Fortschrittsanzeige oder Verhaeltnis (`◐ 2/8`, `3/10`).
+    #     Ein Span, dessen Segmente rein numerisch sind, ist nie ein Dateipfad.
+    _teile = [t for t in re.split(r'[/\\]', p) if t]
+    if _teile and all(re.fullmatch(r'\d+', t.strip()) for t in _teile):
+        return 'SKIP'
+    if re.match(r'^[^a-zA-Z0-9\s]\s', p):    # fuehrendes Symbol wie ◐
+        return 'SKIP'
     # 3a) SKIP: FORMEL, kein Pfad (NEU nach dem ersten echten Lauf, 21.08.2026).
     #     `min(Fenster-12 %, Fenster x Prozent/100, Fenster-13000)` hat einen
     #     Schraegstrich und keines der Zeichen aus 3). Ein Span mit Leerzeichen UND
@@ -109,6 +122,12 @@ def classify_path(p):
     #     EHRLICHER PREIS: ein wirklich toter Pfad der Form /foo-bar wird nicht gelistet.
     if p.count("/") == 1 and p.startswith("/") and "-" in p[1:]:
         return "SKIP"
+    # 3w) UNSURE: zwei schlichte Woerter ohne Punkt (`actual/expected`, `ja/nein`).
+    #     Ein echter Dateipfad traegt fast immer eine Endung. Ohne Punkt und ohne
+    #     Verzeichnis-Anmutung ist DEAD zu scharf — UNSURE meldet, ohne zu behaupten.
+    if '.' not in p and p.count('/') == 1 and not p.startswith('/'):
+        if all(re.fullmatch(r'[a-zA-Z]+', t) for t in p.split('/') if t):
+            return 'UNSURE'
     # 4) UNSURE: fuehrender / ohne Laufwerk/MSYS-Wurzel
     if p.startswith("/"):
         if re.match(r"^/[a-z]/", p) or p == "/":
@@ -192,7 +211,19 @@ def wurzeln_finden(ohne_text, projekt):
        aufgetreten — deshalb steht er jetzt hier, mit eigenem Selbsttest.
     """
     eltern = os.path.dirname(projekt.rstrip('/' + chr(92)))
-    wurzeln = [projekt, eltern]
+    # Das Memory-Verzeichnis liegt AUSSERHALB des Projekts (~/.claude/projects/<slug>/).
+    # Ohne es meldet jeder Verweis wie `memory/lessons.md` faelschlich DEAD.
+    _heim = os.path.expanduser('~/.claude/projects')
+    if os.path.isdir(_heim):
+        _slug = re.sub(r'^-*', '', re.sub(r'[^A-Za-z0-9]', '-', projekt.replace('/', chr(92))))
+        _m = os.path.join(_heim, _slug)
+        if os.path.isdir(_m):
+            wurzeln_extra = [_m]
+        else:
+            wurzeln_extra = []
+    else:
+        wurzeln_extra = []
+    wurzeln = [projekt, eltern] + wurzeln_extra
     for s in set(re.findall(r'`([^`\n]+)`', ohne_text)):
         s = s.strip().replace(chr(92), '/').rstrip('/')
         if not s or '/' not in s or classify_path(s) != 'CHECK':
@@ -282,7 +313,11 @@ def pruefe(pfad, projekt):
     dead, extern, skip, unsure, befehle = [], [], 0, 0, 0
     wurzeln = wurzeln_finden(ohne_text, projekt)
     for s in spans(ohne_text):
-        if re.match(r"^(python|python3|node|bash|sh|npm|git|pip)\s|^\./", s):
+        # Befehl? Auch mit Interpreter-PFAD davor und Argumenten dahinter.
+        # `.venv/Scripts/python -m pytest tests/ -v` ist ein Befehl, kein Pfad —
+        # gemessen am Zustellplan, wo genau das 5 Fehltreffer erzeugte.
+        if (re.match(r'^(python|python3|node|bash|sh|npm|git|pip|timeout|cd)\s|^\./', s)
+                or re.search(r'(Scripts|\.?bin)/(python|python3|node|bash|sh)[0-9.]*(\s|$)', s)):
             befehle += 1
             continue
         if "/" not in s and "\\" not in s:
@@ -304,8 +339,14 @@ def pruefe(pfad, projekt):
                 continue
             dead.append(s)
             continue
-        rel = roh
-        if any(os.path.exists(os.path.join(w, rel)) for w in wurzeln[:1]) or os.path.exists(rel):
+        # pytest-Notation `datei.py::test_name` — der Teil hinter :: ist kein Pfad.
+        rel = roh.split('::')[0] if '::' in roh else roh
+        # Windows: ein genanntes Werkzeug liegt oft als .exe/.bat/.cmd vor.
+        varianten = [rel] + ([rel + e for e in ('.exe', '.bat', '.cmd')]
+                             if os.name == 'nt' and '.' not in os.path.basename(rel)
+                             else [])
+        if any(os.path.exists(os.path.join(wurzeln[0], v)) or os.path.exists(v)
+               for v in varianten):
             continue
         # EXTERN: existiert unter einer der erkannten Wurzeln. Nur Hinweis, nie Befund.
         if any(os.path.exists(os.path.join(w, rel)) for w in wurzeln[1:]):
@@ -444,6 +485,14 @@ def selbsttest():
         ('"hooks": "hooks/hooks.json"', "SKIP", "JSON-Fragment"),
         (".tsx/.jsx", "SKIP", "Endungspaar"),
         (".claude/rules/x.md", "CHECK", "fuehrender Punkt ALLEIN ist ein echter Pfad"),
+        (".venv/Scripts/python", "SKIP", "Interpreter-Aufruf, gehoert an Check 14"),
+        ("/usr/bin/python3", "SKIP", "Interpreter mit Versionsziffer"),
+        ("node_modules/.bin/bash", "SKIP", "Interpreter in einem Werkzeugverzeichnis"),
+        ("tools/python_helper.py", "CHECK", "python im DATEInamen ist kein Interpreter"),
+        ("2/8", "SKIP", "Verhaeltnis, kein Pfad"),
+        ("10/100", "SKIP", "rein numerisch"),
+        ("actual/expected", "UNSURE", "Prosa-Paar ohne Punkt — melden, nicht behaupten"),
+        ("src/main.py", "CHECK", "mit Endung bleibt es ein Pfad"),
         ("hooks/lib.sh", "CHECK", "normaler relativer Pfad"),
         ("/c/Users/x/y.md", "CHECK", "MSYS-Laufwerk ist pruefbar"),
     ]
@@ -562,9 +611,21 @@ def main():
           % (d_k, d_r, "GUELTIG" if gueltig else "UNGUELTIG"))
     if not gueltig:
         print()
-        print("  ABBRUCH: die bekannt schlechte Kontrolldatei schneidet nicht schlechter ab.")
-        print("  Erwartet: Kontrolldichte mindestens doppelt so hoch wie die Zieldichte.")
-        print("  Das Instrument misst nichts — alle Zahlen oben sind ungueltig.")
+        print("  ABBRUCH: die Kontrolldatei schneidet nicht deutlich schlechter ab.")
+        print("  Kontrolle: %d Befunde auf %d Zeilen (%.2f/Zeile)"
+              % (len(k["befunde"]), k["zeilen"], d_k))
+        print("  Ziel:      %d Befunde auf %d Zeilen (%.2f/Zeile)"
+              % (len(r["befunde"]), r["zeilen"], d_r))
+        print()
+        print("  Wahrscheinliche Ursachen, in dieser Reihenfolge pruefen:")
+        print("    1. Ist <ziel.md> versehentlich eine KONTROLL- oder Beispieldatei?")
+        print("       Ziel war: %s" % os.path.realpath(ziel))
+        print("    2. Stimmt --projekt? Eine falsche Wurzel erzeugt Schein-Befunde")
+        print("       bei Check 13. Projekt war: %s" % os.path.realpath(projekt))
+        print("    3. Ist das Ziel wirklich so schlecht? Dann sind die Befunde echt —")
+        print("       aber die Messung traegt sie nicht, weil die Kontrolle nicht trennt.")
+        print()
+        print("  Alle Zahlen oben sind ungueltig, bis das geklaert ist.")
         return 3
     return 1 if r["befunde"] else 0
 

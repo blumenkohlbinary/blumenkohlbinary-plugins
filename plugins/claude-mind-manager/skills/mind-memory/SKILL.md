@@ -136,6 +136,19 @@ behaupten, die es nicht gibt.**
 
 ### 4.0b `description`-Qualitaet — der einzige Hebel auf Sichtbarkeit
 
+⛔ **Zwei Klassen trennen (NEU v5.7.1, gemeldet aus dem Zustellplan-Lauf).** Bis dahin wurde
+eine Datei **ganz ohne Frontmatter** einfach als „ohne `description`" gezaehlt. Das ist der
+schwerere Fall und gehoert getrennt ausgewiesen:
+
+| Fall | Folge |
+|---|---|
+| `description` fehlt, Frontmatter vorhanden | schwaches Signal fuer den Auswaehler |
+| **gar kein Frontmatter** | die Datei zaehlt **voll gegen das Byte-Budget** — nichts wird abgeschnitten, und der Auswaehler hat ueberhaupt kein Signal |
+
+**Im Bericht beide Zahlen getrennt nennen.** Eine Summe verdeckt, dass der zweite Fall teurer
+ist. ⚠ Nicht mit einem **offenen** Frontmatter verwechseln (erste Zeile `---`, keine zweite) —
+das ist wieder ein anderer Fall und gehoert zu `mind-rules`.
+
 | Pruefung | Schwelle | Klasse |
 |---|---|---|
 | `description` fehlt | — | **Befund** — die Datei ist praktisch unsichtbar |

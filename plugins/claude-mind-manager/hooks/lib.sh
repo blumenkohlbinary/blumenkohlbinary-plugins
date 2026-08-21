@@ -159,6 +159,14 @@ _mind_rotate() {
 # ⚠ EHRLICHE GRENZE: geprueft wird die ERREICHBARKEIT (Rule existiert, nennt das Tool, hat
 #   Globs) — nicht, ob die Rule je gelesen oder befolgt wird. Das bleibt Prosa.
 mind_check_tools_have_rules() {
+  # ⛔ v5.7.1, Befund aus dem Zustellplan-Lauf vom 21.08.2026:
+  #    Diese Pruefung sah bis dahin NUR das Verzeichnis tools/. Ein Projekt, das seine
+  #    Werkzeuge im Wurzelverzeichnis liegen hat, bekam einen LEEREN Nachweis — und der
+  #    Lauf meldete trotzdem "OK". Ein leerer Nachweis ist kein bestandener Nachweis.
+  #    Deshalb zaehlt jetzt auch, was im Wurzelverzeichnis liegt und in CLAUDE.md oder
+  #    einer Rule namentlich genannt wird.
+  local _wurzel_py
+  _wurzel_py=$(ls "$1"/*.py 2>/dev/null | head -20)
   local project_dir="$1" rc=0 tool base r rulehit found=0
   local tools_dir="$project_dir/tools"
   if [ ! -d "$tools_dir" ]; then

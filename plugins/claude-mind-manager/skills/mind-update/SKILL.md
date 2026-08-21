@@ -425,6 +425,24 @@ classify_path() {
 
 ### 3c: Commit-Coverage-Gate (deterministisch — objektiver Knowledge-Gap)
 
+⛔ **„0 Luecken" und „nicht anwendbar" sind zwei verschiedene Ergebnisse (NEU v5.7.1).**
+Gemeldet aus dem Palvedo-Lauf vom 21.08.2026: Das Gate sucht nach
+`feat:`/`fix:`/`refactor:`/`perf:`. Palvedo schreibt seine Commits bewusst als `Lauf N: …` —
+das Gate fand also **nie** etwas und meldete jedes Mal „0 Luecken".
+
+**Der Unterschied ist der zwischen *ungeprueft* und *sauber* — und der ist der ganze Zweck
+dieses Schritts.**
+
+```bash
+# VOR der Auswertung pruefen, ob die Konvention ueberhaupt vorkommt:
+TREFFER=$(git log --oneline -50 | grep -cE '^[0-9a-f]+ (feat|fix|refactor|perf|docs|test|chore)')
+if [ "$TREFFER" -eq 0 ]; then
+  echo "Schritt 3c: NICHT ANWENDBAR — keine Conventional-Commits-Praefixe in den letzten"
+  echo "  50 Commits. Das ist KEIN '0 Luecken'."
+  # Hat das Projekt eine eigene Konvention, gehoert ihr Muster in CLAUDE.md und hierher.
+fi
+```
+
 **Zweck (v3.3.2):** Dies ist der DETERMINISTISCHE Kern der Knowledge-Gap-Erkennung.
 Er entwertet die "ich kenne den Stand schon"-Ausrede: wenn Commit X nachweislich
 in keiner Context-Datei steht, IST das ein Gap — unabhaengig davon was Claude
@@ -671,7 +689,20 @@ Welle 1: claude-md + memory, Welle 2: rules + custom-context; jede Welle ihr eig
 Tool-Call). Ergebnisse aller 4 einsammeln, dann konsolidieren. Jeder bekommt:
 - Scope: `claude-md` / `memory` / `rules` / `custom-context`
 - Mode: `knowledge-sync`
-- **Scope-Dedup (NEU v5.0.0, Befund 5):** Vor jedem Dispatch `.claude-mind/analyzed-scopes`
+- ⛔ **DRITTER AGENT-AUFTRAG: Context gegen Context (NEU v5.7.1).** Die bisherigen Agents
+fragen alle „Session gegen Datei". Der teuerste Fehler des Palvedo-Laufs vom 21.08.2026 war
+aber ein Widerspruch **zwischen zwei Context-Dateien** (`ARBEITSLISTE.md` gegen
+`ENTSCHEIDUNGEN.md`) — den beide Agents auftragsgemaess ignoriert haben, weil er in der
+Session gar nicht vorkam.
+
+**Auftrag des dritten Agenten, woertlich:** *„Widersprechen sich zwei Context-Dateien dieses
+Projekts? Vergleiche CLAUDE.md, die Rules und die Memory-Topics PAARWEISE gegeneinander —
+nicht gegen die Session. Melde jede Stelle, an der zwei Dateien dasselbe verschieden sagen."*
+
+⚠ Er laeuft in derselben Welle wie die anderen (Anti-Burst: nie mehr als 2 gleichzeitig) und
+zaehlt gegen die Obergrenze.
+
+**Scope-Dedup (NEU v5.0.0, Befund 5):** Vor jedem Dispatch `.claude-mind/analyzed-scopes`
   pruefen. Steht der Scope dort (von `/mind-all` durch einen vorherigen Skill eingetragen),
   **NICHT erneut dispatchen** — im Self-Check ausweisen als
   `scope=<x> → bereits durch <skill> abgedeckt (analyzed-scopes)`.
