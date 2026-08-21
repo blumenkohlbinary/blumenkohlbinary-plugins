@@ -43,8 +43,10 @@ janein "Merker vorhanden -> Block" ja "$A"
 printf '%s' "$O" | grep -q '/compact' && A=ja || A=nein
 janein "Blocktext nennt /compact" ja "$A"
 # Die Ehrlichkeit MUSS im Text stehen, sonst versucht der Assistent es selbst
-printf '%s' "$O" | grep -qi 'NICHT ausloesbar\|nicht ausloesbar' && A=ja || A=nein
-janein "Blocktext nennt die Grenze (nicht ausloesbar)" ja "$A"
+# Die AUSSAGE muss stehen, nicht ihr Wortlaut: dass nur der Mensch /compact ausloest.
+# Sonst versucht der Assistent es selbst und meldet danach faelschlich Erfolg.
+printf '%s' "$O" | grep -qi 'nur der Mensch\|weder ein Hook noch der Assistent\|nicht ausloesbar' && A=ja || A=nein
+janein "Blocktext nennt die Grenze (nur der Mensch loest aus)" ja "$A"
 rm -rf "$P"
 
 # --- 2 · Der Zaehler wird hochgesetzt ------------------------------------

@@ -33,11 +33,27 @@ from learnings_quellen import (AUS, lehren, lies,  # noqa: E402
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
-# Wortstaemme, an denen ein Memory-Eintrag als ARBEITSMATERIAL erkennbar ist.
-# Der Nutzer trennt das ausdruecklich: was jemand AUSFUEHREN wuerde, ist kein Wissen.
-ARBEIT = re.compile(r"laufender auftrag|dauerauftrag|wortlaut gesichert|"
-                    r"stand der|offene punkte|roadmap|fahrplan|nacharbeiten|"
-                    r"was noch offen|todo|batch", re.I)
+# ⛔ ENTFERNT am 21.08.2026 — die Pruefung widersprach der Spezifikation.
+#
+#    Sie meldete "Memory-Dateien tragen ARBEITSMATERIAL statt Wissen" fuer alles mit
+#    "Dauerauftrag", "Stand der", "Roadmap". Die Memory-Anweisung sagt zu `type: project`
+#    aber woertlich:
+#
+#        "ongoing work, goals, or constraints not derivable from the code or git history"
+#
+#    LAUFENDE ARBEIT IST GENAU DAS, WOFUER `project` DA IST. Die Regel, an die ich
+#    gedacht hatte ("was jemand AUSFUEHREN wuerde, ist Arbeitsmaterial"), gilt fuer
+#    JOPLIN — nicht fuer das Memory.
+#
+#    Der Schaden waere gross gewesen: die Pruefung haette dazu verleitet, in DREI fremden
+#    Projekten laufende Auftraege aus dem Memory zu nehmen — darunter zwei, die
+#    ausdruecklich "LAUFENDER AUFTRAG (nicht stoppen)" heissen. Eine Sitzung haette
+#    danach ihren Auftrag nicht mehr gefunden.
+#
+#    Das ist der VIERTE Fehlalarm dieser Bauart an einem Tag (settings-only `.claude/`,
+#    AGENTS.md im Skillpaket, `~/.claude/` im Zeiger-Muster, und dieser). Muster:
+#    ⭐ Der Check nimmt eine Regel an, die so nirgends steht — und meldet dann
+#       Abweichungen von einer Erfindung.
 
 # ⛔ Nur SELBSTBEZEICHNUNG als Verweis zaehlt — der blosse Pfad nicht.
 #    Der erste Stand hatte `~/\.claude/` mit drin und meldete deshalb
@@ -88,7 +104,7 @@ def pruefe(projekt, q):
 
     # --- Memory ----------------------------------------------------------
     topics = [p for p in q["memory"] if os.path.basename(p) != "MEMORY.md"]
-    ohne_desc, offen, arbeit, lang, zeiger = [], [], [], [], []
+    ohne_desc, offen, lang, zeiger = [], [], [], []
     for p in topics:
         x = os.path.basename(p)
         t = lies(p)
@@ -104,8 +120,6 @@ def pruefe(projekt, q):
             zeiger.append(x)
         if frontmatter_offen(t):
             offen.append(x)
-        if ARBEIT.search(kopf):
-            arbeit.append(x)
 
     md = memory_pfad(projekt) or ""
     if ohne_desc:
@@ -129,11 +143,6 @@ def pruefe(projekt, q):
         f("sichtbarkeit",
           "%d Memory-Dateien beschreiben sich als Verweis, tragen aber nicht "
           "`type: reference`: %s" % (len(zeiger), ", ".join(zeiger[:5])), md)
-    if arbeit:
-        f("sonstiges",
-          "%d Memory-Dateien tragen ARBEITSMATERIAL statt Wissen (Auftraege, Staende, "
-          "Roadmaps): %s — Wissen gehoert ins Memory, Auszufuehrendes in eine "
-          "Projektdatei" % (len(arbeit), ", ".join(arbeit[:5])), md)
 
     # --- Rules (REKURSIV, auch Unterordner) ------------------------------
     tot, r_offen = [], []

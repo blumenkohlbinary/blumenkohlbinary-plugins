@@ -136,20 +136,17 @@ if [ -f "$CFA" ]; then
       exit 0
     fi
     _slog INFO "block (COMPACT-FAELLIG #$_CNEU/$_CMAX, Kontext beim Sync: ${_CT:-?})"
-    jq -nc --arg r "[Mind Manager] /mind-all ist durch. JETZT ist die Kompaktierung faellig.
+    jq -nc --arg r "[Mind Manager] /mind-all ist durch (Kontext beim Sync: ${_CT:-unbekannt}).
 
-Der Sync hat den Kontext um 40-60k Tokens gefuellt (Stand beim Sync: ${_CT:-unbekannt}).
-Bleibt er stehen, wandert genau das in das naechste Kontextfenster — die Belastung, die
-dieser Ablauf verhindern soll.
+Der Sync hat 40-60k Tokens gekostet. Am guenstigsten waere jetzt ein /compact — dann
+raeumt die Kompaktierung den Sync-Ertrag gleich mit auf, statt ihn ins naechste Fenster
+zu tragen.
 
-⛔ Eine Kompaktierung ist NICHT ausloesbar: nicht aus einem Hook, nicht vom Assistenten.
-   Es gibt kein Werkzeug dafuer. Nur der Mensch kann /compact eingeben.
+⚠ Das ist eine EMPFEHLUNG, kein Zwang. Die Arbeit kann normal weitergehen; Claude
+kompaktiert bei etwa 1 Mio Tokens ohnehin von sich aus.
 
-Deshalb JETZT: den Nutzer als LETZTEN Satz der Antwort bitten, /compact zu tippen.
-Nicht in einen Bericht einbetten, nicht auf spaeter verschieben, nicht umformulieren
-zu 'kommt von selbst' — genau das war der Fehler bis v5.7.4.
-
-Danach ist der Merker weg und es geht normal weiter." \
+Erwaehne den Vorschlag einmal am Ende der Antwort und mach dann weiter. Auslosen kann
+ihn weder ein Hook noch der Assistent — nur der Mensch tippt /compact." \
       '{decision:"block", reason:$r}'
     exit 0
   fi
@@ -164,15 +161,15 @@ if [ ! -f "$OPEN" ]; then
   # nicht danach. Der Text nennt die Zahl, damit die Aufforderung nachpruefbar ist.
   if [ "$_TOKZWANG" = "ja" ]; then
     _slog INFO "block (Token-Schwelle, keine Schuld): $_TOK >= $_FSCHWELLE"
-    jq -nc --arg r "[Mind Manager] Der Kontext liegt bei $_TOK Tokens (Zwangsschwelle $_FSCHWELLE).
+    jq -nc --arg r "[Mind Manager] Kontext bei $_TOK Tokens — guter Zeitpunkt fuer /mind-all.
 
-JETZT /mind-all ausfuehren. Die Kompaktierung steht unmittelbar bevor; laeuft der Sync erst
-danach, fuellt er den frisch geleerten Kontext sofort wieder mit 40-60k Tokens.
+⚠ Das Fenster ist NICHT voll und die Arbeit muss nicht abgebrochen werden. Es geht
+allein um die REIHENFOLGE: laeuft der Sync erst nach einer Kompaktierung, fuellt er den
+frisch geleerten Kontext sofort wieder mit 40-60k Tokens. Davor gelaufen, raeumt die
+Kompaktierung hinterher auf.
 
-Nach dem Sync ist die Kompaktierung der naechste Schritt — und sie ist NICHT
-ausloesbar: weder aus einem Hook noch vom Assistenten. Nur der Mensch tippt /compact.
-Bitte ihn nach dem Sync ausdruecklich darum.
-Ist /mind-all hier nicht ausfuehrbar, sage das ausdruecklich und nenne den Grund." \
+Also: /mind-all ausfuehren und danach normal weiterarbeiten. Ist es hier nicht
+ausfuehrbar, sage kurz warum — und arbeite weiter." \
       '{decision:"block", reason:$r}'
     exit 0
   fi

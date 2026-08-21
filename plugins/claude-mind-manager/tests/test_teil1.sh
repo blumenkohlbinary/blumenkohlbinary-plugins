@@ -46,7 +46,11 @@ echo "=== 1 · Schwelle der MAHNUNG (prompt-submit) ==="
 mach_transkript "$T/t799.jsonl" 799999
 mach_transkript "$T/t800.jsonl" 800000
 pruef "799 999 -> still"      "$(ruf_prompt "$T/t799.jsonl" | grep -c 'Token')" "0"
-pruef "800 000 -> mahnt"      "$(ruf_prompt "$T/t800.jsonl" | grep -c 'JETZT /mind-all')" "1"
+# ⛔ Auf den MECHANISMUS pruefen, nicht auf den Wortlaut. Die erste Fassung suchte
+#    'JETZT /mind-all' und wurde rot, als der Text in v5.9.3 entschaerft wurde — obwohl
+#    der Hook einwandfrei feuerte. Eine Zusicherung gegen Formulierungen bricht bei
+#    jeder Textpflege.
+pruef "800 000 -> mahnt"      "$(ruf_prompt "$T/t800.jsonl" | grep -c '/mind-all')" "1"
 pruef "800 000 -> nennt die Zahl" "$(ruf_prompt "$T/t800.jsonl" | grep -c '800000')" "1"
 
 echo

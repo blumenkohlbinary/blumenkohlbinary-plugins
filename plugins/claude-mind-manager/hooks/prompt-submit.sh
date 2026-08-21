@@ -96,47 +96,28 @@ fi
 # --- v5.7.5: Kompaktierung steht aus (Rueckfallnetz zum Stop-Hook) ---
 # Der Stop-Hook hat einen Notausgang nach MIND_COMPACT_MAX_BLOCKS. Danach schweigt er.
 # Diese Zeile bleibt — sie kostet nichts und haelt die faellige Kompaktierung sichtbar.
-# --- v5.7.7: NOTFALL — nahe der Wand, und es gibt kein Auffangnetz mehr ---
-# Seit die Auto-Kompaktierung aus ist, feuert pre-compact.sh nur noch bei einem von Hand
-# getippten /compact. Er ist der EINZIGE Hook, der Chat, Auftrag und Arbeitsstand rettet.
-# Wer hier weiterarbeitet, verliert bei Erreichen des Kontextfensters alles davon.
+# --- v5.9.3: der NOTFALL-Block ist ENTFERNT ---
 #
-# ⛔ Diese Meldung ist durch NICHTS stumm zu schalten — nicht durch sync-stand, nicht durch
-#    eine offene Schuld, nicht durch den Erinnerungs-Turnus. Nahe der Wand ist jede
-#    Beruhigung falsch. Sie blockt aber auch nichts: UserPromptSubmit kann das nicht, und
-#    ein Zwang, den nur ein Mensch aufloesen kann, gehoert hier ohnehin nicht hin.
-_NOT="${MIND_NOTFALL_TOKENS:-0}"
-if [ "$_NOT" -gt 0 ] 2>/dev/null; then
-  _TPN=""
-  command -v jq >/dev/null 2>&1 && _TPN=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
-  if [ -n "$_TPN" ] && [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
-    # shellcheck disable=SC1091
-    . "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" 2>/dev/null
-    _TOKN=$(mind_kontext_tokens "$_TPN" 2>/dev/null) || _TOKN=""
-    # ⚠ KEINE Zahl ist KEINE Null — ohne Messung wird nicht gewarnt.
-    if [ -n "$_TOKN" ] && [ "$_TOKN" -ge "$_NOT" ] 2>/dev/null; then
-      _slog WARN "NOTFALL: $_TOKN >= $_NOT, kein Auffangnetz (Auto-Kompaktierung aus)"
-      _MSGN="[Mind Manager] ⛔ NOTFALL: $_TOKN Tokens (Notfallschwelle $_NOT).
-
-Die automatische Kompaktierung ist ABGESCHALTET. Damit gibt es kein Auffangnetz:
-pre-compact.sh — der einzige Hook, der Chat, Auftrag und Arbeitsstand rettet — feuert nur
-noch bei einem von Hand getippten /compact.
-
-Wird jetzt weitergearbeitet, endet die Sitzung beim Erreichen des Kontextfensters OHNE
-Rettung, OHNE gesicherten Auftrag und OHNE Arbeitsstand.
-
-Den Nutzer als LETZTEN Satz der Antwort bitten, JETZT /compact einzugeben. Auslosen kann
-das weder ein Hook noch der Assistent — es gibt kein Werkzeug dafuer."
-      if command -v jq >/dev/null 2>&1; then
-        jq -nc --arg ctx "$_MSGN" \
-          '{hookSpecificOutput:{hookEventName:"UserPromptSubmit", additionalContext:$ctx}}'
-      else
-        echo "$_MSGN"
-      fi
-      exit 0
-    fi
-  fi
-fi
+# ⛔ Er stand auf einer Annahme, die nie geprueft wurde: dass mit
+#    `autoCompactEnabled: false` GAR NICHTS mehr auffaengt. Daraus wurden Saetze wie
+#    "endet die Sitzung OHNE Rettung, OHNE gesicherten Auftrag und OHNE Arbeitsstand".
+#
+#    Belegt war das nie. Gemessen wurde nur: zwischen 833k und 895k kam keine
+#    Kompaktierung. Was bei ~1 Mio geschieht, sagt diese Messung NICHT — dort war die
+#    Sitzung nie. Laut Nutzer (21.08.2026) kompaktiert Claude dort von sich aus.
+#
+# ⛔ DER SCHADEN WAR REAL UND WIEDERHOLTE SICH IN JEDEM CHAT. Nutzer woertlich:
+#    "Bei in jedem Chat behauptet der Tokens Fenster ist voll. Das stimmt nicht."
+#    Am selben Tag hat derselbe Text dazu gefuehrt, bei 880k die Arbeit einzustellen,
+#    obwohl 120k Luft waren — und die Begruendung als "gemessen" auszugeben.
+#
+# ⭐ DIE LEHRE, DIE UEBER DIESEN BLOCK HINAUSGEHT: Ein Hook, der zu Vorsicht mahnt,
+#    unterliegt derselben Belegpflicht wie jede andere Aussage. Eine Warnung ohne
+#    Beleg ist NICHT die sichere Seite — sie ist eine unbelegte Behauptung, die bei
+#    jedem einzelnen Lauf erneut Schaden anrichtet.
+#
+# `MIND_NOTFALL_TOKENS` wird nicht mehr gelesen. Die Variable darf in settings.json
+# stehen bleiben; sie tut nichts mehr.
 
 _CFA="$PROJ/.claude-mind/rescued/COMPACT-FAELLIG"
 if [ -f "$_CFA" ]; then
@@ -175,17 +156,12 @@ if [ ! -f "$OPEN" ] && [ ! -f "$_STAND" ] && [ "$_SCHWELLE" -gt 0 ] 2>/dev/null;
     # ⚠ KEINE Zahl ist KEINE Null — ohne Messung wird NICHT gemahnt.
     if [ -n "$_TOK" ] && [ "$_TOK" -ge "$_SCHWELLE" ] 2>/dev/null; then
       _slog INFO "Token-Schwelle erreicht ($_TOK >= $_SCHWELLE) -> Sync angemahnt"
-      _MSGT="[Mind Manager] Der Kontext hat $_TOK Tokens erreicht (Schwelle $_SCHWELLE).
+      _MSGT="[Mind Manager] Kontext bei $_TOK Tokens (Erinnerungsschwelle $_SCHWELLE).
 
-⛔ JETZT /mind-all ausfuehren — VOR der naechsten Kompaktierung.
+Ein guter Zeitpunkt fuer /mind-all — VOR der naechsten Kompaktierung, damit der Sync den
+frisch geleerten Kontext nicht sofort wieder mit 40-60k fuellt.
 
-Der Grund fuer diese Reihenfolge: laeuft der Sync erst NACH der Kompaktierung, fuellt er den
-frisch geleerten Kontext sofort wieder mit 40-60k Tokens. Vor der Kompaktierung gearbeitet,
-raeumt die Kompaktierung danach auf — und der Arbeitsstand wird uebergeben statt nachgereicht.
-
-Nach dem Sync ist /compact der naechste Schritt — und er ist NICHT ausloesbar: weder von
-einem Hook noch vom Assistenten. Nur der Mensch tippt ihn. Bitte ihn nach dem Sync
-ausdruecklich darum."
+⚠ Das Fenster ist NICHT voll. Kein Grund, Arbeit abzubrechen oder zu kuerzen."
       if command -v jq >/dev/null 2>&1; then
         jq -nc --arg ctx "$_MSGT" \
           '{hookSpecificOutput:{hookEventName:"UserPromptSubmit", additionalContext:$ctx}}'
