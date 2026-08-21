@@ -50,14 +50,18 @@ if [ "$_FSCHWELLE" -gt 0 ] 2>/dev/null && [ -n "$CLAUDE_PLUGIN_ROOT" ] \
   [ -z "$_PROJ" ] && _PROJ=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
   _TP=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
   _STAND="$_PROJ/.claude-mind/rescued/sync-stand"
-  if [ -n "$_TP" ] && [ ! -f "$_STAND" ]; then
+  # v5.11.0: kein `! -f "$_STAND"` mehr -- siehe mind_sync_frisch in lib.sh.
+  # Ein Merker, dessen Verbraucher nie laeuft, war eine Dauersperre; gemessen
+  # 21.08.2026 schwieg der Zwang bei 950 000 Tokens vollkommen korrekt.
+  if [ -n "$_TP" ]; then
     # shellcheck disable=SC1091
     . "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" 2>/dev/null
     if command -v mind_kontext_tokens >/dev/null 2>&1 || type mind_kontext_tokens >/dev/null 2>&1; then
       _TOK=$(mind_kontext_tokens "$_TP" 2>/dev/null) || _TOK=""
-      if [ -n "$_TOK" ] && [ "$_TOK" -ge "$_FSCHWELLE" ] 2>/dev/null; then
+      if [ -n "$_TOK" ] && [ "$_TOK" -ge "$_FSCHWELLE" ] 2>/dev/null \
+         && ! mind_sync_frisch "$_STAND" "$_TOK"; then
         _TOKZWANG="ja"
-        _slog INFO "Token-Zwang: $_TOK >= $_FSCHWELLE, kein sync-stand"
+        _slog INFO "Token-Zwang: $_TOK >= $_FSCHWELLE, sync-stand verbraucht"
       fi
     else
       _slog WARN "mind_kontext_tokens fehlt -> Token-Zwang faellt aus (Schuld-Zwang bleibt)"

@@ -594,6 +594,63 @@ Dann **1 Pointer-Zeile** in `CLAUDE.md`: `- Wissenstransfer messen: \`python too
 Zuwachs zwischen Vorher- und Nachher-Stand traegt eine Aussage. Beides steht in der Rule; wer
 das Bundle anbietet, nennt es auch im Report.
 
+### Step 5e: Zaehl-Gate installieren (NEU v5.11.0 — Projekte mit Zahlen in der Doku)
+
+**Wozu:** Eine Context-Datei, die eine **Anzahl** behauptet (`7 Hooks`, `12 Referenzen`,
+`84 Prueffaelle`), veraltet lautlos — und wird trotzdem geglaubt, **gerade weil** die Zahl
+praezise aussieht. `zaehl_gate.py` liest eine Tabelle, in der neben jeder Zahl ihr
+Zaehlbefehl steht, fuehrt die Befehle aus und vergleicht.
+
+⛔ **Der Beleg dafuer ist das Plugin selbst.** Seine Tabelle fuehrte **seit v5.2.2** zu
+jeder Zahl den Zaehlbefehl mit — und war trotzdem **sechsmal** falsch (`lib.sh` 7 -> 12 ->
+13 -> 16 -> 17 -> 22; `.py` 2, dann 5, tatsaechlich 8; Skills 8 statt 9). Die Datei notierte
+den Grund ab dem zweiten Mal selbst: *"Eine Lehre aufzuschreiben verhindert ihren
+Wiedereintritt nicht — nur ein Check tut das. Hier waere er billig."* Gebaut hatte ihn
+niemand. **Zwischen "wir wissen es" und "es kann nicht mehr passieren" liegt ein
+ausfuehrbares Skript, sonst nichts.**
+
+**Gating (alle Bedingungen, sonst NICHT anbieten):**
+1. **Python vorhanden** (`python`/`python3`/`.venv` — Bereich RELEASE/DOCS), UND
+2. **es gibt ueberhaupt Zahlen zu pruefen**: mindestens **3** Vorkommen der Form
+   `\b\d+\b` in `CLAUDE.md` oder unter `.claude/rules/`, die eine Anzahl bezeichnen.
+
+Fehlt Python -> **gar nicht anbieten** (totes Tool, genau der Fall den v4.0 abgeschafft
+hat). Unter 3 Zahlen: **INFO** statt Angebot — *"zu wenige Zahlen, das Gate haette hier
+keinen Gegenstand"*.
+
+**Immer detect-and-OFFER, nie erzwungen.** User bestaetigt.
+
+```bash
+# nur ausfuehren wenn Gating erfuellt UND User bestaetigt
+mkdir -p "$CLAUDE_PROJECT_DIR/tools" "$CLAUDE_PROJECT_DIR/.claude/rules"
+
+if [ -f "$CLAUDE_PROJECT_DIR/tools/zaehl_gate.py" ]; then
+  echo "SKIP: tools/zaehl_gate.py existiert bereits (User fragen ob ueberschreiben)"
+else
+  cp "$CLAUDE_PLUGIN_ROOT/references/doc-templates/zaehl_gate.py" \
+     "$CLAUDE_PROJECT_DIR/tools/zaehl_gate.py"
+fi
+
+# ⛔ KERN-INVARIANTE: kein Tool ohne glob-getriggerte Companion-Rule.
+if [ -f "$CLAUDE_PROJECT_DIR/.claude/rules/zaehlwerte-pruefen.md" ]; then
+  echo "SKIP: Rule existiert bereits"
+else
+  cp "$CLAUDE_PLUGIN_ROOT/references/rule-templates/zaehlwerte-pruefen.md" \
+     "$CLAUDE_PROJECT_DIR/.claude/rules/zaehlwerte-pruefen.md"
+fi
+```
+
+**Danach im Bericht nennen** — und den ersten Lauf gleich mitliefern, sonst weiss niemand,
+ob die Zahlen ueberhaupt stimmen:
+
+```bash
+python tools/zaehl_gate.py .claude/rules/<datei-mit-der-tabelle>.md
+```
+
+⚠ **Findet das Gate keine Zeilen, meldet es Rueckgabewert 2 — kein Ergebnis, statt eines
+zu erfinden.** Das ist der Normalfall bei einem Projekt, das die Tabelle erst noch anlegen
+muss; dann gehoert in den Bericht, **welche** Zahlen dafuer in Frage kaemen.
+
 ## Step 6: Report — PFLICHT-Self-Check-Block am Anfang (v4.0)
 
 **WICHTIG:** Report MUSS mit Self-Check-Block BEGINNEN. Jeder Marker mit konkreten Belegen.

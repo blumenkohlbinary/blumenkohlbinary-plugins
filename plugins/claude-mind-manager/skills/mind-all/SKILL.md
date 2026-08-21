@@ -280,6 +280,39 @@ beschaedigen, Umschreiben schon):
   die Liste ist ein Arbeitsprotokoll, keine Erfolgsmeldung.
 - Im **`--dry-run`** wird die Datei **nicht** geschrieben; der Bericht sagt das ausdruecklich.
 
+## Step 2.95: Zeilenenden-Waechter (PFLICHT, NEU v5.11.0)
+
+**Nach der Kette, vor dem Bericht.** Kein einzelner Fix darf die Zeilenenden einer Datei
+kippen.
+
+```bash
+# Der Snapshot aus Step 0 ist der Vorher-Stand — er wird hier zum Messinstrument.
+SNAP="$MIND_SNAPSHOT_DIR"
+GEKIPPT=""
+if [ -n "$SNAP" ] && [ -d "$SNAP" ]; then
+  while IFS= read -r v; do
+    z="${v#$SNAP/}"; [ -f "$PROJ/$z" ] || continue
+    A=$(mind_zeilenenden "$v"); B=$(mind_zeilenenden "$PROJ/$z")
+    mind_zeilenenden_gleich "$A" "$B" || GEKIPPT="$GEKIPPT  $z: $A -> $B
+"
+  done < <(find "$SNAP" -type f -name '*.md' 2>/dev/null)
+fi
+[ -n "$GEKIPPT" ] && printf 'ZEILENENDEN GEKIPPT:\n%s' "$GEKIPPT"
+```
+
+⛔ **Gemessen wird der CRLF-ANTEIL, nicht die Zeilenzahl.** Eine Zusicherung „Zeilenzahl
+unveraendert" ist bei genau diesem Fehler **gruen** — sie hat ihn schon einmal durchgelassen.
+
+**Warum es das gibt:** Eine Reparaturrunde kippte in `APP - Zustellplan` **4 Quelldateien**
+von LF nach CRLF, gegen deren `.editorconfig`. Der Diff wuchs auf **6417/6152 Zeilen statt
+311/46** — der eigentliche Fix darin war winzig und im Rauschen nicht mehr auffindbar.
+Ein zweiter Fall riss einen Ersetzungsanker, weil die Zieldatei CRLF trug und das Muster LF.
+
+⚠ **Gekippte Zeilenenden werden GEMELDET, nicht stillschweigend zurueckgedreht.**
+Zurueckdrehen waere ein zweiter unbeauftragter Eingriff — und in einem Projekt, das
+bewusst CRLF fuehrt, der falsche. Der Bericht nennt Datei und Anteil; der Snapshot aus
+Step 0 macht die Ruecknahme in einem Schritt moeglich.
+
 ## Step 2.96a: `sync-stand` setzen (PFLICHT, NEU v5.7.0)
 
 **Direkt nach einem tatsaechlich gelaufenen Sync** — und zwar unabhaengig davon, ob eine
@@ -288,7 +321,16 @@ Schuld bestand:
 ```bash
 if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" = "ja" ]; then
   mkdir -p "$PROJ/.claude-mind/rescued"
-  printf 'ts=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" > "$PROJ/.claude-mind/rescued/sync-stand"
+  # v5.11.0: `tokens=` ist PFLICHT. Ohne die Zahl gilt der Merker beim naechsten
+  # Lauf als verbraucht (mind_sync_frisch) -- lieber eine Mahnung zu viel als
+  # eine Kette, die dauerhaft schweigt.
+  _STOK=""
+  if type mind_kontext_tokens >/dev/null 2>&1; then
+    _STP=$(ls -t "$HOME/.claude/projects/$(hash_project_dir "$PROJ")"/*.jsonl 2>/dev/null | head -1)
+    [ -n "$_STP" ] && _STOK=$(mind_kontext_tokens "$_STP" 2>/dev/null)
+  fi
+  printf 'ts=%s\ntokens=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${_STOK:-0}" \
+    > "$PROJ/.claude-mind/rescued/sync-stand"
 
   # v5.7.5: War dies ein Sync WEGEN der Token-Schwelle? Dann ist die Kompaktierung faellig.
   # Ein Handaufruf bei 100k Kontext soll NICHT zum Kompaktieren draengen — daher die
@@ -307,7 +349,22 @@ if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" = "ja" ]; then
 fi
 ```
 
-⛔ **`sync-stand` traegt den ganzen Ablauf.** Solange er liegt, schweigen Token-Mahnung
+⛔ **Seit v5.11.0 zaehlt der ZUWACHS, nicht die Existenz.** `sync-stand` traegt
+`tokens=<stand beim Sync>`; Mahnung und Zwang schweigen nur, solange der Kontext um
+weniger als `MIND_SYNC_DELTA` (Vorgabe 60 000 — die Kosten eines Syncs) gewachsen ist.
+
+**Warum das geaendert wurde:** Der einzige Verbraucher des Merkers ist `pre-compact.sh`,
+und der feuert seit `autoCompactEnabled: false` (v5.7.7) nur noch bei einem **von Hand
+getippten** `/compact`. Ein einziger `/mind-all`-Lauf schaltete die ganze Kette damit
+**dauerhaft** stumm. **Gemessen 21.08.2026:** der Merker lag seit 08:00 in
+`APP - Palvedo`, die Sitzung dort stand bei **950 000 Tokens**, und auf die Frage, warum
+kein `/mind-all` komme, lautete die Antwort korrekt *„mechanisch steht nichts aus"*.
+Die Mechanik hat die Wahrheit gesagt — der Merker war schuld.
+
+⚠ **Ein Merker ohne `tokens=` gilt als verbraucht.** Damit heilt sich der Bestand beim
+ersten Lauf selbst, statt eine Altlast weiterzutragen.
+
+*(Bis v5.10.0 galt hier:)* Solange er liegt, schweigen Token-Mahnung
 (`prompt-submit.sh`) und Token-Zwang (`stop.sh`) — der Sync ist ja erledigt. `pre-compact.sh`
 verbraucht ihn bei der naechsten Kompaktierung und erzeugt deshalb **keine neue Schuld**; damit
 ist der Ausloeser fuer den naechsten Zyklus automatisch wieder scharf.

@@ -146,7 +146,11 @@ fi
 
 _SCHWELLE="${MIND_SYNC_AT_TOKENS:-0}"
 _STAND="$PROJ/.claude-mind/rescued/sync-stand"
-if [ ! -f "$OPEN" ] && [ ! -f "$_STAND" ] && [ "$_SCHWELLE" -gt 0 ] 2>/dev/null; then
+# v5.11.0: die Existenz von sync-stand schaltet NICHT mehr dauerhaft stumm.
+# Sein einziger Verbraucher (pre-compact.sh) feuert seit autoCompactEnabled=false
+# nur noch bei handgetipptem /compact -- ein Merker konnte damit ewig liegen.
+# Geprueft wird jetzt der ZUWACHS seit dem Sync, s. mind_sync_frisch in lib.sh.
+if [ ! -f "$OPEN" ] && [ "$_SCHWELLE" -gt 0 ] 2>/dev/null; then
   _TP=""
   command -v jq >/dev/null 2>&1 && _TP=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
   if [ -n "$_TP" ] && [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
@@ -154,7 +158,8 @@ if [ ! -f "$OPEN" ] && [ ! -f "$_STAND" ] && [ "$_SCHWELLE" -gt 0 ] 2>/dev/null;
     . "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" 2>/dev/null
     _TOK=$(mind_kontext_tokens "$_TP" 2>/dev/null) || _TOK=""
     # ⚠ KEINE Zahl ist KEINE Null — ohne Messung wird NICHT gemahnt.
-    if [ -n "$_TOK" ] && [ "$_TOK" -ge "$_SCHWELLE" ] 2>/dev/null; then
+    if [ -n "$_TOK" ] && [ "$_TOK" -ge "$_SCHWELLE" ] 2>/dev/null \
+       && ! mind_sync_frisch "$_STAND" "$_TOK"; then
       _slog INFO "Token-Schwelle erreicht ($_TOK >= $_SCHWELLE) -> Sync angemahnt"
       _MSGT="[Mind Manager] Kontext bei $_TOK Tokens (Erinnerungsschwelle $_SCHWELLE).
 

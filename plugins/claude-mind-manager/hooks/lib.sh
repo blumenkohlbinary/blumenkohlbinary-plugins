@@ -857,3 +857,135 @@ PYEOF
 
   return 0
 }
+
+
+# ==========================================================================
+# mind_sync_frisch  (NEU v5.11.0)
+# ==========================================================================
+# ⛔ Ein Merker, dessen Verbraucher nie laeuft, ist eine Dauersperre.
+#
+# `sync-stand` wird AUSSCHLIESSLICH von pre-compact.sh weggeraeumt. Seit
+# v5.7.7 (`autoCompactEnabled: false`, Nutzerentscheidung) feuert der aber nur
+# noch bei einem VON HAND getippten /compact. Wer den nie tippt, hat nach dem
+# ersten /mind-all einen Merker, der ewig liegen bleibt -- und Token-Mahnung
+# wie Token-Zwang schweigen dauerhaft.
+#
+# GEMESSEN 21.08.2026: der Merker lag seit 08:00 in `APP - Palvedo`, die
+# Sitzung dort lief auf 950 000 Tokens, und auf die Frage, warum kein
+# /mind-all komme, war die Antwort korrekt "mechanisch steht nichts aus".
+# Die Mechanik hat die Wahrheit gesagt; der Merker war schuld.
+#
+# Deshalb zaehlt nicht mehr die EXISTENZ des Merkers, sondern der ZUWACHS
+# seit dem Sync. Das misst, was der Merker eigentlich meint -- "gerade eben
+# gelaufen, nicht schon wieder mahnen" -- und loest sich von selbst auf,
+# sobald wieder Arbeit dazugekommen ist.
+#
+# Rueckgabe 0 = frisch (schweigen)  ·  1 = verbraucht (mahnen/blocken)
+mind_sync_frisch() {
+  local stand="$1" jetzt="$2" delta="${MIND_SYNC_DELTA:-60000}" beim
+  [ -f "$stand" ] || return 1
+  beim=$(grep -m1 '^tokens=' "$stand" 2>/dev/null | cut -d= -f2-)
+  # Merker aus einer Fassung vor v5.11.0 traegt keine Zahl. Ihn als "frisch"
+  # zu behandeln waere genau die Dauersperre -- also gilt er als VERBRAUCHT.
+  # Der Bestand heilt sich damit beim ersten Lauf selbst.
+  case "$beim" in ''|*[!0-9]*) return 1;; esac
+  # Ohne Messung wird NICHT gemahnt (dieselbe Linie wie ueberall sonst:
+  # keine Zahl ist keine Null).
+  case "$jetzt" in ''|*[!0-9]*) return 0;; esac
+  [ $((jetzt - beim)) -lt "$delta" ]
+}
+
+# ==========================================================================
+# mind_classify_path / mind_pfad_lebt  (NEU v5.11.0)
+# ==========================================================================
+# ⛔ Diese Funktion stand als BASH-QUELLTEXT in mind-update/SKILL.md und wurde
+# vom ausfuehrenden Modell nachgebaut statt aufgerufen. Klasse
+# `instrument-nachgebaut`, 7 Vorkommen im Debug-Index -- einmal ergab der
+# Nachbau 11 Slash-Commands als tote Pfade. Wer Prosa liest, baut nach.
+# Sie liegt deshalb hier: eine Definition, aufrufbar, nicht nacherzaehlbar.
+#
+# Klassen:  SKIP = kein Dateipfad  ·  UNSURE = nur melden, nie anwenden
+#           CHECK = auf Existenz pruefbar
+mind_classify_path() {
+  local p="$1"
+  echo "$p" | grep -qiE '(^|/)([a-z0-9-]+\.)+(com|de|org|net|io|dev|ai|co|eu|info)(/|$)' && { echo SKIP; return; }
+  echo "$p" | grep -qiE '^(https?|ftp|mailto|file)://' && { echo SKIP; return; }
+  # v5.3.1: '['']('  = Markdown-Link-Syntax. Fehlte sie, wurde `[n](../x.md)`
+  # zu CHECK -> nicht gefunden -> DEAD -> bei <=5 AUTONOM GELOESCHT.
+  case "$p" in
+    *'…'*|*'...'*|*'<'*'>'*|*'{'*'}'*|*'$'*|*'*'*|*'['*']('*) echo SKIP; return;;
+  esac
+  # v5.3.1: Slash-Command. Kriterium bewusst ENG (fuehrender /, GENAU ein
+  # Segment, mit Bindestrich), sonst verschluckt es /etc, /tmp, /usr, /var.
+  case "$p" in
+    */*/*) : ;;
+    /*-*)  echo SKIP; return;;
+  esac
+  case "$p" in
+    /[a-z]/*|/) : ;;
+    /*) echo UNSURE; return;;
+  esac
+  echo CHECK
+}
+
+# Existenzpruefung fuer einen CHECK-Pfad. Rueckgabe 0 = lebt, 1 = tot.
+#
+# ⛔ HIER SASS DER FEHLER, DEN v5.11.0 BEHEBT.
+# Bash expandiert `~` in Anfuehrungszeichen NICHT. `test -e "~/.claude/rules/x.md"`
+# ist damit immer falsch -- die Datei mag mit 68 Zeilen dort liegen, die
+# Pruefung meldet DEAD, und bei <=5 DEAD wird die Zeile AUTONOM GELOESCHT.
+# Betroffen war jede Kontextdatei, die auf die globalen Regeln zeigt.
+# Gemessen und reproduziert 21.08.2026 (Befund aus `APP - Palvedo`).
+# Es ist derselbe Fehlertyp wie der Markdown-Link-Bug oben -- zwei Zeilen
+# darueber steht seine Warnung, und der naechste Fall lief trotzdem daneben.
+mind_pfad_lebt() {
+  local p="$1" basis="${2:-$CLAUDE_PROJECT_DIR}"
+  case "$p" in
+    '~')      p="$HOME";;
+    '~/'*)    p="$HOME/${p#\~/}";;
+  esac
+  [ -e "$p" ] && return 0
+  # ⛔ Auf Windows heisst eine ausfuehrbare Datei `.exe`. `.venv/Scripts/python`
+  # existiert dort NICHT -- `.venv/Scripts/python.exe` schon. Ein Existenztest
+  # ohne die Endung meldet einen funktionierenden Interpreter als toten Pfad.
+  # Gemessen in `APP - Zustellplan`.
+  [ -e "$p.exe" ] && return 0
+  # Relative Pfade gegen das PROJEKT aufloesen, nicht gegen das CWD.
+  case "$p" in
+    /*|[A-Za-z]:*) return 1;;
+  esac
+  [ -n "$basis" ] && { [ -e "$basis/$p" ] || [ -e "$basis/$p.exe" ]; }
+}
+
+# ==========================================================================
+# mind_zeilenenden / mind_zeilenenden_gleich  (NEU v5.11.0)
+# ==========================================================================
+# Gibt den CRLF-Anteil einer Datei als "crlf/gesamt" aus.
+#
+# ⛔ NIE mit `grep -c $'\r'` zaehlen -- das zaehlt in Git Bash JEDE Zeile,
+# auch in einer Datei ganz ohne CR. Byte-genau zaehlen ist der einzige Weg.
+mind_zeilenenden() {
+  local f="$1"
+  [ -f "$f" ] || { echo "0/0"; return 1; }
+  if command -v python >/dev/null 2>&1; then
+    python -c "import sys;b=open(sys.argv[1],'rb').read();c=b.count(b'\r\n');print('%d/%d'%(c,b.count(b'\n')))" "$f" 2>/dev/null && return 0
+  fi
+  local c t
+  c=$(tr -dc '\r' < "$f" 2>/dev/null | wc -c | tr -d ' ')
+  t=$(tr -dc '\n' < "$f" 2>/dev/null | wc -c | tr -d ' ')
+  echo "$c/$t"
+}
+
+# Waechter fuers Editieren: hat ein Fix die Zeilenenden gekippt?
+# Rueckgabe 0 = unveraendert, 1 = gekippt (dann MELDEN, nicht schweigen).
+#
+# BELEGT: eine Reparaturrunde kippte 4 Quelldateien in `APP - Zustellplan`
+# von LF nach CRLF gegen deren .editorconfig -- der Diff wuchs auf 6417/6152
+# Zeilen statt 311/46. Der eigentliche Fix darin war winzig und im Rauschen
+# nicht mehr auffindbar.
+# ⚠ Gemessen wird der ANTEIL, nicht die Zeilenzahl: eine Zusicherung
+# "Zeilenzahl unveraendert" ist bei genau diesem Fehler gruen.
+mind_zeilenenden_gleich() {
+  local vorher="$1" nachher="$2"
+  [ "${vorher%%/*}" = "${nachher%%/*}" ]
+}

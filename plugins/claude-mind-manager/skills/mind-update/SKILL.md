@@ -369,47 +369,31 @@ sonst als DEAD durch und werden **autonom geloescht**. Real gemessen: 5 echte Tr
 `/releases/44/`, `/releases/test/`, ein relativ geschriebener existierender Pfad).
 
 ```bash
-# Klassifikation pro extrahiertem String -> SKIP | UNSURE | CHECK
-classify_path() {
-  local p="$1"
-  # 1) SKIP: Web-Adresse ohne Protokoll (Domain + TLD am Anfang oder nach /)
-  echo "$p" | grep -qiE '(^|/)([a-z0-9-]+\.)+(com|de|org|net|io|dev|ai|co|eu|info)(/|$)' && { echo SKIP; return; }
-  # 2) SKIP: Protokoll explizit
-  echo "$p" | grep -qiE '^(https?|ftp|mailto|file)://' && { echo SKIP; return; }
-  # 3) SKIP: abgekuerztes Beispiel oder Platzhalter
-  #    v5.3.1: *'['*']('* ergaenzt — Markdown-Link-Syntax. `[name](../../references/file.md)`
-  #    enthielt KEINES der anderen Zeichen, wurde also CHECK -> nicht gefunden -> DEAD ->
-  #    und bei <=5 Findings AUTONOM GELOESCHT. Genau diese Zeile steht in der CLAUDE.md
-  #    dieses Projekts (Referenz-Loading-Konvention). Gemessen 2026-08-17.
-  case "$p" in
-    *'…'*|*'...'*|*'<'*'>'*|*'{'*'}'*|*'$'*|*'*'*|*'['*']('*) echo SKIP; return;;
-  esac
-  # 3b) SKIP: Slash-Command (NEU v5.3.1) — fuehrender /, GENAU ein Segment, mit Bindestrich.
-  #     `/mind-all`, `/deep-review` sind Befehlsnamen, keine Pfade. Sie landeten bisher auf
-  #     UNSURE und erzeugten 8 INFO-Findings Rauschen in genau dem Projekt, das sie baut.
-  #     ⛔ Kriterium bewusst ENG: NICHT "ein Segment ohne Punkt" — das verschluckte /etc,
-  #     /tmp, /usr, /var, /opt. Ein Bindestrich trennt Befehlsnamen sauber von
-  #     Unix-Wurzelverzeichnissen; Mehrsegmentiges wie /tmp/mind-manager.log faellt vorher raus.
-  #     EHRLICHER PREIS: ein wirklich toter Pfad der Form /foo-bar wird nicht mehr gelistet.
-  #     Vertretbar, weil fuehrende-/-Pfade ohnehin nie angewendet, sondern nur gemeldet werden.
-  case "$p" in
-    */*/*) : ;;                            # mehr als ein Segment -> kein Befehlsname
-    /*-*)  echo SKIP; return;;
-  esac
-  # 4) UNSURE: fuehrender / ohne Laufwerk/MSYS-Wurzel -> auf Windows meist URL-Fragment
-  case "$p" in
-    /[a-z]/*|/) : ;;                       # /c/... = MSYS-Laufwerk -> pruefbar
-    /*) echo UNSURE; return;;
-  esac
-  echo CHECK
-}
+# ⛔ NICHT NACHBAUEN — die Funktion liegt seit v5.11.0 in lib.sh und heisst
+# `mind_classify_path`. Sie wird hier AUFGERUFEN, nicht wiederholt.
+#
+# Grund: als Bash-Quelltext an dieser Stelle wurde sie vom ausfuehrenden Modell
+# nachgebaut statt benutzt. Debug-Klasse `instrument-nachgebaut`, 7 Vorkommen;
+# einmal meldete der Nachbau 11 Slash-Commands als tote Pfade. Wer Prosa liest,
+# baut nach. Eine Definition, ein Aufrufer.
+#
+# lib.sh ist in Step 1 bereits gesourct.
+klasse=$(mind_classify_path "$p")
+
+# ⛔ Existenz NUR ueber `mind_pfad_lebt` pruefen, NIE mit blossem `test -e`.
+# Bash expandiert `~` in Anfuehrungszeichen NICHT: `test -e "~/.claude/rules/x.md"`
+# ist immer falsch, die Datei mag mit 68 Zeilen dort liegen. Ergebnis war DEAD,
+# und bei <=5 DEAD wird AUTONOM GELOESCHT. Gemessen und reproduziert 21.08.2026
+# (`tests/test_lib_v511.sh`, Befund aus `APP - Palvedo`).
+[ "$klasse" = "CHECK" ] && { mind_pfad_lebt "$p" || echo "DEAD: $p"; }
 ```
 
 **Verifikation pro Pfad:**
-- Nur `CHECK`-Strings gehen in `test -e`. **Relative Pfade gegen `$CLAUDE_PROJECT_DIR`
-  aufloesen**, nicht gegen das aktuelle CWD — ein Fehltreffer der Messung war ein real
-  existierender, relativ geschriebener Pfad, der nur vom falschen Verzeichnis aus fehlte:
-  `[ -e "$CLAUDE_PROJECT_DIR/$p" ] || [ -e "$p" ]`.
+- Nur `CHECK`-Strings gehen in **`mind_pfad_lebt`** (lib.sh). Die loest `~` auf und
+  faellt fuer relative Pfade auf `$CLAUDE_PROJECT_DIR` zurueck — beides war vorher
+  einzeln kaputt: ein real existierender, relativ geschriebener Pfad fehlte nur vom
+  falschen Verzeichnis aus, und `~/...` galt **immer** als tot.
+  ⛔ **Nie wieder `test -e` von Hand hinschreiben.**
 - `SKIP` → gar kein Finding (keine Dateipfade).
 - `UNSURE` → Finding Klasse **INFO**, wird **nie** angewendet (nur gelistet).
 - `CHECK` + nicht auffindbar → Finding Klasse DEAD.

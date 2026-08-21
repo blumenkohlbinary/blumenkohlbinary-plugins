@@ -68,11 +68,32 @@ pruef "kein usage -> kein Block"    "$(ruf_stop  "$T/leer.jsonl" | grep -c 'deci
 pruef "fehlendes Transkript -> still" "$(ruf_prompt "$T/gibtsnicht.jsonl" | grep -c 'Token')" "0"
 
 echo
-echo "=== 4 · sync-stand macht alles still ==="
-printf 'ts=jetzt\n' > "$T/proj/.claude-mind/rescued/sync-stand"
-pruef "mit sync-stand -> keine Mahnung" "$(ruf_prompt "$T/t800.jsonl" | grep -c 'JETZT /mind-all')" "0"
-pruef "mit sync-stand -> kein Block"    "$(ruf_stop  "$T/t840.jsonl" | grep -c 'decision')" "0"
-rm -f "$T/proj/.claude-mind/rescued/sync-stand"
+echo "=== 4 · sync-stand macht still — solange er FRISCH ist (v5.11.0) ==="
+# ⛔ VERTRAGSAENDERUNG v5.11.0, auf NUTZER-MELDUNG. Bis v5.10.0 genuegte die
+# blosse EXISTENZ des Merkers. Sein einziger Verbraucher (pre-compact.sh) feuert
+# aber seit `autoCompactEnabled: false` (v5.7.7) nur noch bei einem VON HAND
+# getippten /compact -- ein Merker lag damit ewig und schaltete die ganze Kette
+# DAUERHAFT stumm.
+#   GEMESSEN 21.08.2026: Merker seit 08:00 in `APP - Palvedo`, die Sitzung dort
+#   bei 950 000 Tokens, kein /mind-all, und auf Nachfrage die korrekte Antwort
+#   "mechanisch steht nichts aus". Die Mechanik hat die Wahrheit gesagt; der
+#   Merker war schuld.
+# Seither zaehlt der ZUWACHS (mind_sync_frisch). Die ersten beiden Zusicherungen
+# unten sichern den urspruenglichen Zweck weiter ab -- ein frischer Merker
+# schweigt. Die zwei darunter sind NEU und wuerden den alten Stand rot machen.
+SS="$T/proj/.claude-mind/rescued/sync-stand"
+
+printf 'ts=jetzt\ntokens=838000\n' > "$SS"            # 2k Zuwachs -> frisch
+pruef "frischer sync-stand -> keine Mahnung" "$(ruf_prompt "$T/t800.jsonl" | grep -c 'JETZT /mind-all')" "0"
+pruef "frischer sync-stand -> kein Block"    "$(ruf_stop  "$T/t840.jsonl" | grep -c 'decision')" "0"
+
+printf 'ts=2026-08-21 08:00:00\n' > "$SS"              # Alt-Merker, keine Zahl
+pruef "Alt-Merker ohne tokens= -> Block kommt" "$(ruf_stop "$T/t840.jsonl" | grep -c '\"block\"')" "1"
+
+printf 'ts=jetzt\ntokens=700000\n' > "$SS"            # 140k Zuwachs -> faellig
+pruef "140k Zuwachs seit dem Sync -> Block kommt" "$(ruf_stop "$T/t840.jsonl" | grep -c '\"block\"')" "1"
+
+rm -f "$SS"
 
 echo
 echo "=== 5 · Uebergabe nach der Kompaktierung ==="

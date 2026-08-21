@@ -321,6 +321,34 @@ aendern ist eine Nutzerentscheidung.
 Datei-Lektuere belegt (91 von 91 realen Dateien). Auch die vier `type`-Werte sind nicht
 offiziell enumeriert. **Kein Punktabzug**, solange ihre Rolle ungeprueft ist.
 
+### ✅ Frontmatter ergaenzen — autonom seit v5.11.0
+
+Bis v5.10.0 wurde das nur **gemeldet**. Die Fix-Tabelle hatte acht Eintraege und keinen
+dafuer — **gemessen lagen in `APP - Zustellplan` 7 Dateien ohne jedes Frontmatter**:
+dauerhaft unsichtbar, und kein Skill konnte sie sichtbar machen. Das ist die haertere
+Haelfte eines ueberfuellten Bestands: Zusammenfuehren hilft den Dateien **mit**
+Beschreibung, diesen nicht.
+
+⛔ **Der Rumpf wird NICHT angefasst.** Es wird ausschliesslich ein Kopf vorangestellt;
+nach dem Fix muss der Inhalt ab der ersten Nicht-Frontmatter-Zeile **byte-gleich** sein.
+Das ist mechanisch pruefbar und die Bedingung dafuer, dass dieser Fix autonom laufen darf.
+
+| Feld | woher |
+|---|---|
+| `name` | Dateiname ohne `.md`. **Nie umbenennen** — der Index zeigt darauf |
+| `description` | aus dem Inhalt, **40-200 Zeichen**, sagt WORUM es geht. Der Auswaehler sieht nur dies |
+| `metadata.type` | `user` \| `feedback` \| `project` \| `reference` — nach dem Inhalt, nicht nach dem Ordner |
+
+⚠ **Beim `type` zurueckhaltend sein.** `[user]` und `[project]` werden vom Auswaehler
+**extra** zurueckhaltend behandelt (am Binaerprogramm belegt, v5.8.1). Eine Methoden-Lehre,
+die in jedem Projekt gilt, ist `feedback`; ein blosser Zeiger auf eine externe Quelle ist
+`reference`. Im Zweifel `project` — das ist die Vorgabe fuer Projektwissen.
+
+⛔ **Nur bei GAR KEINEM Frontmatter.** Ein vorhandener Kopf mit schwacher `description`
+wird **verbessert** (eigener Fix-Typ), nicht ersetzt — und ein Kopf, der Felder traegt,
+die dieser Skill nicht kennt (`originSessionId`, `node_type`, `modified`), bleibt
+unangetastet.
+
 **Datei ganz ohne Frontmatter = eigener Befundtyp:** Claude Code fuegt **nie** welches hinzu,
 wo keines ist. Solche Dateien zaehlen **voll** gegen das Limit (kein Stripping) **und** sind
 fuer den Auswaehler fast unsichtbar (keine `description`). **Fix ist ergaenzen, nicht loeschen.**
@@ -524,6 +552,7 @@ For each confirmed fix:
 | **Topic-Dateien zusammenfuehren** (NEU v5.10.0) | Read + Edit + Bash | Inhalt von B nach A, `description` von A um Bs Thema erweitern, `[[b]]`-Verweise auf `[[a]]` ziehen, B loeschen, MEMORY.md-Zeile entfernen. **Vier Gates aus 4.0c sind Pflicht**, max 5 je Lauf |
 | **Topic-Datei aufteilen** (NEU v5.10.0) | Read + Write + Edit | Nur ab 200 Zeilen / 20 KB **und** nur bei zwei unterscheidbaren Themen. Gates aus 4.0c + Abschnitt 9 |
 | Compress verbose | Edit | Replace multi-sentence with concise bullet |
+| **Frontmatter ergaenzen** (NEU v5.11.0) | Read + Edit | Datei ganz ohne Frontmatter bekommt einen Kopf: `name` aus dem Dateinamen (ohne `.md`), `description` aus dem INHALT, `metadata.type` nach der Tabelle unten. **Der Rumpf bleibt byte-gleich** — es wird nur vorangestellt |
 
 ## Step 7: Summary
 
