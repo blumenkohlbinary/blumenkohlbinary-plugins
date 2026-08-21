@@ -6,7 +6,10 @@
 #   A) Entsteht die Rettung auch dann, wenn NUR die neue UEBERGABE-Schreibung scheitert?
 #   B) Verhaelt sich die Schuld richtig — OPEN nur ohne vorherigen Sync?
 
-export CLAUDE_PLUGIN_ROOT="C:/CD/KOHLEKTIV/Plugin - Entwicklung/hackj-plugins/plugins/claude-mind-manager"
+# Respektiert eine bereits gesetzte Wurzel. Bis v5.7.5 stand hier eine harte Zuweisung
+# auf den QUELLBAUM — damit lief diese Sammlung nie am gebauten Paket, entgegen ihrer
+# eigenen README und entgegen fertig-heisst-fertig.md 1.
+export CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-C:/CD/KOHLEKTIV/Plugin - Entwicklung/hackj-plugins/plugins/claude-mind-manager}"
 H="$CLAUDE_PLUGIN_ROOT/hooks"
 ok=0; rot=0
 pruef() {

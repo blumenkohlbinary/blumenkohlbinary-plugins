@@ -2,6 +2,17 @@
 
 **Am gebauten Paket fahren, nicht am Quellbaum** (`~/.claude/rules/fertig-heisst-fertig.md` §1):
 
+> ⛔ **Bis v5.7.5 tat das keine dieser Sammlungen.** Drei von fünf setzten `CLAUDE_PLUGIN_ROOT`
+> per `export` hart auf den Quellbaum und **überschrieben damit, was der Aufrufer mitgab** —
+> die Anweisung darunter war also wirkungslos, und „am gebauten Paket geprüft" war eine
+> unbelegte Behauptung. Heute steht dort `${CLAUDE_PLUGIN_ROOT:-…}`.
+>
+> **Die Gegenprobe, die das belegt** — mit unerreichbarer Wurzel *müssen* sie scheitern:
+>
+> ```bash
+> CLAUDE_PLUGIN_ROOT=/gibt/es/nicht bash tests/test_precompact.sh && echo "ROT: Wurzel wird ignoriert"
+> ```
+
 ```bash
 export CLAUDE_PLUGIN_ROOT=~/.claude/plugins/cache/kohlosseum/claude-mind-manager/<version>
 bash "$CLAUDE_PLUGIN_ROOT/tests/test_teil1.sh"
@@ -17,6 +28,7 @@ python "$CLAUDE_PLUGIN_ROOT/references/slug_regression.py" --live
 | `test_debug.sh` | 12 | Debug-Ordner, Wiederholungserkennung, Zeilenenden |
 | `test_precompact.sh` | 11 | Chat-Rettung, Arbeitsstand, `sync-stand`, Fail-open |
 | `test_toolrule.sh` | 7 | Tool→Rule-Nachweis, auch für Werkzeuge im Wurzelverzeichnis |
+| `test_compact_faellig.sh` | 17 | `COMPACT-FAELLIG`: Zwang, Zähler, Notausgang, Fail-open |
 | `test_precompact.py` | — | Hilfsteil für `test_precompact.sh` |
 
 ## ⛔ Jede Sammlung enthält eine Gegenprobe, die scheitern KANN

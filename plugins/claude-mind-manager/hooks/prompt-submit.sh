@@ -93,6 +93,18 @@ fi
 #    der Lauf fuellte den frisch geleerten Kontext mit 40-60k Tokens wieder auf.
 #    Jetzt: bei 800k synchronisieren, DANACH kompaktieren lassen (Nutzer-Entscheidung 21.08.2026).
 # ⚠ Vorgabe 0 = AUS. Ohne gesetzte Schwelle aendert sich fuer andere Projekte nichts.
+# --- v5.7.5: Kompaktierung steht aus (Rueckfallnetz zum Stop-Hook) ---
+# Der Stop-Hook hat einen Notausgang nach MIND_COMPACT_MAX_BLOCKS. Danach schweigt er.
+# Diese Zeile bleibt — sie kostet nichts und haelt die faellige Kompaktierung sichtbar.
+_CFA="$PROJ/.claude-mind/rescued/COMPACT-FAELLIG"
+if [ -f "$_CFA" ]; then
+  _CFT=$(grep -m1 '^ts=' "$_CFA" 2>/dev/null | cut -d= -f2-)
+  echo "[Mind Manager] Kompaktierung steht aus: /mind-all lief um ${_CFT:-?}, seither wurde"
+  echo "nicht kompaktiert. Den Nutzer bitten, /compact zu tippen — der Sync-Ertrag von"
+  echo "40-60k Tokens wandert sonst in das naechste Kontextfenster."
+  _slog INFO "COMPACT-FAELLIG gemeldet (seit ${_CFT:-?})"
+fi
+
 _SCHWELLE="${MIND_SYNC_AT_TOKENS:-0}"
 _STAND="$PROJ/.claude-mind/rescued/sync-stand"
 if [ ! -f "$OPEN" ] && [ ! -f "$_STAND" ] && [ "$_SCHWELLE" -gt 0 ] 2>/dev/null; then

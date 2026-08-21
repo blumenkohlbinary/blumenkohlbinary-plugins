@@ -289,23 +289,48 @@ Schuld bestand:
 if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" = "ja" ]; then
   mkdir -p "$PROJ/.claude-mind/rescued"
   printf 'ts=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" > "$PROJ/.claude-mind/rescued/sync-stand"
+
+  # v5.7.5: War dies ein Sync WEGEN der Token-Schwelle? Dann ist die Kompaktierung faellig.
+  # Ein Handaufruf bei 100k Kontext soll NICHT zum Kompaktieren draengen — daher die
+  # Bedingung. Ohne sie laege der Merker nach jedem Probelauf im Weg.
+  _MTOK=""
+  if type mind_kontext_tokens >/dev/null 2>&1; then
+    _MTP=$(ls -t "$HOME/.claude/projects/$(hash_project_dir "$PROJ")"/*.jsonl 2>/dev/null | head -1)
+    [ -n "$_MTP" ] && _MTOK=$(mind_kontext_tokens "$_MTP" 2>/dev/null)
+  fi
+  _MSCHW="${MIND_SYNC_AT_TOKENS:-0}"
+  if [ -n "$_MTOK" ] && [ "$_MSCHW" -gt 0 ] 2>/dev/null && [ "$_MTOK" -ge "$_MSCHW" ] 2>/dev/null; then
+    printf 'ts=%s\ntokens=%s\nblocks=0\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$_MTOK" \
+      > "$PROJ/.claude-mind/rescued/COMPACT-FAELLIG"
+    echo "Kompaktierung faellig: Kontext bei $_MTOK Tokens."
+  fi
 fi
 ```
 
-⛔ **Dieser eine Merker traegt den ganzen 800k-Ablauf.** Solange er liegt, schweigen
-Token-Mahnung (`prompt-submit.sh`) und Token-Zwang (`stop.sh`) — der Sync ist ja erledigt.
-`pre-compact.sh` verbraucht ihn bei der naechsten Kompaktierung und erzeugt deshalb **keine
-neue Schuld**; damit ist der Ausloeser fuer den naechsten Zyklus automatisch wieder scharf.
+⛔ **`sync-stand` traegt den ganzen Ablauf.** Solange er liegt, schweigen Token-Mahnung
+(`prompt-submit.sh`) und Token-Zwang (`stop.sh`) — der Sync ist ja erledigt. `pre-compact.sh`
+verbraucht ihn bei der naechsten Kompaktierung und erzeugt deshalb **keine neue Schuld**; damit
+ist der Ausloeser fuer den naechsten Zyklus automatisch wieder scharf.
 
-**Der Bericht endet in diesem Fall mit einer zusaetzlichen Zeile:**
+## Step 2.96b: Die Kompaktierung ist der NAECHSTE Schritt (NEU v5.7.5)
+
+Liegt `COMPACT-FAELLIG`, endet die Antwort mit **genau dieser Bitte, als letztem Satz**:
 
 ```
-Naechster Schritt: die Kompaktierung kommt von selbst. Wer sie sofort will, tippt /compact.
+Bitte jetzt /compact eingeben — der Sync hat den Kontext um 40-60k Tokens gefuellt, und
+ohne Kompaktierung wandert genau das in das naechste Kontextfenster.
 ```
+
+⛔ **Nicht umformulieren zu „die Kompaktierung kommt von selbst".** Genau so stand es bis
+v5.7.4, und genau das war der Fehler: sie kommt nur, wenn der Sync teuer genug ausfaellt, um
+den Kontext ueber die Schwelle zu schieben. Faellt er billig aus, bleibt sein Ertrag stehen —
+und wird in die naechste Zusammenfassung uebernommen, statt von ihr ersetzt zu werden.
 
 ⚠ **Auslosen kann das Plugin sie nicht** — drei unabhaengige Belege (Hook-Doku, Werkzeugliste,
-CLI-Binaerdatei). Der Sync selbst schiebt den Kontext ueber die Kompaktierungsschwelle; das ist
-die gewollte Reihenfolge und kein Nebeneffekt.
+CLI-Binaerdatei). **Auch der Assistent kann es nicht**: es gibt kein Werkzeug fuer `/compact`.
+Der Merker erzwingt deshalb nicht die Kompaktierung, sondern nur, dass die Bitte an der
+richtigen Stelle steht. `stop.sh` blockt dafuer bis zu `MIND_COMPACT_MAX_BLOCKS` (Vorgabe 2)
+Mal; danach gibt er auf, damit niemand festgenagelt wird, der bewusst nicht kompaktieren will.
 
 
 ## Step 2.96: Schuld begleichen (PFLICHT, NEU v5.2.1)

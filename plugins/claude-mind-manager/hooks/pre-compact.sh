@@ -126,6 +126,20 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
         rm -f "$RESCUE_DIR/sync-stand" 2>/dev/null
         mind_log "Sync lief vor dieser Kompaktierung -> keine neue Schuld"
       fi
+      # v5.7.5: Die Kompaktierung ist da — die Faelligkeit ist damit erledigt. Ohne diese
+      # Zeile bliebe der Merker liegen und der Stop-Hook wuerde nach der Kompaktierung
+      # weiter blocken: ein Zwang ohne Gegenstand.
+      #
+      # ⛔ Beim Einbau ist die mind_log-Zeile darueber versehentlich HIERHER gerutscht.
+      #    Das Verhalten blieb richtig — SYNC_LIEF_SCHON sass weiter im richtigen Block —
+      #    aber das Protokoll haette ab dann eine ANDERE Bedingung gemeldet als die, die es
+      #    nennt. Gefunden beim Nachlesen der Verschachtelung: `bash -n` sagt nur
+      #    "syntaktisch gueltig", nie "logisch richtig". Deshalb prueft test_precompact.sh
+      #    diese Zeile jetzt ausdruecklich.
+      if [ -f "$RESCUE_DIR/COMPACT-FAELLIG" ]; then
+        mind_log INFO "COMPACT-FAELLIG erledigt (Kompaktierung laeuft)"
+        rm -f "$RESCUE_DIR/COMPACT-FAELLIG" 2>/dev/null
+      fi
 
 
       # --- SCHULD-Merker OPEN (NEU v5.2.1 — loest PENDING ab) ---

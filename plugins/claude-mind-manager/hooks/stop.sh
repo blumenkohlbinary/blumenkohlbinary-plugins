@@ -83,6 +83,54 @@ PROJ="${CLAUDE_PROJECT_DIR:-}"
 [ -z "$PROJ" ] && PROJ=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 [ -z "$PROJ" ] && PROJ="$(pwd)"
 
+# --- v5.7.5: COMPACT-FAELLIG — der Sync ist durch, die Kompaktierung steht aus ---
+# Nutzerwunsch: nach /mind-all soll KOMPAKTIERT werden, bevor weitergearbeitet wird. Sonst
+# wandert der Sync-Ertrag (40-60k) in das naechste Kontextfenster.
+#
+# ⛔ Was dieser Block NICHT kann: kompaktieren. Es gibt kein Werkzeug dafuer, weder im Hook
+#    noch beim Assistenten. Was er kann: erzwingen, dass die Bitte an den Menschen als
+#    LETZTER Satz der Antwort steht statt in einem Bericht vergraben. Mehr ist ehrlich nicht
+#    drin, und der Text sagt das auch.
+CFA="$PROJ/.claude-mind/rescued/COMPACT-FAELLIG"
+if [ -f "$CFA" ]; then
+  _CB=$(grep -m1 '^blocks=' "$CFA" 2>/dev/null | cut -d= -f2-)
+  case "$_CB" in ''|*[!0-9]*) _CB=0 ;; esac
+  _CMAX="${MIND_COMPACT_MAX_BLOCKS:-2}"
+  case "$_CMAX" in ''|*[!0-9]*) _CMAX=2 ;; esac
+  if [ "$_CB" -ge "$_CMAX" ] 2>/dev/null; then
+    # Notausgang. Wer nicht kompaktieren WILL, darf nicht festgenagelt werden — und ein
+    # Zwang, den niemand aufloesen kann, waere genau das.
+    _slog INFO "COMPACT-FAELLIG: Notausgang nach $_CB Blockaden -> Merker entfernt"
+    rm -f "$CFA" 2>/dev/null
+  else
+    _CT=$(grep -m1 '^tokens=' "$CFA" 2>/dev/null | cut -d= -f2-)
+    _CTMP="${CFA}.tmp.$$"
+    if grep -v '^blocks=' "$CFA" > "$_CTMP" 2>/dev/null; then
+      printf 'blocks=%s\n' "$((_CB + 1))" >> "$_CTMP" 2>/dev/null
+      mv -f "$_CTMP" "$CFA" 2>/dev/null || rm -f "$_CTMP" 2>/dev/null
+    else
+      rm -f "$_CTMP" 2>/dev/null
+    fi
+    _slog INFO "block (COMPACT-FAELLIG #$((_CB + 1))/$_CMAX, Kontext beim Sync: ${_CT:-?})"
+    jq -nc --arg r "[Mind Manager] /mind-all ist durch. JETZT ist die Kompaktierung faellig.
+
+Der Sync hat den Kontext um 40-60k Tokens gefuellt (Stand beim Sync: ${_CT:-unbekannt}).
+Bleibt er stehen, wandert genau das in das naechste Kontextfenster — die Belastung, die
+dieser Ablauf verhindern soll.
+
+⛔ Eine Kompaktierung ist NICHT ausloesbar: nicht aus einem Hook, nicht vom Assistenten.
+   Es gibt kein Werkzeug dafuer. Nur der Mensch kann /compact eingeben.
+
+Deshalb JETZT: den Nutzer als LETZTEN Satz der Antwort bitten, /compact zu tippen.
+Nicht in einen Bericht einbetten, nicht auf spaeter verschieben, nicht umformulieren
+zu 'kommt von selbst' — genau das war der Fehler bis v5.7.4.
+
+Danach ist der Merker weg und es geht normal weiter." \
+      '{decision:"block", reason:$r}'
+    exit 0
+  fi
+fi
+
 OPEN="$PROJ/.claude-mind/rescued/OPEN"
 
 # --- SCHNELLPFAD: keine Schuld -> still, aber nachweisbar ---

@@ -5,7 +5,10 @@
 #   Erkennt die Auswertung eine WIEDERHOLUNG ueber Projektgrenzen hinweg?
 # Dazu gehoert zwingend die Gegenprobe: zwei VERSCHIEDENE Klassen duerfen es NICHT melden.
 
-export CLAUDE_PLUGIN_ROOT="C:/CD/KOHLEKTIV/Plugin - Entwicklung/hackj-plugins/plugins/claude-mind-manager"
+# Respektiert eine bereits gesetzte Wurzel. Bis v5.7.5 stand hier eine harte Zuweisung
+# auf den QUELLBAUM — damit lief diese Sammlung nie am gebauten Paket, entgegen ihrer
+# eigenen README und entgegen fertig-heisst-fertig.md 1.
+export CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-C:/CD/KOHLEKTIV/Plugin - Entwicklung/hackj-plugins/plugins/claude-mind-manager}"
 source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
 
 ok=0; rot=0
