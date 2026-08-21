@@ -132,17 +132,20 @@ def pruefe(projekt):
     if md:
         topics = [x for x in sorted(os.listdir(md))
                   if x.endswith(".md") and x != "MEMORY.md"]
-        ohne_desc, offen, arbeit, lang, projekt_typ = [], [], [], [], []
+        ohne_desc, offen, arbeit, lang, zeiger = [], [], [], [], []
         for x in topics:
             t = lies(os.path.join(md, x))
             kopf = "\n".join(t.replace("\r\n", "\n").split("\n")[:14])
             d = re.search(r"^description:[ \t]*(.*)$", kopf, re.M)
+            besch = d.group(1).strip() if d else ""
             if not d:
                 ohne_desc.append(x)
-            elif len(d.group(1).strip()) > 200:
-                lang.append((x, len(d.group(1).strip())))
-            if re.search(r"^[ \t]*type:[ \t]*project\b", kopf, re.M):
-                projekt_typ.append(x)
+            elif len(besch) > 200:
+                lang.append((x, len(besch)))
+            # Zeiger-Fall: bezeichnet sich selbst als Verweis, ist aber nicht `reference`
+            if besch and not re.search(r"^[ \t]*type:[ \t]*reference\b", kopf, re.M):
+                if re.search(r"\bPointer\b|\bZeiger\b|globale Rule|~/\.claude/", besch):
+                    zeiger.append(x)
             if frontmatter_offen(t):
                 offen.append(x)
             if ARBEIT.search(kopf):
@@ -163,12 +166,22 @@ def pruefe(projekt):
                            sorted(lang, key=lambda z: -z[1])[:3])), md)
         # ⛔ `[user]` und `[project]` behandelt der Auswaehler AUSDRUECKLICH zurueckhaltender:
         #    "These describe the user's ongoing focus, not what every question is about."
-        if topics and len(projekt_typ) > len(topics) * 0.6:
+        #
+        # ⚠ Ein frueherer Stand meldete hier "ueber 60 % tragen type: project". Das war
+        #   falsch gedacht: eine PROJEKT-Memory SOLL ueberwiegend `project` sein. Nicht der
+        #   Anteil ist der Fehler, sondern eine EINZELNE Datei, die in den zurueckhaltenden
+        #   Topf gehoert und dort nicht hingehoert. Gemessen an Zustellplan: von 25
+        #   `project`-Dateien waren DREI falsch getypt, nicht 25.
+        #
+        # Mechanisch erkennbar ist davon nur der Zeiger-Fall — eine Datei, die sich selbst
+        # als Verweis bezeichnet oder auf einen Pfad ausserhalb des Projekts zeigt, ist
+        # `reference`. Der feedback-Fall ("sagt, WIE gearbeitet werden soll") laesst sich
+        # aus einer Beschreibung nicht zuverlaessig ableiten und wird deshalb NICHT geraten.
+        if zeiger:
             f("sichtbarkeit",
-              "%d von %d Memory-Dateien tragen `type: project` — diesen Topf fasst der "
-              "Auswaehler nur bei DIREKTEM Bezug an (\"not what every question is "
-              "about\"). Was Arbeitsweise oder Werkzeug betrifft, gehoert eher nach "
-              "`feedback`/`reference`" % (len(projekt_typ), len(topics)), md)
+              "%d Memory-Dateien beschreiben sich als Verweis (Pointer / globale Rule / "
+              "Pfad ausserhalb des Projekts), tragen aber nicht `type: reference`: %s"
+              % (len(zeiger), ", ".join(zeiger[:5])), md)
         if ohne_desc:
             f("sichtbarkeit",
               "%d Memory-Topic-Dateien ohne `description` — der Auswaehler hat kein "
