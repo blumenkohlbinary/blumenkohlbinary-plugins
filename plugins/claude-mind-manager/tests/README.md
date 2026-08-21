@@ -29,6 +29,7 @@ python "$CLAUDE_PLUGIN_ROOT/references/slug_regression.py" --live
 | `test_precompact.sh` | 11 | Chat-Rettung, Arbeitsstand, `sync-stand`, Fail-open |
 | `test_toolrule.sh` | 7 | Tool→Rule-Nachweis, auch für Werkzeuge im Wurzelverzeichnis |
 | `test_compact_faellig.sh` | 23 | `COMPACT-FAELLIG`: Zwang, Zähler, Notausgang, Fail-open |
+| `test_notfall.sh` | 8 | `MIND_NOTFALL_TOKENS`: Schwelle, die nichts stumm schaltet |
 | `test_precompact.py` | — | Hilfsteil für `test_precompact.sh` |
 
 ## ⛔ Jede Sammlung enthält eine Gegenprobe, die scheitern KANN
