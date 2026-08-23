@@ -843,6 +843,28 @@ Agent 1+2 in einem Tool-Call, Welle 2 = Agent 3+4 im nächsten). Alle 4 laufen �
 **Skip-Logik pro Agent:**
 - Agent 4 (`custom-context`) skippen wenn `${#CUSTOM_CONTEXT_FILES[@]} == 0` (Plan EC4) — das ist die EINZIGE erlaubte Auslassung; die anderen 3 sind unbedingt Pflicht.
 
+### ⛔ Agent-Quittung — PFLICHT, vor UND nach jedem Agent (NEU v5.14.0)
+
+```bash
+mind_agent_quittung_start "$PROJ"          # einmal, vor dem ersten Agent
+mind_agent_dispatch "<bereich>" "$PROJ"    # VOR dem Start
+# ... Agent laeuft ...
+mind_agent_ergebnis "<bereich>" "$(printf '%s' "$RUECKGABE" | wc -c)" "$PROJ"
+```
+
+**Der `dispatch`-Eintrag steht VOR dem Start.** Das ist der ganze Punkt: ein Agent, der
+stirbt, hinterlaesst dann einen Merker, den nur er selbst aufloesen kann. Wer erst nach der
+Rueckkehr protokolliert, protokolliert **nur die Ueberlebenden**.
+
+⛔ **Ein Agent, der stirbt, und ein Agent, der nichts findet, sehen im Bericht identisch
+aus.** Das sind die Debug-Klassen `agent-gestorben` (4×) und `agent-fehlbericht` (6×) —
+zusammen 10 Vorkommen. Der Umgang damit stand bisher als **Prosa** („den Bereich als
+UNGEPRUEFT in den Bericht schreiben"), und Prosa hat es nicht verhindert: am 23.08.2026
+wurden die Agents **gar nicht erst losgeschickt**, und der Lauf lief durch.
+
+⚠ **`0 Byte` ist ein `ergebnis`-Eintrag, kein fehlender.** „Leer zurueckgekommen" und „nie
+zurueckgekommen" sind verschiedene Befunde und werden getrennt gezaehlt.
+
 **Prompt-Format pro Agent** (Skill-Review M5 — Serialisierung explizit):
 
 Skill konstruiert pro Agent einen Markdown-Prompt mit Sections:
@@ -1071,6 +1093,12 @@ ist BUGGY — User darf zurueckweisen mit "Self-Check-Block fehlt — bitte Step
   Beleg: git-log + grep Output in Tool-Call #<N>
 
 [Step 3.5 Per-Bereich Knowledge-Sync] 4 Agents dispatched (sequenziell/≤2 pro Welle, NIE ≥3):
+  Agent-Quittung: <Ausgabe von `mind_agent_bilanz "$PROJ"`>   ⛔ PFLICHT, v5.14.0
+      z.B. DISPATCH=4 ERGEBNIS=3 LEER=1 STUMM=1
+             UNGEPRUEFT: rules (dispatcht, nie zurueck)
+      ⛔ Rueckgabe 2 (= gar nicht dispatcht) macht diesen Step UNGEPRUEFT, nicht "sauber".
+         Die Bilanz wird WOERTLICH uebernommen, nicht zusammengefasst — eine Zahl, die
+         durch eine Zusammenfassung geht, ist keine Quittung mehr.
   Session-Quelle: <gerettet <pfad> (N Beitraege) | live>
   - scope=claude-md      → <A> Findings (U:<x> E:<y> A:<z> NF:<w> I:<v>)
       Beispiel-Belege: [UPDATE] CLAUDE.md:15 "v3.2.2" -> Session v3.3.0

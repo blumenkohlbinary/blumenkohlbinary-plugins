@@ -48,6 +48,9 @@ python "$CLAUDE_PLUGIN_ROOT/references/slug_regression.py" --live
 | **`test_sampler_filter.py`** | 16 | **NEU v5.13.0** — die Kategorie-Filter gegen FESTE Sätze |
 | **`test_zeilenenden.sh`** | 27 | **NEU v5.13.0** — CRLF-Anteil, Snapshot-Zweige, Vergleichszahl |
 | **`test_pfadklassen.py`** | 16 | **NEU v5.13.0** — Aufzählungen sind keine toten Pfade |
+| **`test_quittung.sh`** | 20 | **NEU v5.14.0** — Agent-Quittung: leer gegen STUMM |
+| **`test_negativfall.sh`** | 12 | **NEU v5.14.0** — kann die Sperre selbst rot werden? |
+| **`test_lib_ungedeckt.sh`** | 20 | **NEU v5.14.0** — die drei Funktionen ohne Prueffall |
 | `test_precompact.py` | — | Hook gegen ein echtes Transkript |
 
 ⚠ **`test_precompact.py` wählt sein Transkript als `kandidaten[1]`** — das zweitkleinste

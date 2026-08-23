@@ -144,6 +144,39 @@ def pruefe(projekt, q):
           "%d Memory-Dateien beschreiben sich als Verweis, tragen aber nicht "
           "`type: reference`: %s" % (len(zeiger), ", ".join(zeiger[:5])), md)
 
+    # --- Dateizahl gegen die Auswahlgrenze (NEU v5.14.0) -----------------
+    #
+    # ⛔ WARUM ERST AB DEM DREIFACHEN UND NICHT AB DER GRENZE SELBST
+    #
+    # Die Klasse `sichtbarkeit` steht mit 6 Vorkommen im Debug-Ordner, mehrfach
+    # in der Form "7 Topic-Dateien bei Auswahlgrenze 5 -> 2 unsichtbar". Diese
+    # Eintraege waren von Hand geschrieben, und sie widersprachen der eigenen
+    # Schwellentabelle in `mind-memory/SKILL.md`: dort gilt bis zum DREIFACHEN
+    # der Grenze "akzeptabel -- Hinweis im Bericht", nicht "Befund".
+    #
+    # ⭐ Ein Befund, den der zustaendige Skill absichtlich NICHT behebt, kehrt bei
+    #    jedem Lauf wieder und laesst eine Klasse wachsen, die niemand schliessen
+    #    kann. Das ist kein Erkenntnisgewinn, sondern eine Zaehlmaschine.
+    #
+    # ⚠ Und der sachliche Grund, warum 7 wirklich in Ordnung sind: die Grenze
+    #   gilt PRO ANFRAGE, nicht pro Sitzung. Der Auswaehler waehlt dieselbe Datei
+    #   im selben Gespraech kein zweites Mal, die Abdeckung sammelt sich also an.
+    #   "7 Dateien, Grenze 5, also 2 unsichtbar" ist fuer den einzelnen Prompt
+    #   richtig und fuer den Tag falsch.
+    limit = int(os.environ.get("MIND_MEMORY_VISIBILITY_LIMIT", "5") or 5)
+    n_topic = len(topics)
+    if n_topic > 6 * limit:
+        f("sichtbarkeit",
+          "%d Memory-Topic-Dateien bei Auswahlgrenze %d (ueber dem Sechsfachen) — "
+          "/mind-memory fuehrt in dieser Stufe zusammen, hoechstens 5 je Lauf"
+          % (n_topic, limit), md)
+    elif n_topic > 3 * limit:
+        f("sichtbarkeit",
+          "%d Memory-Topic-Dateien bei Auswahlgrenze %d (ueber dem Dreifachen) — "
+          "/mind-memory schlaegt in dieser Stufe Zusammenfuehrungs-Gruppen vor"
+          % (n_topic, limit), md)
+    # bis zum Dreifachen: BEWUSST STILL. Siehe Begruendung oben.
+
     # --- Rules (REKURSIV, auch Unterordner) ------------------------------
     tot, r_offen = [], []
     for p in q["rules"]:

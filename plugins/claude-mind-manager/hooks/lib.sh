@@ -1111,3 +1111,151 @@ mind_zeilenenden_waechter() {
   [ "$kipp" -gt 0 ] && return 1
   return 0
 }
+
+# ==========================================================================
+# Agent-Quittung — ein toter Agent ist ein ABBRUCH, kein Absatz (NEU v5.14.0)
+# ==========================================================================
+#
+# ⛔ WARUM ES DAS GIBT
+#
+# Debug/BEFUNDE.md, zwei Klassen mit zusammen 10 Vorkommen:
+#   agent-gestorben   (4x)  "Knowledge-Sync memory: leere Rueckgabe nach
+#                            20 Werkzeugaufrufen / 199s"
+#   agent-fehlbericht (6x)  "belegte mit 'alle zwoelf Eintraege abgearbeitet';
+#                            neun gefahren, drei zurueckgestellt"
+#
+# Der Umgang damit stand als PROSA in mind-all/SKILL.md: "den Bereich als
+# UNGEPRUEFT in den Bericht schreiben". Prosa hat es nicht verhindert — am
+# 23.08.2026 wurden die Agents GAR NICHT ERST losgeschickt, und der Lauf lief
+# durch, als waere alles geprueft.
+#
+# ⛔ Der Kern: ein Agent, der stirbt, und ein Agent, der nichts findet, sehen im
+#    Bericht identisch aus. Nur eine Quittung VOR dem Start unterscheidet sie.
+#    Deshalb wird der Dispatch protokolliert, bevor er passiert — ein Merker, den
+#    nur ein zurueckgekehrter Agent wieder aufloest.
+#
+# Ablage: $projekt/.claude-mind/agent-quittung.jsonl, pro Lauf neu.
+
+_mind_quittung_pfad() {
+  local proj="${1:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+  printf '%s\n' "$proj/.claude-mind/agent-quittung.jsonl"
+}
+
+# Zu Beginn eines Laufs: alte Quittungen wegraeumen.
+mind_agent_quittung_start() {
+  local q; q=$(_mind_quittung_pfad "${1:-}")
+  mkdir -p "$(dirname "$q")" 2>/dev/null || return 1
+  : > "$q" || return 1
+}
+
+# VOR dem Start des Agents aufrufen.
+mind_agent_dispatch() {
+  local bereich="$1" q
+  q=$(_mind_quittung_pfad "${2:-}")
+  mkdir -p "$(dirname "$q")" 2>/dev/null
+  printf '{"ereignis":"dispatch","bereich":"%s","ts":"%s"}\n' \
+    "$bereich" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$q"
+}
+
+# NACH der Rueckkehr aufrufen, mit der Bytezahl der Rueckgabe.
+# ⚠ 0 Bytes ist ein ERGEBNIS-Eintrag, kein fehlender. Der Unterschied zwischen
+#   "leer zurueckgekommen" und "nie zurueckgekommen" ist genau das, was hier
+#   sichtbar werden soll.
+mind_agent_ergebnis() {
+  local bereich="$1" bytes="${2:-0}" q
+  q=$(_mind_quittung_pfad "${3:-}")
+  case "$bytes" in ''|*[!0-9]*) bytes=0 ;; esac
+  printf '{"ereignis":"ergebnis","bereich":"%s","bytes":%s,"ts":"%s"}\n' \
+    "$bereich" "$bytes" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$q"
+}
+
+# Bilanz fuer den Self-Check-Block.
+# Ausgabe Zeile 1 (maschinell):  DISPATCH=n ERGEBNIS=n LEER=n STUMM=n
+# danach je stummem/leerem Bereich eine Zeile "  UNGEPRUEFT: <bereich> (<grund>)".
+#
+# Rueckgabe: 0 = alle dispatcht und alle mit Inhalt zurueck
+#            1 = mindestens ein Bereich UNGEPRUEFT (leer oder stumm)
+#            2 = GAR NICHT DISPATCHT — der Fan-out hat nicht stattgefunden
+mind_agent_bilanz() {
+  local q; q=$(_mind_quittung_pfad "${1:-}")
+  local d=0 e=0 leer=0 stumm=0 zeile b bereich liste=""
+
+  if [ ! -f "$q" ]; then
+    echo "DISPATCH=0 ERGEBNIS=0 LEER=0 STUMM=0"
+    echo "  UNGEPRUEFT: keine Quittung vorhanden — der Fan-out hat nicht stattgefunden"
+    return 2
+  fi
+
+  # Bereiche sammeln. Bewusst ohne jq: die Bilanz muss auch dann funktionieren,
+  # wenn jq fehlt — sonst faellt genau die Pruefung aus, die den Ausfall melden soll.
+  local dispatcht="" mit_ergebnis="" leere=""
+  while IFS= read -r zeile; do
+    [ -n "$zeile" ] || continue
+    bereich=$(printf '%s' "$zeile" | sed -n 's/.*"bereich":"\([^"]*\)".*/\1/p')
+    [ -n "$bereich" ] || continue
+    case "$zeile" in
+      *'"ereignis":"dispatch"'*)
+        d=$((d + 1)); dispatcht="${dispatcht}${bereich} " ;;
+      *'"ereignis":"ergebnis"'*)
+        e=$((e + 1)); mit_ergebnis="${mit_ergebnis}${bereich} "
+        b=$(printf '%s' "$zeile" | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')
+        [ "${b:-0}" -eq 0 ] 2>/dev/null && { leer=$((leer + 1)); leere="${leere}${bereich} "; } ;;
+    esac
+  done < "$q"
+
+  # Stumm = dispatcht, aber nie zurueckgemeldet.
+  for bereich in $dispatcht; do
+    case " $mit_ergebnis " in
+      *" $bereich "*) ;;
+      *) stumm=$((stumm + 1)); liste="${liste}  UNGEPRUEFT: ${bereich} (dispatcht, nie zurueck)"$'\n' ;;
+    esac
+  done
+  for bereich in $leere; do
+    liste="${liste}  UNGEPRUEFT: ${bereich} (leere Rueckgabe — 0 Byte ist kein Befund)"$'\n'
+  done
+
+  echo "DISPATCH=$d ERGEBNIS=$e LEER=$leer STUMM=$stumm"
+  [ -n "$liste" ] && printf '%s' "$liste"
+
+  [ "$d" -eq 0 ] && {
+    echo "  UNGEPRUEFT: kein einziger Agent dispatcht — der Fan-out hat nicht stattgefunden"
+    return 2
+  }
+  [ $((leer + stumm)) -gt 0 ] && return 1
+  return 0
+}
+
+# ==========================================================================
+# mind_commits_seit — der Ausloeser, der NICHT an der Kompaktierung haengt
+# ==========================================================================
+# (NEU v5.14.0)
+#
+# ⛔ WARUM ES DAS GIBT
+#
+# Debug-Befund vom 21.08.2026, Projekt Palvedo, woertlich:
+#   "Sync-Ausloeser haengt allein an der Kompaktierung; ein Neustart setzt den
+#    Tokenzaehler zurueck -- 11 Commits und 12 h ohne Netz."
+#
+# Beide vorhandenen Ausloeser messen den KONTEXT: prompt-submit.sh mahnt ab
+# MIND_SYNC_AT_TOKENS, stop.sh blockt ab MIND_SYNC_FORCE_TOKENS. Beide zaehlen
+# ab dem Sitzungsstart wieder bei null. Wer neu startet und dann zwoelf Stunden
+# arbeitet, ohne die Schwelle zu reissen, hat nie einen Sync — und nichts merkt es.
+#
+# Gezaehlt wird deshalb ARBEIT, nicht Fuellstand: Commits seit dem letzten Sync.
+#
+# Gibt die Zahl auf stdout aus.
+# Rueckgabe: 0 = gezaehlt · 1 = nicht zaehlbar (kein git, kein Referenzpunkt)
+# ⚠ "nicht zaehlbar" gibt NICHTS aus, nicht "0". Keine Zahl ist keine Null —
+#   dieselbe Regel wie bei mind_kontext_tokens.
+mind_commits_seit() {
+  local proj="$1" ref="$2" epoch iso n
+  [ -n "$proj" ] && [ -d "$proj/.git" ] || return 1
+  command -v git >/dev/null 2>&1 || return 1
+  [ -f "$ref" ] || return 1
+  epoch=$(stat -c %Y "$ref" 2>/dev/null) || return 1
+  case "$epoch" in ''|*[!0-9]*) return 1 ;; esac
+  iso=$(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || return 1
+  n=$(git -C "$proj" rev-list --count --since="$iso" HEAD 2>/dev/null) || return 1
+  case "$n" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$n"
+}

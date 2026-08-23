@@ -178,6 +178,53 @@ frisch geleerten Kontext nicht sofort wieder mit 40-60k fuellt.
   fi
 fi
 
+# --- F6: Arbeitsmengen-Ausloeser (NEU v5.14.0) -----------------------------
+# Beide Ausloeser oben messen den KONTEXT und faengen bei jedem Neustart wieder
+# bei null an. Belegt (Palvedo, 21.08.2026): 11 Commits und 12 h ohne Netz.
+# Hier wird ARBEIT gezaehlt, nicht Fuellstand.
+#
+# ⛔ NUR MAHNUNG, kein Zwang. Ein stop.sh-Block auf Commit-Basis wuerde in einem
+#    Repo mit vielen kleinen Commits die Sitzung festnageln -- und ein Zwang, den
+#    der Blockierte nicht aufloesen kann, ist eine Falle (Lehre aus
+#    MIND_COMPACT_MAX_BLOCKS).
+_CSCHWELLE="${MIND_SYNC_AT_COMMITS:-0}"
+_CSTAND="$PROJ/.claude-mind/rescued/sync-stand"
+[ -f "$_CSTAND" ] || _CSTAND="$PROJ/.claude-mind/rescued/commit-stand"
+if [ ! -f "$OPEN" ] && [ "$_CSCHWELLE" -gt 0 ] 2>/dev/null && [ -d "$PROJ/.git" ]; then
+  if [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
+    # shellcheck disable=SC1091
+    . "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" 2>/dev/null
+    if [ ! -f "$_CSTAND" ]; then
+      # ⚠ ERSTE BEOBACHTUNG SETZT NUR DEN NULLPUNKT. Ohne Referenz waere jede
+      #   Zahl erfunden -- und eine erfundene Mahnung beim ersten Prompt einer
+      #   frischen Installation ist genau das, was Mahnungen entwertet.
+      mkdir -p "$(dirname "$_CSTAND")" 2>/dev/null
+      : > "$_CSTAND" 2>/dev/null
+      _slog INFO "Commit-Nullpunkt gesetzt: $_CSTAND"
+    else
+      _CN=$(mind_commits_seit "$PROJ" "$_CSTAND" 2>/dev/null) || _CN=""
+      if [ -n "$_CN" ] && [ "$_CN" -ge "$_CSCHWELLE" ] 2>/dev/null; then
+        _slog INFO "Commit-Schwelle erreicht ($_CN >= $_CSCHWELLE) -> Sync angemahnt"
+        _MSGK="[Mind Manager] $_CN Commits seit dem letzten Sync (Schwelle $_CSCHWELLE).
+
+Der Kontext ist noch klein — genau deshalb greift die Token-Mahnung hier nicht. Nach einem
+Neustart faengt sie wieder bei null an, waehrend die Arbeit weiterlaeuft.
+
+Ein /mind-all traegt diese Arbeit in die Context-Dateien. Danach ist der Zaehler zurueck."
+        if command -v jq >/dev/null 2>&1; then
+          jq -nc --arg ctx "$_MSGK" \
+            '{hookSpecificOutput:{hookEventName:"UserPromptSubmit", additionalContext:$ctx}}'
+        else
+          echo "$_MSGK"
+        fi
+        # Nullpunkt versetzen, sonst mahnt es ab jetzt bei JEDEM Prompt.
+        : > "$PROJ/.claude-mind/rescued/commit-stand" 2>/dev/null
+        exit 0
+      fi
+    fi
+  fi
+fi
+
 
 # --- SCHNELLPFAD: keine Schuld -> absolut still, sofort raus ---
 [ -f "$OPEN" ] || exit 0
