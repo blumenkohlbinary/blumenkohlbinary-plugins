@@ -123,11 +123,32 @@ def classify_path(p):
     #     EHRLICHER PREIS: ein wirklich toter Pfad der Form /foo-bar wird nicht gelistet.
     if p.count("/") == 1 and p.startswith("/") and "-" in p[1:]:
         return "SKIP"
-    # 3w) UNSURE: zwei schlichte Woerter ohne Punkt (`actual/expected`, `ja/nein`).
+    # 3w) UNSURE: schlichte Woerter ohne Punkt, mit Schraegstrich getrennt
+    #     (`actual/expected`, `ja/nein`, `a/b/c`, `UPDATE/ENRICH/ADD`).
     #     Ein echter Dateipfad traegt fast immer eine Endung. Ohne Punkt und ohne
     #     Verzeichnis-Anmutung ist DEAD zu scharf — UNSURE meldet, ohne zu behaupten.
-    if '.' not in p and p.count('/') == 1 and not p.startswith('/'):
-        if all(re.fullmatch(r'[a-zA-Z]+', t) for t in p.split('/') if t):
+    #
+    # ⛔ v5.13.0 — die Bedingung lautete `p.count('/') == 1` und griff damit NUR
+    #    bei genau ZWEI Segmenten. Eine Aufzaehlung mit drei Gliedern rutschte
+    #    durch und wurde als toter Pfad gemeldet:
+    #        a/b/c · UPDATE/ENRICH/ADD · Nutzer/Tester/Betreiber
+    #    GEMESSEN im Zustellplan-Lauf vom 21.08.2026: 10 bis 21 Fehltreffer JE
+    #    REGELDATEI. Sie ertraenken die echten Befunde — eine Pruefung, deren
+    #    Ausgabe zu 95 % aus Rauschen besteht, wird nicht mehr gelesen.
+    #    Aus `== 1` wird `>= 1`: eine Aufzaehlung wird nicht dadurch zum Pfad,
+    #    dass sie ein Glied mehr hat.
+    #
+    # ⚠ Umlaute gehoeren in die Zeichenklasse. `Groesse/Anzahl` faellt sonst
+    #   durch, sobald es jemand mit ö schreibt — und genau solche Woerter stehen
+    #   in deutschen Regeldateien.
+    #
+    # ⚠ NICHT abgedeckt und bewusst so: `dist/unstable/_build_counter`. Der
+    #   Unterstrich macht das Segment zu keinem schlichten Wort, der Pfad bleibt
+    #   CHECK. Das ist ein anderer Befund (die Datei existiert wirklich nicht,
+    #   weil sie beim Release geloescht wird) und braucht eine andere Loesung —
+    #   hier wird er nicht miterschlagen, nur weil es bequem waere.
+    if '.' not in p and p.count('/') >= 1 and not p.startswith('/'):
+        if all(re.fullmatch(r'[a-zA-ZäöüÄÖÜß]+', t) for t in p.split('/') if t):
             return 'UNSURE'
     # 4) UNSURE: fuehrender / ohne Laufwerk/MSYS-Wurzel
     if p.startswith("/"):

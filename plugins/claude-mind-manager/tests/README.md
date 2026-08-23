@@ -15,9 +15,20 @@
 
 ```bash
 export CLAUDE_PLUGIN_ROOT=~/.claude/plugins/cache/kohlosseum/claude-mind-manager/<version>
-bash "$CLAUDE_PLUGIN_ROOT/tests/test_teil1.sh"
-bash "$CLAUDE_PLUGIN_ROOT/tests/test_debug.sh"
-bash "$CLAUDE_PLUGIN_ROOT/tests/test_precompact.sh"
+bash "$CLAUDE_PLUGIN_ROOT/tests/alle.sh"
+```
+
+⛔ **Seit v5.13.0 ist das der EINZIGE richtige Aufruf.** Hier stand bis v5.12.0 eine Liste
+von fünf einzelnen Aufrufen — wer sie abarbeitete, hatte danach das Gefühl, alles geprüft zu
+haben. Am 23.08.2026 stellte sich heraus, dass `test_precompact.py` in keinem einzigen Lauf
+je dabei war. **Die Liste in dieser README war Teil des Fehlers**, nicht seine Behebung.
+
+`alle.sh` **findet** die Sammlungen (`find`, keine gepflegte Liste), fährt jede und meldet
+`gefunden / gefahren / grün`. Weicht die Zählung ab, bricht er mit Rückgabe 2 ab.
+
+Zwei Werkzeuge prüfen sich selbst und laufen **nicht** über `alle.sh`:
+
+```bash
 python "$CLAUDE_PLUGIN_ROOT/references/claudemd_pipeline.py" --selbsttest
 python "$CLAUDE_PLUGIN_ROOT/references/slug_regression.py" --live
 ```
@@ -31,7 +42,20 @@ python "$CLAUDE_PLUGIN_ROOT/references/slug_regression.py" --live
 | `test_compact_faellig.sh` | 23 | `COMPACT-FAELLIG`: Zwang, Zähler, Notausgang, Fail-open |
 | `test_keine_panik.sh` | 6 | kein Hook darf behaupten, das Fenster sei voll |
 | `test_skill_einstieg.py` | 6 | nur echte `SKILL.md`/`agents/`/`commands/` gelten als Einstieg |
-| `test_precompact.py` | — | Hilfsteil für `test_precompact.sh` |
+| `test_ladeprotokoll.sh` | — | `instructions-loaded.sh`, auch bei unbekanntem Schema |
+| `test_lib_v511.sh` | — | die `lib.sh`-Funktionen aus v5.11.0 |
+| `test_fremdklon.py` | — | Fremdklon-Erkennung, mit Negativkontrolle |
+| **`test_sampler_filter.py`** | 16 | **NEU v5.13.0** — die Kategorie-Filter gegen FESTE Sätze |
+| **`test_zeilenenden.sh`** | 27 | **NEU v5.13.0** — CRLF-Anteil, Snapshot-Zweige, Vergleichszahl |
+| **`test_pfadklassen.py`** | 16 | **NEU v5.13.0** — Aufzählungen sind keine toten Pfade |
+| `test_precompact.py` | — | Hook gegen ein echtes Transkript |
+
+⚠ **`test_precompact.py` wählt sein Transkript als `kandidaten[1]`** — das zweitkleinste
+`.jsonl` im Projektordner, je nach Sitzungsbestand also ein anderes. Am 23.08.2026 war sie
+deshalb erst rot und Minuten später grün, ohne dass sich eine Zeile geändert hatte.
+**Sie kann einen Defekt anzeigen, aber nie ausschließen.** Dafür gibt es seit v5.13.0
+`test_sampler_filter.py` mit festen Eingaben. Beide bleiben: die eine prüft den Hook im
+Ganzen, die andere den Filter.
 
 ## ⛔ Jede Sammlung enthält eine Gegenprobe, die scheitern KANN
 

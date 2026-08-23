@@ -985,7 +985,129 @@ mind_zeilenenden() {
 # nicht mehr auffindbar.
 # ⚠ Gemessen wird der ANTEIL, nicht die Zeilenzahl: eine Zusicherung
 # "Zeilenzahl unveraendert" ist bei genau diesem Fehler gruen.
+#
+# ⛔ v5.13.0 — BIS HIERHER TAT DIESE FUNKTION DAS GEGENTEIL IHRES EIGENEN
+#    KOMMENTARS. Sie lautete:
+#        [ "${vorher%%/*}" = "${nachher%%/*}" ]
+#    `%%/*` schneidet ab dem ersten `/` ab und liefert damit den ZAEHLER --
+#    die absolute CRLF-Zahl. Eine Datei, die von 155 auf 157 Zeilen waechst
+#    und durchgehend CRLF ist, ergibt "155/155" gegen "157/157" und wurde als
+#    GEKIPPT gemeldet. Befund aus dem Zustellplan-Lauf vom 22.08.2026, genau
+#    mit diesen Zahlen.
+#
+#    ⭐ Das ist die bittere Pointe: diese Funktion IST die Sperre gegen die
+#    Fehlerklasse `zeilenenden` -- und war selbst ein `instrument-misst-nichts`,
+#    die groesste Klasse im Debug-Ordner (23 Vorkommen). Eine Sperre, die
+#    niemand gegenprueft, ist eine Klasse, die man nicht mehr sieht.
+#
+# ⚠ Verglichen wird ueber KREUZ, nicht in Prozent: a_crlf*b_ges == b_crlf*a_ges.
+#    Prozentrechnung mit Ganzzahlen wuerde eine einzelne gekippte Zeile in einer
+#    grossen Datei wegrunden (1 von 1000 = 0 %), und genau die einzelne Zeile
+#    ist der Fall, der einen Ersetzungsanker reisst.
+#
+# Rueckgabe: 0 = Anteil gleich · 1 = gekippt · 2 = NICHT MESSBAR
+# ⚠ Nicht messbar wird als Befund behandelt, nicht als "unveraendert". Ein
+#   Fehlalarm kostet eine Zeile im Bericht; ein uebersehener Kipp kostet einen
+#   Diff von 6417 Zeilen, in dem der eigentliche Fix unauffindbar ist.
 mind_zeilenenden_gleich() {
   local vorher="$1" nachher="$2"
-  [ "${vorher%%/*}" = "${nachher%%/*}" ]
+  # Format muss "zahl/zahl" sein -- ohne Schraegstrich ist es keine Messung.
+  case "$vorher"  in */*) ;; *) return 2 ;; esac
+  case "$nachher" in */*) ;; *) return 2 ;; esac
+  local ac="${vorher%%/*}" ag="${vorher##*/}"
+  local bc="${nachher%%/*}" bg="${nachher##*/}"
+  # ⛔ JEDEN Wert EINZELN pruefen. Die erste Fassung verkettete sie zu
+  #    "$ac$ag$bc$bg" -- bei ("" , "0/50") ergab das "050", war damit rein
+  #    numerisch und rutschte durch; die Funktion meldete "gleich" fuer eine
+  #    Eingabe, die sie gar nicht messen konnte. Beim Bau der Gegenprobe
+  #    aufgefallen, in derselben Stunde wie die drei anderen Faelle dieser
+  #    Bauart. Eine Verkettung kann nicht sagen, WELCHER Teil leer war.
+  local x
+  for x in "$ac" "$ag" "$bc" "$bg"; do
+    case "$x" in ''|*[!0-9]*) return 2 ;; esac
+  done
+  [ $(( ac * bg )) -eq $(( bc * ag )) ]
+}
+
+# ==========================================================================
+# mind_schnappziel — Snapshot-Pfad auf die ECHTE Datei abbilden (NEU v5.13.0)
+# ==========================================================================
+# Ein Snapshot hat VIER Zweige plus die Wurzel:
+#
+#   CLAUDE.md            -> $PROJ/CLAUDE.md
+#   project/<pfad>       -> $PROJ/<pfad>
+#   rules/<datei>        -> $PROJ/.claude/rules/<datei>
+#   global/<pfad>        -> $HOME/.claude/<pfad>
+#   memory/<datei>       -> <Memory-Verzeichnis>/<datei>
+#
+# ⛔ WARUM DAS EINE EIGENE FUNKTION IST: Der Zeilenenden-Waechter in
+#    mind-all Step 2.95 bildete bis v5.12.0 stumpf `$PROJ/$z` fuer JEDEN
+#    Snapshot-Pfad. Fuer `project/knowledge/x.md` ergab das
+#    `$PROJ/project/knowledge/x.md` -- ein Pfad, den es nicht gibt -> `continue`.
+#    Uebrig blieb die eine Datei in der Snapshot-Wurzel. GEMESSEN im
+#    Zustellplan-Lauf vom 22.08.2026: **1 von 68 Dateien verglichen**, Meldung
+#    "keine Abweichung".
+#
+# Rueckgabe: 0 + Pfad auf stdout · 1 = kein abbildbares Ziel (MELDEN, nicht raten)
+mind_schnappziel() {
+  local rel="$1" proj="$2" memdir="${3:-}"
+  case "$rel" in
+    MANIFEST.sha256|MANIFEST.*) return 1 ;;   # Snapshot-Metadaten, kein Projektfile
+    global/*)  printf '%s\n' "$HOME/.claude/${rel#global/}" ;;
+    memory/*)  [ -n "$memdir" ] || return 1
+               printf '%s\n' "$memdir/${rel#memory/}" ;;
+    project/*) printf '%s\n' "$proj/${rel#project/}" ;;
+    rules/*)   printf '%s\n' "$proj/.claude/rules/${rel#rules/}" ;;
+    */*)       return 1 ;;                    # unbekannter Zweig -> melden statt raten
+    *)         printf '%s\n' "$proj/$rel" ;;  # Wurzel = Projektwurzel
+  esac
+}
+
+# ==========================================================================
+# mind_zeilenenden_waechter — der ganze Durchlauf (NEU v5.13.0)
+# ==========================================================================
+# Vergleicht jede .md des Snapshots mit ihrem echten Gegenstueck.
+#
+# ⛔ Diese Logik stand bis v5.12.0 als Codeblock in `mind-all/SKILL.md`. Dort
+#    war sie NICHT PRUEFBAR -- kein Prueffall kann einen Absatz in einer
+#    Markdown-Datei aufrufen. Genau deshalb konnte sie ein Jahr lang 1 von 68
+#    Dateien vergleichen, ohne dass etwas rot wurde. Sie liegt jetzt hier,
+#    damit `tests/test_zeilenenden.sh` sie direkt fahren kann.
+#
+# Ausgabe (stdout), maschinell lesbar als erste Zeile:
+#   VERGLICHEN=<n> OHNE_ZIEL=<n> GEKIPPT=<n>
+# danach je gekippter Datei eine Zeile "  <rel>: <vorher> -> <nachher>".
+#
+# Rueckgabe: 0 = alles gleich · 1 = mindestens eine gekippt
+#            2 = UNGUELTIG (<= 1 Datei verglichen -- der Waechter hat nichts geprueft)
+mind_zeilenenden_waechter() {
+  local snap="$1" proj="$2" memdir="${3:-}"
+  local v z ziel a b vergl=0 ohne=0 kipp=0 liste=""
+
+  [ -n "$snap" ] && [ -d "$snap" ] || { echo "VERGLICHEN=0 OHNE_ZIEL=0 GEKIPPT=0"; return 2; }
+
+  while IFS= read -r v; do
+    [ -n "$v" ] || continue
+    z="${v#"$snap"/}"
+    ziel=$(mind_schnappziel "$z" "$proj" "$memdir") || { ohne=$((ohne + 1)); continue; }
+    # Fehlt das Ziel, ist die Datei geloescht oder umbenannt -- ein anderer
+    # Befund, nicht Sache dieses Waechters.
+    [ -f "$ziel" ] || { ohne=$((ohne + 1)); continue; }
+    a=$(mind_zeilenenden "$v"); b=$(mind_zeilenenden "$ziel")
+    vergl=$((vergl + 1))
+    mind_zeilenenden_gleich "$a" "$b" || {
+      kipp=$((kipp + 1))
+      liste="${liste}  ${z}: ${a} -> ${b}"$'\n'
+    }
+  done < <(find "$snap" -type f -name '*.md' 2>/dev/null)
+
+  echo "VERGLICHEN=$vergl OHNE_ZIEL=$ohne GEKIPPT=$kipp"
+  [ -n "$liste" ] && printf '%s' "$liste"
+
+  # ⛔ DIE ZUSICHERUNG AUF DIE ZAHL. Ein Waechter, der fast nichts prueft, sieht
+  #    von aussen aus wie einer, der nichts zu beanstanden hat. Deshalb ist eine
+  #    zu kleine Vergleichszahl ein eigener Rueckgabewert und keine Fussnote.
+  [ "$vergl" -le 1 ] && return 2
+  [ "$kipp" -gt 0 ] && return 1
+  return 0
 }

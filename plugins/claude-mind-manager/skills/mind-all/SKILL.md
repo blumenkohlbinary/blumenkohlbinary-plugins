@@ -287,18 +287,26 @@ kippen.
 
 ```bash
 # Der Snapshot aus Step 0 ist der Vorher-Stand — er wird hier zum Messinstrument.
-SNAP="$MIND_SNAPSHOT_DIR"
-GEKIPPT=""
-if [ -n "$SNAP" ] && [ -d "$SNAP" ]; then
-  while IFS= read -r v; do
-    z="${v#$SNAP/}"; [ -f "$PROJ/$z" ] || continue
-    A=$(mind_zeilenenden "$v"); B=$(mind_zeilenenden "$PROJ/$z")
-    mind_zeilenenden_gleich "$A" "$B" || GEKIPPT="$GEKIPPT  $z: $A -> $B
-"
-  done < <(find "$SNAP" -type f -name '*.md' 2>/dev/null)
-fi
-[ -n "$GEKIPPT" ] && printf 'ZEILENENDEN GEKIPPT:\n%s' "$GEKIPPT"
+MEMDIR=$(get_memory_dir "$PROJ" 2>/dev/null) || MEMDIR=""
+mind_zeilenenden_waechter "$MIND_SNAPSHOT_DIR" "$PROJ" "$MEMDIR"
+RC=$?
+[ "$RC" = 2 ] && echo "⛔ WAECHTER UNGUELTIG — Zeilenenden in diesem Lauf NICHT geprueft."
 ```
+
+⛔ **Rueckgabe 2 ist ein BEFUND, kein Nebensatz.** Sie heisst: der Waechter hat hoechstens
+eine Datei verglichen und damit **nichts** geprueft. Das gehoert als offener Punkt in den
+Bericht — niemals als „keine Abweichung".
+
+⛔ **Bis v5.12.0 stand hier ein 12-zeiliger Codeblock**, der `$PROJ/$z` fuer **jeden**
+Snapshot-Pfad bildete. Ein Snapshot hat aber vier Zweige (`project/`, `rules/`, `global/`,
+`memory/`), und keiner liegt unter `$PROJ/<zweig>/`. Uebrig blieb die eine Datei in der
+Snapshot-Wurzel: **gemessen 1 von 68** (Zustellplan, 22.08.2026). Der Waechter meldete
+„keine Abweichung" und hatte 67 Dateien nie angesehen.
+
+⚠ **Warum das so lange hielt:** Ein Codeblock in einer Markdown-Datei ist von keinem
+Prueffall aufrufbar. Die Logik liegt deshalb seit v5.13.0 in `lib.sh`
+(`mind_zeilenenden_waechter`, `mind_schnappziel`) und wird von `tests/test_zeilenenden.sh`
+gefahren — mit einem kuenstlichen Snapshot, in dem **genau eine** Datei gekippt ist.
 
 ⛔ **Gemessen wird der CRLF-ANTEIL, nicht die Zeilenzahl.** Eine Zusicherung „Zeilenzahl
 unveraendert" ist bei genau diesem Fehler **gruen** — sie hat ihn schon einmal durchgelassen.

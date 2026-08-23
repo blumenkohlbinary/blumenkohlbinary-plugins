@@ -30,8 +30,15 @@ from pathlib import Path
 # --- Stage-1-Muster: EN + DE gleichberechtigt ---
 RELEVANT_PATTERNS = [
     # Entscheidungen / Architektur
-    re.compile(r'\b(decision|architekt|pattern|wir entscheiden|wir nutzen|wir machen|'
-               r'entscheid|festgelegt|stattdessen|lieber|besser so|umgestellt)\b', re.I),
+    # ⛔ `\w*` vor dem schliessenden `\b` — v5.13.0. Vorher stand hier
+    #    `…|architekt|…|entscheid|…)\b`: das verlangt eine Wortgrenze DIREKT
+    #    hinter dem Stamm, die es in "Entscheidung" und "architektonisch" nie
+    #    gibt. Beide Staemme konnten damit nur sich selbst treffen. Und weil
+    #    "entschieden" den Stamm entsch-IED hat, half auch `entscheid\w*` allein
+    #    nicht — daher `entsch(?:eid|ied)`.
+    re.compile(r'\b(decision|architekt\w*|pattern|wir entscheiden|wir nutzen|wir machen|'
+               r'entsch(?:eid|ied)\w*|festgelegt|stattdessen|lieber|besser so|'
+               r'umgestellt|verworfen)\b', re.I),
     # Fehler / Korrekturen
     re.compile(r'\b(bug|error|fail|crash|fix|tool_use_error|cancelled|'
                r'fehler|falsch|kaputt|geht nicht|korrigiert|behoben|klappt nicht)\b', re.I),
@@ -215,14 +222,45 @@ TOP_N = 10
 LONG_SESSION_TOP_N = 5
 LONG_SESSION_THRESHOLD = 500
 
+# ⛔ v5.13.0 — GEMESSEN 23.08.2026: die alte Fassung traf 0 von 10 echten
+#    Entscheidungssaetzen dieser Sitzung. Nicht "zu eng" — STILL.
+#
+#    Ursache: sie verlangte fast durchweg einen DOPPELPUNKT (`decision:`,
+#    `pattern:`, `entschieden:`) oder eine englische Wendung (`instead of`).
+#    So schreibt niemand. Die deutschen Formen, die tatsaechlich vorkommen —
+#    "Die Entscheidung ist gefallen", "Nutzer-Entscheidung", "stattdessen",
+#    "festgelegt", "verworfen", "bewusst NICHT gemacht" — trafen KEINES der
+#    sieben Muster. Der Arbeitsstand, den `pre-compact.sh` vor JEDER
+#    Kompaktierung rettet, hatte damit systematisch eine leere Kategorie —
+#    und zwar die wichtigste.
+#
+#    ⚠ Zwei Stolperstellen, die beim Reparieren auffielen:
+#    1. "entscheiden" und "entschieden" haben VERSCHIEDENE Staemme
+#       (entsch-EID / entsch-IED). Ein Muster auf `entscheid` allein findet
+#       "entschieden" nie. Deshalb `entsch(?:eid|ied)`.
+#    2. `(?!end)` haelt das Adjektiv "entscheidend" heraus — "eine
+#       entscheidende Zeile" ist keine Entscheidung. Ohne die Sperre waere
+#       der Fix von "trifft nichts" nach "trifft zu viel" gekippt.
+#
+#    Gegenprobe liegt als `tests/test_sampler_filter.py` daneben und faehrt
+#    BEIDE Richtungen: echte Saetze muessen treffen, Nicht-Entscheidungen
+#    muessen still bleiben. Ein Muster, das alles trifft, ist hier ROT.
 DECISION_PATTERNS_ASSISTANT = [
     re.compile(r'\bdecision\s*:', re.IGNORECASE),
-    re.compile(r'\barchitekt(?:ur)?\b', re.IGNORECASE),
+    re.compile(r'\barchitekt\w*', re.IGNORECASE),
     re.compile(r'\bpattern\s*:', re.IGNORECASE),
     re.compile(r'\bwir\s+(?:entscheiden|nehmen\s+.{0,30}\s+statt|nutzen\s+.{0,30}\s+statt)', re.IGNORECASE),
     re.compile(r'\binstead\s+of\b', re.IGNORECASE),
     re.compile(r'\bwir\s+machen\s+.{0,40}?\b(?:weil|because|denn)\b', re.IGNORECASE),
-    re.compile(r'\bentschieden\s*:', re.IGNORECASE),
+    # --- deutsche Entscheidungssprache, NEU v5.13.0 ---
+    re.compile(r'\bentsch(?:eid|ied)(?!end)\w*', re.IGNORECASE),
+    re.compile(r'\bfestgelegt\b', re.IGNORECASE),
+    re.compile(r'\bstattdessen\b', re.IGNORECASE),
+    re.compile(r'\bumgestellt\b', re.IGNORECASE),
+    re.compile(r'\bverworfen\b', re.IGNORECASE),
+    re.compile(r'\bbewusst\s+(?:nicht|kein|gegen)\b', re.IGNORECASE),
+    re.compile(r'\bwir\s+setzen\s+auf\b', re.IGNORECASE),
+    re.compile(r'\bgew(?:ae|ä)hlt\b', re.IGNORECASE),
 ]
 
 # ⛔ KEIN Bug im Projekt, sondern Transport/Infrastruktur (NEU v5.7.0).
