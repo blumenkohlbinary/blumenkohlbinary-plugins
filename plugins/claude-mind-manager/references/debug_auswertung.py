@@ -17,13 +17,12 @@ die zwei Lehren, die schon dazu aufgeschrieben waren.
 Aufruf:  python debug_auswertung.py <debug-verzeichnis>
 Rueckgabe: 0 = geschrieben · 1 = kein index.jsonl · 2 = Aufruffehler
 """
-import io
 import json
 import os
 import sys
 from collections import defaultdict
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 # Feste Liste. Ein freies Textfeld waere nach drei Laeufen unbrauchbar — dann heisst
 # derselbe Fehler dreimal anders und wird nie als Wiederholung erkannt.

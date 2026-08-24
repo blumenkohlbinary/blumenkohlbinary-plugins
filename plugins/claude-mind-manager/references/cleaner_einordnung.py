@@ -48,7 +48,6 @@ Aufruf:
 
 Rueckgabe: 0 = eingeordnet · 1 = keine Datei lesbar · 3 = Selbsttest gescheitert
 """
-import io
 import os
 import re
 import sys
@@ -60,7 +59,7 @@ import sys
 #    Gemessen 24.08.2026 an `cleaner_duplikate.py`: zwei Prueffaelle meldeten
 #    0 Treffer fuer Zeilen, die dastanden. Dieselbe Klasse wie der in der
 #    globalen CLAUDE.md dokumentierte `write_text()`-Fall.
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 # --- Die Signale ----------------------------------------------------------
 # ⚠ Jedes Signal ist eine ENTSCHEIDUNG darueber, was zaehlt. Sie stehen hier
@@ -130,7 +129,23 @@ def einordnen(pfad):
                 "grund": "keine Absaetze ausserhalb von Codebloecken"}
 
     imp = sum(1 for a in abs_ if IMPERATIV.search(a)) / n
-    kon = sum(1 for a in abs_ if KONKRET.search(a)) / n
+
+    # ⛔ KONKRETHEIT wird MIT Codebloecken gemessen, IMPERATIVDICHTE ohne.
+    #
+    #    Gemessen 24.08.2026 an `workstation-fernzugriff`: `poweroff`, `suspend`
+    #    und `reboot` stehen 31 mal im Skill — die Konkretheit lag trotzdem bei
+    #    0,16 und die Einordnung sagte "nichts, woran ein Hook haengen koennte".
+    #    Ursache: `absaetze()` schneidet Codebloecke heraus, BEVOR gemessen
+    #    wird, und genau dort stehen die Befehle.
+    #
+    #    ⭐ Ein Befehl in einem Codeblock ist der STAERKSTE denkbare Hook-Anker.
+    #    Ihn wegzuschneiden macht das Signal blind fuer seinen wichtigsten Fall.
+    #
+    #    Die Imperativdichte bleibt ohne Code: ein `MUST` in einem Codekommentar
+    #    ist eine Notiz, kein Gebot an den Leser.
+    roh_abs = [a.strip() for a in re.split(r"\n\s*\n", t) if a.strip()]
+    kon = (sum(1 for a in roh_abs if KONKRET.search(a)) / len(roh_abs)
+           if roh_abs else 0.0)
     zeilen_ges = max(1, len(t.split("\n")))
     cod = codezeilen / zeilen_ges
 
@@ -154,6 +169,121 @@ def einordnen(pfad):
     return {"pfad": pfad, "bytes": len(t.encode("utf-8")), "absaetze": n,
             "imperativ": imp, "konkret": kon, "code": cod,
             "zaun_offen": zaun_offen, "vorschlag": v, "grund": g}
+
+
+# ==========================================================================
+# Schritt 5 (v5.17.0) — Lint Leakage und der Zeiger-Zusammenzug
+# ==========================================================================
+
+# ⭐ LINT LEAKAGE ist die HAEUFIGSTE Fehlerklasse ueberhaupt.
+#
+# `[STUDIE, unbestaetigt]` arXiv 2606.15828, 100 Repos: **62 % der Dateien**
+# betroffen, 93 % Erkennungspraezision. Haeufiger als alles andere.
+#
+# Definition: Eine Regel, die ein Hook, Linter oder Formatter BEREITS
+# deterministisch durchsetzt, gehoert GANZ weg — nicht verschoben.
+#
+# ⛔ Bis v5.16.0 kannte die Einordnung "Hook" nur als ZIEL eines Umzugs, nie
+#    als Grund zu ENTFERNEN. Der Nutzer hat die Klasse selbst benannt, bevor
+#    die Recherche sie fand: "backup-before-delete ist schon eine hook".
+#
+# ⚠ ABER: Das Gebot bleibt noetig, auch wenn der Hook greift. Der Sicherungs-
+#   Hook hat drei dokumentierte Luecken. **Was verschwinden darf, ist die
+#   BESCHREIBUNG DES MECHANISMUS — nicht die Leitplanke.**
+#   Deshalb heisst der Befund "Beschreibung doppelt", nicht "Regel ueberfluessig".
+
+def hooks_im_projekt(projekt):
+    """Welche Hooks laufen, und worauf hoeren sie? {name: [matcher, ...]}"""
+    import json
+    out = {}
+    for kand in (os.path.join(projekt, ".claude", "settings.json"),
+                 os.path.join(os.path.expanduser("~"), ".claude", "settings.json")):
+        try:
+            with open(kand, encoding="utf-8", errors="replace") as fh:
+                d = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        for ereignis, eintraege in (d.get("hooks") or {}).items():
+            for e in eintraege if isinstance(eintraege, list) else []:
+                m = e.get("matcher") or "*"
+                for h in e.get("hooks") or []:
+                    befehl = str(h.get("command", ""))
+                    name = os.path.basename(befehl.split()[-1]) if befehl else "?"
+                    out.setdefault(name, []).append("%s:%s" % (ereignis, m))
+    return out
+
+
+def lint_leakage(pfad, projekt):
+    """Beschreibt diese Regel einen Mechanismus, den ein Hook schon durchsetzt?
+
+    Rueckgabe: (verdaechtig, hookname, begruendung)
+    ⚠ Das ist ein HINWEIS. Ob der Hook wirklich dasselbe durchsetzt, kann kein
+      Namensvergleich entscheiden.
+    """
+    try:
+        with open(pfad, encoding="utf-8", errors="replace") as fh:
+            t = fh.read()
+    except OSError:
+        return False, None, "nicht lesbar"
+    hooks = hooks_im_projekt(projekt)
+    if not hooks:
+        return False, None, "keine Hooks registriert oder settings.json nicht lesbar"
+    for name in hooks:
+        stamm = os.path.splitext(name)[0]
+        if len(stamm) >= 5 and stamm.lower() in t.lower():
+            return True, name, ("die Regel nennt `%s` — dieser Hook laeuft bereits "
+                                "(%s). Die BESCHREIBUNG des Mechanismus ist damit "
+                                "doppelt; die Leitplanke bleibt noetig."
+                                % (name, ", ".join(sorted(set(hooks[name])))[:60]))
+    return False, None, "kein laufender Hook wird namentlich genannt"
+
+
+def mit_skill(pfad):
+    """Kurz-Rule + zugehoeriger Skill ZUSAMMEN einordnen.
+
+    ⛔ DER BEFUND, DER DAS NOETIG MACHT (24.08.2026):
+       Fuer `workstation-fernzugriff` meldete die Einordnung "BLEIBT RULE" mit
+       Konkretheit 0,10 — also "nichts, woran ein Hook haengen koennte".
+       **Das stimmt nicht.** Die haerteste Leitplanke darin (Suspendieren und
+       Herunterfahren nur auf Ansage) ist ein sauberer PreToolUse-Anker auf
+       `ssh ... poweroff|reboot|suspend`.
+
+       Ursache: Der Umzug hat die konkreten Befehlsnamen mit dem Rumpf in den
+       Skill geschoben. Die Einordnung misst die Kurz-Rule und findet keinen
+       Anker mehr.
+
+       > Ein Umzug kann eine Hook-Gelegenheit VERSTECKEN, ohne sie zu beseitigen.
+    """
+    e = einordnen(pfad)
+    if e is None:
+        return None
+    try:
+        with open(pfad, encoding="utf-8", errors="replace") as fh:
+            t = fh.read()
+    except OSError:
+        return e
+    m = re.search(r"([~\w./-]*skills/[\w.-]+/SKILL\.md)", t.replace("\\", "/"))
+    if not m:
+        return e
+    ziel = os.path.expanduser(m.group(1))
+    if not os.path.isfile(ziel):
+        e["skill"] = "genannt, aber nicht gefunden: %s" % m.group(1)
+        return e
+    zus = einordnen(ziel)
+    if zus is None:
+        return e
+    # Zusammen messen: die hoehere Dichte gilt.
+    e["skill"] = os.path.basename(os.path.dirname(ziel))
+    e["konkret_zusammen"] = max(e["konkret"], zus["konkret"])
+    e["imperativ_zusammen"] = max(e["imperativ"], zus["imperativ"])
+    if e["konkret_zusammen"] >= 0.30 and e["imperativ_zusammen"] >= 0.30 \
+            and e["vorschlag"] != "HOOK-KANDIDAT":
+        e["vorschlag_zusammen"] = "HOOK-KANDIDAT"
+        e["grund_zusammen"] = ("allein betrachtet kein Anker (kon %.2f) — MIT dem "
+                               "Skill zusammen aber sehr wohl (kon %.2f). Der Umzug "
+                               "hat die Hook-Gelegenheit versteckt, nicht beseitigt."
+                               % (e["konkret"], e["konkret_zusammen"]))
+    return e
 
 
 # --------------------------------------------------------------------------

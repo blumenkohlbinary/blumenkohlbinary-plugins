@@ -21,7 +21,6 @@ Zwei Aufgaben, beide nur LESEND:
 Aufruf:  learnings_scan.py <wurzel> [--jsonl F] [--bericht F] [--bestand F] [--ts T]
 Rueckgabe: 0 = gelaufen · 2 = Aufruffehler
 """
-import io
 import json
 import os
 import re
@@ -31,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from learnings_quellen import (AUS, lehren, lies,  # noqa: E402
                                memory_pfad, projekte, quellen, upstream_datei)
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 # ⛔ ENTFERNT am 21.08.2026 — die Pruefung widersprach der Spezifikation.
 #

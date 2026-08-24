@@ -40,7 +40,6 @@ Aufruf:
 
 Rueckgabe: 0 = passt · 1 = Grenze gerissen oder nah dran · 2 = nicht messbar
 """
-import io
 import os
 import re
 import sys
@@ -49,7 +48,7 @@ import sys
 #    TextIOWrapper jeden Zeilenumbruch in die Windows-Fassung (CR + LF).
 #    Jede zeilenverankerte Zusicherung (das Dollarzeichen in grep) bricht
 #    dann — und zwar STILL, denn die Ausgabe sieht voellig richtig aus.
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 MEMORY_ZEILEN = 200
 MEMORY_BYTES = 25 * 1024

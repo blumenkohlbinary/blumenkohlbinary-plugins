@@ -18,12 +18,11 @@ Aufruf:
 
 Rueckgabe: 0 = alles gruen  |  1 = Faelle rot  |  3 = Pruefstand ungueltig
 """
-import io
 import os
 import re
 import sys
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 BS = chr(92)
 

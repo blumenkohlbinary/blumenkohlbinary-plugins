@@ -36,9 +36,52 @@ Ein falsch herausgeschnittener Satz fällt erst auf, wenn er gebraucht wird — 
 Weitere Aufrufe:
 
 ```
+/mind-cleaner --audit              der Fuenf-Gruppen-Bericht (NEU v5.18.0)
 /mind-cleaner --nachmessen         nach einer NEUEN Sitzung: hat der Umzug gewirkt?
 /mind-cleaner --hook-bauen <datei> Hook erzeugen — NUR auf ausdrueckliche Ansage
 ```
+
+## ⭐ `--audit` — der Bericht, in dem alles zusammenläuft
+
+```bash
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_audit.py" \
+       --bereich "$PROJ" --nur global|projekt|alles
+```
+
+Er fährt **alle sechs Werkzeuge** und legt fünf Gruppen vor — **Gruppe 5 zuerst:**
+
+```
+5a  kein Verstoss vorliegend            vielleicht spaeter messbar
+5b  GRUNDSAETZLICH NICHT LOGGBAR        ⭐ der Kern, nicht der Rest
+1   belegt noetig                       bleibt, wo es ist
+2   falsch platziert                    Ort A -> Ort B, mit Zielpfad
+3   doppelt                             eine Stelle wird Zeiger
+4   belegt veraltet                     ins Archiv, mit Beleg
+```
+
+⛔ **Gruppe 5 steht oben, nicht unten.** Sie ist das ehrliche Maß dafür, wie viel der Lauf
+wirklich wusste. Ein Bericht, der sie ans Ende schiebt, behauptet Sicherheit, die er nicht hat.
+
+⭐ **Und 5b ist der Kern.** Urteils- und Prozessregeln (`keine-annahmen`, `plan-mode`,
+`ursache-vor-reparatur`, `fertig-heisst-fertig`) erzeugen kaum je einen maschinell
+erfassbaren Verstoß. Sie landen dort **nicht weil sie unbeobachtet blieben, sondern weil sie
+unbeobachtBAR sind.** Wer 5b für eine Restmenge hält, liest den Bericht falsch.
+
+**Zwei Belegquellen statt Selbsteinschätzung** (`cleaner_belege.py`):
+
+| Quelle | was sie zeigt |
+|---|---|
+| `Debug/index.jsonl` | datierte Verstöße — **hören sie an einem Modellwechsel auf?** |
+| Git-Historie | **Ein-Commit** = seit Anlage nie überarbeitet („Init Fossilization") |
+
+⛔ **Die Frage *„würdest du das auch ohne die Regel tun?"* wird NICHT gestellt.** Sie ist
+nicht zuverlässig beantwortbar: am 24.08.2026 wurden **vier Regeln gebrochen, die wörtlich in
+der geladenen `CLAUDE.md` standen**. Vorher hätte die Selbsteinschätzung bei jeder gelautet:
+*„das mache ich sowieso richtig."*
+
+⚠ **Die Stichwortbildung war zuerst viel zu locker** — `nicht`, `gegen`, `Regeln` als
+Stichworte schrieben `env-vars.md` **56 von 106** Befunden zu, und Gruppe 5b blieb **leer**.
+**Eine Belegquelle, die fast alles belegt, belegt nichts.**
 
 ---
 

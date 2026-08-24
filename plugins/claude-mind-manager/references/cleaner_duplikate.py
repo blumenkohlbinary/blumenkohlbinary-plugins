@@ -55,7 +55,6 @@ Aufruf:
 
 Rueckgabe: 0 = gelaufen · 1 = keine Ablage lesbar · 3 = Selbsttest gescheitert
 """
-import io
 import os
 import re
 import sys
@@ -68,7 +67,7 @@ import collections
 #    Gemessen 24.08.2026 an `cleaner_duplikate.py`: zwei Prueffaelle meldeten
 #    0 Treffer fuer Zeilen, die dastanden. Dieselbe Klasse wie der in der
 #    globalen CLAUDE.md dokumentierte `write_text()`-Fall.
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 # Marken, die eine Uebersetzung ueberleben und spezifisch genug sind.
 # ⚠ Bewusst ENG. Lieber ein Duplikat uebersehen als eine Liste voller Rauschen.

@@ -50,7 +50,6 @@ Aufruf:
 Rueckgabe: 0 = nicht schlechter geworden · 1 = neue ungetestete Funktion
            2 = Messung unmoeglich (keine lib.sh, kein tests/)
 """
-import io
 import os
 import re
 import sys
@@ -62,7 +61,7 @@ import sys
 #    Gemessen 24.08.2026 an `cleaner_duplikate.py`: zwei Prueffaelle meldeten
 #    0 Treffer fuer Zeilen, die dastanden. Dieselbe Klasse wie der in der
 #    globalen CLAUDE.md dokumentierte `write_text()`-Fall.
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 WURZEL = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.abspath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))

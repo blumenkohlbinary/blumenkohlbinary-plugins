@@ -50,7 +50,6 @@ Aufruf:
 Rueckgabe beim Pruefen: 0 = bekannt und gueltig · 1 = unbekannt oder veraltet
 """
 import hashlib
-import io
 import json
 import os
 import sys
@@ -63,7 +62,7 @@ import time
 #    Gemessen 24.08.2026 an `cleaner_duplikate.py`: zwei Prueffaelle meldeten
 #    0 Treffer fuer Zeilen, die dastanden. Dieselbe Klasse wie der in der
 #    globalen CLAUDE.md dokumentierte `write_text()`-Fall.
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 URTEILE = ("duplikat", "zielform", "zeiger", "zahlendrift", "widerspruch")
 

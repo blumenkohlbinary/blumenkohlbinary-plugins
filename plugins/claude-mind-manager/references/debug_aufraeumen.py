@@ -29,14 +29,13 @@ Aufruf:
   debug_aufraeumen.py <debug-dir> --entferne-lauf <name>       einen Laufbericht entfernen
 Rueckgabe: 0 = erledigt · 1 = kein index.jsonl · 2 = Aufruffehler
 """
-import io
 import json
 import os
 import shutil
 import sys
 import time
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 SCANNER = "mind-learnings"
 

@@ -21,12 +21,11 @@ fruehere Messversuche gescheitert sind:
 Aufruf:  python ladeprotokoll_auswertung.py [--log <pfad>] [--rules <ordner>]
 Rueckgabe: 0 = ausgewertet · 2 = kein Protokoll · 3 = Schema unbekannt
 """
-import io
 import os
 import sys
 import collections
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 
 def finde_log():

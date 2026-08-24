@@ -29,13 +29,12 @@ RUECKGABE
     0 = gemessen, keine Befunde   1 = Befunde   2 = Aufrufasfehler
     3 = MESSUNG UNGUELTIG (Instrumentenkontrolle durchgefallen)
 """
-import io
 import json
 import os
 import re
 import sys
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 # ---------------------------------------------------------------------------
 # Check 3 — Emoji. NIE nach Unicode-Kategorie.

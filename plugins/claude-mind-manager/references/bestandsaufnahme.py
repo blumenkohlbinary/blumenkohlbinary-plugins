@@ -27,13 +27,12 @@ KONTROLLE (muss bestehen, sonst Rueckgabe 3): ein SYNTHETISCHER Prueftext mit
 
 Aufruf: python Learnings/bestandsaufnahme.py [--ordner <pfad>]
 """
-import io
 import os
 import re
 import sys
 from datetime import date
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 HEUTE = date(2026, 8, 21)
 

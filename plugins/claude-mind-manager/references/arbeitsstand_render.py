@@ -12,11 +12,10 @@ session_sampler.py: der Heredoc-Weg ist auf Windows/Git-Bash unzuverlaessig
 Aufruf:  python arbeitsstand_render.py <arbeitsstand.json>
 Rueckgabe: 0 = gerendert · 1 = Datei fehlt/unlesbar (Aufrufer laeuft weiter)
 """
-import io
 import json
 import sys
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 KATEGORIEN = [
     ("decisions", "Architektonische Entscheidungen"),
