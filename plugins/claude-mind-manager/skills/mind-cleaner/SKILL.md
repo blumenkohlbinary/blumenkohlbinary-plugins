@@ -110,7 +110,8 @@ Gehört die Datei nicht dem Nutzer (Upstream, Fremdklon), wird sie **gelistet, n
 ## Step 1: Messen, was da ist
 
 ```bash
-python "$CLAUDE_PLUGIN_ROOT/references/bestandsaufnahme.py" <verzeichnis>
+python "$CLAUDE_PLUGIN_ROOT/references/bestandsaufnahme.py" --ordner <verzeichnis>
+# oder positional: ... bestandsaufnahme.py <verzeichnis>   (beides seit v5.20.1)
 ```
 
 Größe, Dateizahl, Zusammensetzung. Die Kontrolle des Werkzeugs ist ein **synthetischer

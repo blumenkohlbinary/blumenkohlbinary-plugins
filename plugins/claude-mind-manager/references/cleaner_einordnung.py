@@ -192,6 +192,31 @@ def einordnen(pfad):
 #   BESCHREIBUNG DES MECHANISMUS — nicht die Leitplanke.**
 #   Deshalb heisst der Befund "Beschreibung doppelt", nicht "Regel ueberfluessig".
 
+def _skriptname(befehl):
+    """Den Skript-Dateinamen aus einer Hook-Befehlszeile ziehen.
+
+    ⛔ Bis v5.20.0 stand hier `os.path.basename(befehl.split()[-1])`. Bei einem
+       GEQUOTETEN Pfad — dem Normalfall auf Windows — nimmt das letzte Wort das
+       schliessende Anfuehrungszeichen mit:
+
+           python "C:/.../hooks/sicherung.py"   ->   'sicherung.py"'
+
+       Aus dem Namen wurde in `lint_leakage` der Stamm `sicherung` — ein ganz
+       gewoehnliches deutsches Wort. Gemessen am 25.08.2026: **4 Meldungen,
+       1 echt, 3 Fehlalarme**. `z-mount-rclone.md` sagte schlicht
+       "Vorher Sicherung." und galt als Lint Leakage.
+    """
+    if not befehl:
+        return "?"
+    # Anfuehrungszeichen weg, dann das letzte Stueck nehmen, das nach einem
+    # Skript aussieht. Argumente hinter dem Skript stoeren damit nicht mehr.
+    stuecke = [s.strip("\"'") for s in befehl.replace("\\", "/").split()]
+    skripte = [s for s in stuecke if s.lower().endswith((".py", ".sh", ".ps1", ".js"))]
+    if skripte:
+        return os.path.basename(skripte[-1])
+    return os.path.basename(stuecke[-1]) if stuecke else "?"
+
+
 def hooks_im_projekt(projekt):
     """Welche Hooks laufen, und worauf hoeren sie? {name: [matcher, ...]}"""
     import json
@@ -207,8 +232,7 @@ def hooks_im_projekt(projekt):
             for e in eintraege if isinstance(eintraege, list) else []:
                 m = e.get("matcher") or "*"
                 for h in e.get("hooks") or []:
-                    befehl = str(h.get("command", ""))
-                    name = os.path.basename(befehl.split()[-1]) if befehl else "?"
+                    name = _skriptname(str(h.get("command", "")))
                     out.setdefault(name, []).append("%s:%s" % (ereignis, m))
     return out
 
@@ -228,9 +252,24 @@ def lint_leakage(pfad, projekt):
     hooks = hooks_im_projekt(projekt)
     if not hooks:
         return False, None, "keine Hooks registriert oder settings.json nicht lesbar"
+    # ⛔ Gesucht wird der VOLLE DATEINAME, nicht sein Stamm.
+    #
+    #    Bis v5.20.0 stand hier `stamm.lower() in t.lower()` mit
+    #    `stamm = splitext(name)[0]`. Fuer `sicherung.py` heisst der Stamm
+    #    `sicherung` — ein ganz gewoehnliches deutsches Wort. Gemessen am
+    #    25.08.2026 ueber `~/.claude/rules/`: **4 Meldungen, 1 echt, 3
+    #    Fehlalarme**; `z-mount-rclone.md` sagte nur "Vorher Sicherung."
+    #
+    #    ⭐ Ein Dateiname-Stamm gegen deutsche PROSA zu pruefen, ist dieselbe
+    #      Klasse wie der Rauschfilter in cleaner_duplikate: das Instrument
+    #      trifft den Gegenstand nicht, liefert aber weiter Zahlen.
+    #
+    #    ⚠ Der Preis ist bewusst: eine Regel, die "der Sicherungs-Hook" schreibt
+    #      ohne die Datei zu nennen, wird nicht mehr gefunden. Ein uebersehener
+    #      Hinweis kostet nichts; drei Fehlalarme in einer Liste von vier machen
+    #      die Liste unlesbar.
     for name in hooks:
-        stamm = os.path.splitext(name)[0]
-        if len(stamm) >= 5 and stamm.lower() in t.lower():
+        if len(name) >= 5 and name.lower() in t.lower():
             return True, name, ("die Regel nennt `%s` — dieser Hook laeuft bereits "
                                 "(%s). Die BESCHREIBUNG des Mechanismus ist damit "
                                 "doppelt; die Leitplanke bleibt noetig."

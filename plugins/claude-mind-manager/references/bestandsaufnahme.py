@@ -106,20 +106,81 @@ def messe(pfad):
     return z, alter_tage(t)
 
 
+def _sammle(ordner):
+    """Alle .md REKURSIV.
+
+    ⛔ Bis v5.20.0 stand hier `os.listdir` — also FLACH, waehrend der Bericht
+       "(REKURSIV gezaehlt)" behauptete und die Skill-Doku ausdruecklich sagt:
+       *Wer den Umfang eines Regelbestands misst, misst rekursiv.*
+       Der teuerste Einzelbefund dieses Werkzeugs hing genau daran: am
+       23.08.2026 kamen **267 von 920** Ladevorgaengen aus einem `archive/`-
+       Ordner, der angelegt worden war, UM den Bestand zu kuerzen. Eine flache
+       Zaehlung haette ihn nie gesehen.
+    """
+    out = []
+    for wurzel, _dirs, dateien in os.walk(ordner):
+        for f in dateien:
+            if f.endswith(".md"):
+                out.append(os.path.join(wurzel, f))
+    return out
+
+
 def main():
-    ordner = os.path.expanduser("~/.claude/rules")
-    if "--ordner" in sys.argv:
-        ordner = sys.argv[sys.argv.index("--ordner") + 1]
-    pfade = sorted(
-        (os.path.join(ordner, f) for f in os.listdir(ordner) if f.endswith(".md")),
-        key=os.path.getsize, reverse=True)
+    # ⛔ Bis v5.20.0 wurde ein POSITIONALES Argument STILL VERWORFEN.
+    #    Die SKILL.md dokumentierte `bestandsaufnahme.py <verzeichnis>`; das
+    #    Werkzeug las nur `--ordner`. Ein Projekt-Lauf meldete damit die
+    #    GLOBALEN Zahlen — und das sah aus wie ein Befund ueber den Bestand.
+    #    Aufgefallen im /mind-cleaner-Lauf vom 25.08.2026, und nur deshalb,
+    #    weil Projekt- und Global-Zahlen byte-gleich waren.
+    #    ⭐ Die Haertung ist nicht "positional geht jetzt auch", sondern:
+    #       ein Argument, das nicht verstanden wird, BRICHT AB. Stilles
+    #       Ignorieren laesst den naechsten Aufruf-Fehler wieder wie einen
+    #       Befund ueber den Gegenstand aussehen.
+    argv = sys.argv[1:]
+    ordner = None
+    if "--ordner" in argv:
+        i = argv.index("--ordner")
+        if i + 1 >= len(argv):
+            print("--ordner braucht einen Pfad", file=sys.stderr)
+            return 2
+        ordner = argv[i + 1]
+        argv = argv[:i] + argv[i + 2:]
+    unbekannt = [a for a in argv if a.startswith("-")]
+    if unbekannt:
+        print("Unbekanntes Argument: %s" % " ".join(unbekannt), file=sys.stderr)
+        print("Aufruf: bestandsaufnahme.py [<verzeichnis> | --ordner <verzeichnis>]",
+              file=sys.stderr)
+        return 2
+    rest = [a for a in argv if not a.startswith("-")]
+    if len(rest) > 1:
+        print("Mehr als ein Verzeichnis: %s" % " ".join(rest), file=sys.stderr)
+        return 2
+    if rest:
+        if ordner is not None and os.path.abspath(rest[0]) != os.path.abspath(ordner):
+            print("Widerspruch: --ordner %s gegen %s" % (ordner, rest[0]),
+                  file=sys.stderr)
+            return 2
+        ordner = rest[0]
+    if ordner is None:
+        ordner = os.path.expanduser("~/.claude/rules")
+    if not os.path.isdir(ordner):
+        print("Kein Verzeichnis: %s" % ordner, file=sys.stderr)
+        return 2
+
+    pfade = sorted(_sammle(ordner), key=os.path.getsize, reverse=True)
     if not pfade:
         print("Keine .md-Dateien in %s" % ordner, file=sys.stderr)
         return 2
 
+    # ⛔ Schluessel ist der RELATIVE Pfad, nicht der Dateiname. Seit die Suche
+    #    rekursiv ist, koennen `archive/env-vars.md` und `env-vars.md`
+    #    nebeneinander liegen — mit dem blossen Namen wuerde eine die andere
+    #    ueberschreiben, und der Bestand saehe kleiner aus als er ist. Genau
+    #    die Richtung des Fehlers, den die Rekursion beheben soll.
     werte, tage_je = {}, {}
     for p in pfade:
-        werte[os.path.basename(p)], tage_je[os.path.basename(p)] = messe(p)
+        k = os.path.relpath(p, ordner).replace("\\", "/")
+        werte[k], tage_je[k] = messe(p)
 
     # ------------------------------------------------------------------
     # KONTROLLE am SYNTHETISCHEN Prueftext — unabhaengig vom Ordner.
