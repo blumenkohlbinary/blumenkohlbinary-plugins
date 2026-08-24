@@ -133,8 +133,207 @@ _VERSION = re.compile(r"\bv?\d+\.\d+(\.\d+)?\b")
 _WERT = re.compile(r"\b\d[\d\s.]{2,}\b")
 
 
+# ==========================================================================
+# v5.20.0 — die zweite Achse: ERLEDIGT gegen OFFEN
+# ==========================================================================
+# _TOT/_LEBT deckt "entfallen gegen aktiv" ab. Die SIEBEN Halb-Korrekturen,
+# die der /mind-all-Lauf im Projekt `Creator` am 24.08.2026 fand, lagen aber
+# auf einer ANDEREN Achse -- und die gab es hier nicht:
+#
+#   stimme-qwen-kette.md:14   "Echo-Fix eingebaut"
+#   stimme-qwen-kette.md:124  "⛔ OFFEN ... NICHT eingebaut"
+#   110 Zeilen auseinander, beide gleich glaubwuerdig.
+#
+# `doku-veraltet` ist mit 25 Vorkommen die haeufigste Projekt-Klasse im
+# Debug-Ordner ueberhaupt. Der Lauf nannte auch das Gegenmittel:
+#
+#   "Sechs von sieben Funden waeren mit einem grep auf den KERNBEGRIFF --
+#    nicht auf die Ueberschrift -- vor dem Anhaengen aufgefallen."
+#
+# ⛔ Das ist eine ERGAENZUNG des vorhandenen Werkzeugs, kein Zweitbau.
+#    Marken-Erkennung, Zeilensuche und Rauschfilter waren schon da; gefehlt
+#    hat nur die Achse. `werkzeuge-zuerst.md` verlangt genau das: den Fall
+#    benennen, an dem das Original scheitert, ihn als Prueffall hinzufuegen,
+#    das Original erweitern.
+_FERTIG_WORT = (r"eingebaut|behoben|umgesetzt|erledigt|gefixt|geloest|"
+                r"abgeschlossen|nachgetragen|repariert")
+_ERLEDIGT = re.compile(r"\b(%s)\b|✅" % _FERTIG_WORT, re.IGNORECASE)
+_OFFEN = re.compile(
+    r"\b(noch nicht|steht\s+(noch\s+)?aus|ausstehend|ungeloest|fehlt noch)\b"
+    r"|\bnicht\s+(mehr\s+)?(%s)\b"
+    r"|\bTODO\b|\bOFFEN\b|❌" % _FERTIG_WORT, re.IGNORECASE)
+
+# ⛔ DIE NEGATION MUSS VOR DER ERKENNUNG WEG — sonst faellt der Hauptfall durch.
+#
+#    "NOCH NICHT eingebaut" ENTHAELT "eingebaut". Ohne dieses Ausschneiden
+#    zaehlt die Zeile als erledigt UND offen, und die Regel "eine Zeile mit
+#    beidem ist ein aufloesender Satz" wirft sie hinaus. Gemessen beim ersten
+#    Lauf des Selbsttests: **alle Gegenkontrollen gruen, alle Positivfaelle
+#    rot** -- ein Detektor, der nichts findet, besteht jede Negativprobe.
+#    Und "NICHT eingebaut" ist woertlich die Formulierung des Creator-Falls.
+_NEG_FERTIG = re.compile(r"\b(?:noch\s+)?nicht\s+(?:mehr\s+)?(?:%s)\b" % _FERTIG_WORT,
+                         re.IGNORECASE)
+
+
+def _sagt_erledigt(zeile):
+    """ERLEDIGT, nachdem die Negationen ausgeschnitten sind."""
+    return bool(_ERLEDIGT.search(_NEG_FERTIG.sub(" ", zeile)))
+
+
+# ⛔ DIE NAEHE ENTSCHEIDET, OB DAS STATUSWORT UEBERHAUPT ZU DIESER MARKE GEHOERT.
+#
+#    Erste Messung am echten Bestand (28 Dateien): **2 Befunde, beide falsch** —
+#    dieselbe Klasse wie die erste Zahlendrift-Fassung, nur in kleinerem Massstab.
+#
+#      known-issues.md:136  "mind-memory ✅ — ABER **mind-files ❌**: ..."
+#                           Das Haekchen gehoert zu mind-memory, das Kreuz zu
+#                           mind-files. Ohne ❌ als Offen-Signal las das Werkzeug
+#                           die Zeile als "mind-files erledigt".
+#      ladeverhalten.md:30  "**Behoben** durch Verschieben ... (ausserhalb von `rules/`)"
+#                           "Behoben" steht 70 Zeichen vor der Marke und meint
+#                           einen voellig anderen Sachverhalt.
+#
+#    Eine Zeile kann mehrere Subjekte tragen. Ein Statuswort irgendwo darin sagt
+#    nichts darueber, WELCHES gemeint ist.
+_NAH = 40
+
+# ⛔ EINE MARKE, DIE EINE DATEI SAETTIGT, IST EIN THEMA — KEIN ANSPRUCH.
+#
+#    Zweite Messung (79 Dateien): **1 Befund, wieder falsch.**
+#    `known-issues.md` nannte `mind-files` in Zeile 479 mit ✅ (ein geloestes
+#    Problem) und in Zeile 217 mit TODO (ein anderes Problem). Zwei
+#    Listeneintraege ueber verschiedene Sachen, beide nennen den Skill.
+#
+#    Die Verteilung in derselben Datei ist eindeutig:
+#        199 von 280 Marken stehen in GENAU EINER Zeile
+#         49                              in zwei
+#         `mind-files`                    in 22   <- Hoechstwert
+#
+#    Ueber dieser Schwelle beschreibt die Marke, WOVON die Datei handelt.
+#    Ein Statuswort in ihrer Naehe sagt dann nichts ueber sie aus.
+#    ⚠ 8 ist bewusst grosszuegig: in der Messdatei ueberschreiten nur 7 von
+#      280 Marken die Grenze. Der echte Creator-Fall stand in ZWEI Zeilen.
+_MAX_ZEILEN = 8
+
+
+# ⛔ EIN STATUSZEICHEN AM ZEILENANFANG REGIERT DIE GANZE ZEILE.
+#
+#    ⚠ DIESE AUSNAHME IST NICHT KOSMETIK — ohne sie faellt der einzige echte
+#      Fall durch, an dem sich das Werkzeug ueberhaupt pruefen laesst:
+#
+#        stimme.md:93  "⛔ **NOCH NICHT IM CODE.** Der Schnitt gehoert in
+#                       `qwen_vertonen.py:rand_weg()` als fester Vorabschnitt"
+#
+#      Das Signal steht bei Zeichen 4, die Marke bei Zeichen 47 — Abstand 43,
+#      und _NAH war 40. **Um DREI ZEICHEN verfehlt.** Aufgefallen erst in der
+#      Positivkontrolle gegen den bekannt kaputten Creator-Bestand; die
+#      Selbsttests und die Rauschmessung waren beide gruen.
+#
+#    ⭐ Die Lehre, und sie ist groesser als dieser Fall: ich hatte _NAH und
+#      _MAX_ZEILEN gegen EINEN Fehlalarm gedreht und dabei das Signal
+#      erschlagen. Ein Rauschfilter, der nur gegen Rauschen kalibriert wird,
+#      optimiert sich auf Stille. Deshalb steht jede dieser Zahlen jetzt
+#      zwischen einer Positiv- UND einer Negativkontrolle.
+_KOPF = 32
+
+
+def _naehe(zeile, marke, muster, max_abstand=_NAH):
+    """Steht ein Treffer des Musters nahe genug an der Marke?
+
+    Nahe heisst: innerhalb von `max_abstand` Zeichen — ODER im Kopf der Zeile.
+    So sind Ueberschriften und vorangestellte Merker (`## ⛔ OFFEN: ...`)
+    erfasst, die sich auf den ganzen Absatz beziehen und nicht auf ein
+    benachbartes Wort.
+    """
+    stellen = [m.start() for m in re.finditer(re.escape(marke), zeile)]
+    if not stellen:
+        return False
+    return any(t.start() <= _KOPF or any(abs(t.start() - p) <= max_abstand
+                                         for p in stellen)
+               for t in muster.finditer(zeile))
+
+# ⭐ DER WICHTIGSTE FILTER — und er entscheidet ueber Nutzen oder Rauschen.
+#
+#    Eine Zeile, die den Widerspruch SELBST AUFLOEST, ist die RICHTIGE Form.
+#    Genau die darf nie gemeldet werden. Dieses Repo benutzt sie staendig:
+#
+#        ✅ ~~alte Aussage~~ — BEHOBEN in v5.2.2
+#        Bis v5.6.0 stand hier ...
+#
+#    Wer das meldet, bestraft das gute Muster und belohnt das schlechte.
+#    ⛔ Deshalb entwertet EINE aufloesende Fundstelle den ganzen Befund --
+#       nicht nur ihre eigene Zeile.
+_AUFLOESEND = re.compile(
+    r"~~"                                       # durchgestrichen = zurueckgenommen
+    r"|\b(bis|seit|ab)\s+v?\d"                  # "bis v5.6.0", "seit 21.08."
+    r"|\b(vorher|frueher|damals|inzwischen|stand hier|galt)\b", re.IGNORECASE)
+
+
+def widerspruch_in_datei(pfad, text=None, min_abstand=10):
+    """Widerspricht sich EINE Datei selbst?
+
+    Gibt eine Liste von dicts zurueck: marke, zeile_erledigt, zeile_offen,
+    text_erledigt, text_offen, abstand.
+
+    ⛔ Gemeldet wird nur, wenn ALLE FUENF Bedingungen halten:
+       1. dieselbe Marke steht an mindestens zwei Stellen
+       2. eine sagt ERLEDIGT, eine sagt OFFEN -- und keine von beiden sagt beides
+          (eine Zeile mit beidem ist fast immer ein aufloesender Satz);
+          das Statuswort muss NAHE an der Marke stehen, s. _naehe()
+       3. KEINE Fundstelle der Marke loest den Widerspruch auf
+       4. selbst das NAECHSTE Paar liegt >= min_abstand Zeilen auseinander
+       5. die Marke steht in hoechstens _MAX_ZEILEN Zeilen -- darueber ist sie
+          das THEMA der Datei und kein einzelner Anspruch
+
+    ⚠ Bedingung 4 ist bewusst konservativ: gemessen wird der KLEINSTE Abstand,
+      nicht der groesste. Zwei Saetze direkt untereinander sind eine Erzaehlung
+      ("war offen, ist jetzt gebaut"), keine zwei konkurrierenden Wahrheiten.
+      Der Creator-Fall lag 110 Zeilen auseinander.
+    """
+    if text is None:
+        text = _inhalt(pfad)
+    zeilen = text.split("\n")
+    befunde = []
+    for marke in marken(text):
+        treffer = [(i, z.strip()) for i, z in enumerate(zeilen, 1)
+                   if marke in z and z.strip()]
+        if len(treffer) < 2:
+            continue
+        if len(treffer) > _MAX_ZEILEN:
+            continue                                    # Bedingung 5 (Thema)
+        if any(_AUFLOESEND.search(z) for _, z in treffer):
+            continue                                    # Bedingung 3
+        # ⛔ NAHE an der Marke, nicht irgendwo in der Zeile — siehe _naehe().
+        erl = [(i, z) for i, z in treffer
+               if _naehe(_NEG_FERTIG.sub(" ", z), marke, _ERLEDIGT)
+               and not _naehe(z, marke, _OFFEN)]
+        off = [(i, z) for i, z in treffer
+               if _naehe(z, marke, _OFFEN)
+               and not _naehe(_NEG_FERTIG.sub(" ", z), marke, _ERLEDIGT)]
+        if not (erl and off):                           # Bedingung 2
+            continue
+        a, b = min(((x, y) for x in erl for y in off),
+                   key=lambda p: abs(p[0][0] - p[1][0]))
+        abstand = abs(a[0] - b[0])
+        if abstand < min_abstand:                       # Bedingung 4
+            continue
+        befunde.append({"marke": marke,
+                        "zeile_erledigt": a[0], "text_erledigt": a[1][:110],
+                        "zeile_offen": b[0], "text_offen": b[1][:110],
+                        "abstand": abstand})
+    # Teilstring-Artefakte entfernen: `vertonen.py` ist keine eigene Marke,
+    # sondern ein Stueck von `qwen_vertonen.py`. Bei gleichem Zeilenpaar
+    # gewinnt die laengste Marke.
+    beste = {}
+    for b in befunde:
+        s = (b["zeile_erledigt"], b["zeile_offen"])
+        if s not in beste or len(b["marke"]) > len(beste[s]["marke"]):
+            beste[s] = b
+    return sorted(beste.values(), key=lambda x: -x["abstand"])
+
+
 def einordnen(marke, a_pfad, a_text, b_pfad, b_text):
-    """Vier Kategorien. Gibt (kategorie, begruendung) zurueck."""
+    """Fuenf Kategorien. Gibt (kategorie, begruendung) zurueck."""
     a_zeilen = _zeilen_mit(a_text, marke)
     b_zeilen = _zeilen_mit(b_text, marke)
 
@@ -160,6 +359,24 @@ def einordnen(marke, a_pfad, a_text, b_pfad, b_text):
         rechts = "tot" if b_tot else (sorted(b_w)[:2] or "lebend")
         return "zahlendrift", ("eine Stelle fuehrt es als entfallen, die andere "
                                "als geltend: %s gegen %s" % (links, rechts))
+
+    # --- v5.20.0: dieselbe Achse ueber ZWEI Dateien -------------------------
+    #     Der Creator-Lauf fand genau das: `video-chatterbox-stand.md` fuehrte
+    #     Lautheit, Kompressor, Komfortrauschen und Tempo als offen -- alle vier
+    #     seit dem 22.08. entschieden, an anderer Stelle nachlesbar.
+    #     ⚠ Steht NACH zahlendrift: "entfallen gegen aktiv" ist der schwerere
+    #       Befund und darf nicht von diesem hier verdeckt werden.
+    def status(zeilen):
+        return (any(_sagt_erledigt(x) and not _OFFEN.search(x) for x in zeilen),
+                any(_OFFEN.search(x) and not _sagt_erledigt(x) for x in zeilen),
+                any(_AUFLOESEND.search(x) for x in zeilen))
+    a_erl, a_off, a_aufl = status(a_zeilen)
+    b_erl, b_off, b_aufl = status(b_zeilen)
+    if not (a_aufl or b_aufl) and ((a_erl and b_off) or (b_erl and a_off)):
+        wo = a_pfad if a_off else b_pfad
+        return "statusdrift", ("eine Stelle fuehrt es als erledigt, die andere "
+                               "als offen — offen steht in %s"
+                               % os.path.basename(wo))
 
     # --- Zeigt eine Stelle auf die andere? ----------------------------------
     def zeigt_auf(text, ziel):
@@ -350,7 +567,90 @@ def selbsttest():
     }
     pruef("drei verschiedene Urteile", len(ergebnisse), 3)
 
+    # ======================================================================
+    # v5.20.0 — die zweite Achse: erledigt gegen offen
+    # ======================================================================
+    print("\n  --- Widerspruch INNERHALB einer Datei ---")
+
+    def fuell(n):
+        return "\n".join("Fuelltext Absatz %d ohne Marken." % i for i in range(n))
+
+    # 5) ⭐ Der Creator-Fall, nachgebaut: 110 Zeilen auseinander
+    w1 = schreib("w1.md", "# Kette\n\nDer `VORAB_MS`-Fix ist eingebaut.\n\n"
+                          + fuell(30) +
+                          "\n\n⛔ OFFEN — `VORAB_MS` ist NOCH NICHT eingebaut.\n")
+    b = widerspruch_in_datei(w1)
+    pruef("weit auseinander, erledigt vs offen -> Befund", len(b), 1)
+    pruef("und die Marke stimmt", b[0]["marke"] if b else "-", "VORAB_MS")
+
+    # ===== GEGENKONTROLLEN — jede einzelne verhindert eine Fehlalarm-Klasse =====
+
+    # 6) ⛔ Der aufloesende Satz ist die RICHTIGE Form und darf NIE gemeldet werden.
+    #    Dieses Repo benutzt sie staendig: "✅ ~~alt~~ — BEHOBEN in v5.2.2".
+    w2 = schreib("w2.md", "# Kette\n\nDer `VORAB_MS`-Fix ist eingebaut.\n\n"
+                          + fuell(30) +
+                          "\n\n✅ ~~`VORAB_MS` ist NOCH NICHT eingebaut~~ — behoben.\n")
+    pruef("aufloesender Satz (~~) -> kein Befund", len(widerspruch_in_datei(w2)), 0)
+
+    # 7) "Bis v5.6.0 stand hier ..." ist ebenfalls eine Ruecknahme
+    w3 = schreib("w3.md", "# Kette\n\n`VORAB_MS` ist eingebaut.\n\n" + fuell(30) +
+                          "\n\nBis v5.6.0 galt: `VORAB_MS` steht noch nicht im Code.\n")
+    pruef("Ruecknahme per 'Bis vX' -> kein Befund", len(widerspruch_in_datei(w3)), 0)
+
+    # 8) Zwei Saetze direkt untereinander sind eine ERZAEHLUNG, kein Widerspruch
+    w4 = schreib("w4.md", "# Kette\n\n`VORAB_MS` war noch nicht eingebaut.\n"
+                          "Jetzt ist `VORAB_MS` eingebaut.\n")
+    pruef("dicht beieinander -> kein Befund", len(widerspruch_in_datei(w4)), 0)
+
+    # 9) Eine Zeile mit BEIDEM ist fast immer ein aufloesender Satz
+    w5 = schreib("w5.md", "# Kette\n\n`VORAB_MS` war nicht eingebaut, ist jetzt "
+                          "eingebaut.\n\n" + fuell(30) +
+                          "\n\nNochmal `VORAB_MS` erwaehnt, ohne Status.\n")
+    pruef("eine Zeile mit beidem -> kein Befund", len(widerspruch_in_datei(w5)), 0)
+
+    # 10) Eine Datei ohne jeden Status sagt gar nichts
+    w6 = schreib("w6.md", "# Kette\n\n`VORAB_MS` steuert den Vorlauf.\n\n" + fuell(30) +
+                          "\n\n`VORAB_MS` steht in der Konfiguration.\n")
+    pruef("kein Statuswort -> kein Befund", len(widerspruch_in_datei(w6)), 0)
+
+    # 10a) ⛔ JEDES Offen-Signal EINZELN — sonst deckt ein reichhaltiger
+    #      Prueffall eine kaputte Alternative zu.
+    #      GEMESSEN 25.08.2026: ein Heredoc machte aus `\b` (Wortgrenze) das
+    #      Backspace-Zeichen 0x08. `OFFEN` und `TODO` matchten danach NIE —
+    #      und dieser Selbsttest blieb GRUEN, weil Fall 5 zusaetzlich
+    #      "NOCH NICHT eingebaut" enthaelt. Ein Prueffall mit zwei Signalen
+    #      prueft nur, dass EINES davon lebt.
+    for wort, txt in (("OFFEN", "⛔ OFFEN: `PEGEL_MS` fehlt hier."),
+                      ("TODO", "TODO — `PEGEL_MS` fehlt hier."),
+                      ("Kreuz", "❌ `PEGEL_MS` fehlt hier."),
+                      ("steht noch aus", "`PEGEL_MS` steht noch aus."),
+                      ("nicht umgesetzt", "`PEGEL_MS` ist nicht umgesetzt.")):
+        wx = schreib("w10_%s.md" % wort.replace(" ", "_"),
+                     "# K\n\n`PEGEL_MS` ist eingebaut.\n\n" + fuell(30) +
+                     "\n\n" + txt + "\n")
+        pruef("Offen-Signal '%s' greift" % wort, len(widerspruch_in_datei(wx)), 1)
+
+    # 10b) GEGENKONTROLLE zu 10a: "offene Frage" darf NICHT anschlagen
+    w11 = schreib("w11.md", "# K\n\n`PEGEL_MS` ist eingebaut.\n\n" + fuell(30) +
+                            "\n\nEine offene Frage zu `PEGEL_MS` bleibt.\n")
+    pruef("'offene Frage' ist kein Signal", len(widerspruch_in_datei(w11)), 0)
+
+    print("  --- statusdrift ueber ZWEI Dateien ---")
+
+    # 11) Der video-chatterbox-stand.md-Fall
+    s1 = schreib("s1.md", "# Stand\n\n`KOMFORT_RAUSCHEN` ist umgesetzt seit dem Test.\n")
+    s2 = schreib("s2.md", "# Liste\n\n`KOMFORT_RAUSCHEN` steht noch aus.\n")
+    k, _ = einordnen("KOMFORT_RAUSCHEN", s1, _inhalt(s1), s2, _inhalt(s2))
+    pruef("erledigt in A, offen in B -> statusdrift", k, "statusdrift")
+
+    # 12) ⛔ GEGENKONTROLLE: zahlendrift wiegt schwerer und darf NICHT verdeckt werden
+    t1 = schreib("t1.md", "# A\n\n`MIND_NOTFALL_TOKENS` ist entfallen, also erledigt.\n")
+    t2 = schreib("t2.md", "# B\n\n`MIND_NOTFALL_TOKENS` steht auf 940000, steht noch aus.\n")
+    k, _ = einordnen("MIND_NOTFALL_TOKENS", t1, _inhalt(t1), t2, _inhalt(t2))
+    pruef("zahlendrift geht vor statusdrift", k, "zahlendrift")
+
     # Rauschfilter
+    print("  --- Rauschfilter ---")
     pruef("Allerweltswort gefiltert", _spezifisch("claude"), False)
     pruef("kurzes Wort gefiltert", _spezifisch("abc"), False)
     pruef("Pfad ist spezifisch", _spezifisch("tools/rollback.py"), True)
@@ -361,6 +661,44 @@ def selbsttest():
 
     print("\n=== %d Abweichung(en) ===" % fehler)
     return 3 if fehler else 0
+
+
+def widersprueche_lauf(projekt, bereich="alles"):
+    """`--widersprueche`: nur die Selbstwidersprueche, datei fuer datei."""
+    abl = ablagen(projekt, bereich)
+    dateien = [p for pfade in abl.values() for p in pfade]
+    print("=" * 86)
+    print("  Selbstwidersprueche — %d Datei(en)" % len(dateien))
+    print("=" * 86)
+    gesamt = 0
+    for p in sorted(dateien):
+        befunde = widerspruch_in_datei(p)
+        if not befunde:
+            continue
+        print("\n  %s" % p)
+        for x in befunde:
+            gesamt += 1
+            print("    %-24s Z%-5d erledigt | Z%-5d offen  (%d auseinander)"
+                  % (x["marke"][:24], x["zeile_erledigt"], x["zeile_offen"],
+                     x["abstand"]))
+            print("        + %s" % x["text_erledigt"])
+            print("        - %s" % x["text_offen"])
+    print()
+    print("  %d Widerspruch/Widersprueche" % gesamt)
+    if gesamt == 0:
+        print()
+        print("  ⚠ NULL ist hier ein zulaessiges Ergebnis — aber nur, weil die")
+        print("    Positivkontrolle im Selbsttest anschlaegt (`--selbsttest`).")
+        print("    Ohne sie waere eine Null von einem stummen Werkzeug nicht")
+        print("    zu unterscheiden.")
+    print()
+    print("  ⛔ GRENZE: gefunden werden nur Widersprueche, deren beide Stellen")
+    print("     eine GEMEINSAME MARKE tragen (Bezeichner, Pfad, Zahlenwert).")
+    print("     Sagt die eine Seite `VORAB_MS` und die andere umschreibt es in")
+    print("     Prosa, ist der Widerspruch fuer dieses Werkzeug unsichtbar.")
+    print("     Die tragende Massnahme ist die SUCHE VOR DEM SCHREIBEN —")
+    print("     siehe mind-claudemd/mind-rules, 'SUCHEN, BEVOR DU ERGAENZT'.")
+    return 0
 
 
 def main():
@@ -381,6 +719,8 @@ def main():
         else:
             print("--nur braucht global|projekt|alles")
             return 2
+    if "--widersprueche" in argv:
+        return widersprueche_lauf(projekt, bereich)
     return lauf(projekt, bereich)
 
 

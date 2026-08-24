@@ -533,6 +533,50 @@ Lines: 145 → 118 (-27)
 Token savings: ~270
 ```
 
+## ⛔ SUCHEN, BEVOR DU ERGAENZT (PFLICHT, NEU v5.20.0)
+
+**Eine Ergaenzung ohne Ruecknahme der alten Aussage ist ein WIDERSPRUCH, kein Update.**
+
+Bevor eine Aussage hinzugefuegt oder korrigiert wird, wird die Datei nach dem
+**KERNBEGRIFF** durchsucht — nicht nach der Ueberschrift, unter der die Ergaenzung
+landen soll:
+
+```bash
+grep -n "<kernbegriff>" <datei>        # z.B. den Bezeichner, den Dateinamen, die Zahl
+```
+
+Findet sich eine aeltere Stelle, die etwas anderes sagt, gibt es **genau zwei**
+zulaessige Ausgaenge:
+
+| | |
+|---|---|
+| **Ruecknahme** | die alte Stelle wird durchgestrichen und datiert: `✅ ~~alte Aussage~~ — BEHOBEN in vX.Y.Z` |
+| **Aufloesung** | ein Satz sagt ausdruecklich, welche Fassung ab wann gilt: `Bis v5.6.0 stand hier ...` |
+
+⛔ **Beides stehenlassen ist KEINE Option.** Zwei Stellen, die sich widersprechen,
+sind gleich glaubwuerdig — und der naechste Leser waehlt die falsche.
+
+**Der Anlass ist gemessen.** Der `/mind-all`-Lauf im Projekt `Creator` fand am
+24.08.2026 **sieben Halb-Korrekturen** an einem Tag:
+
+```
+stimme.md:93     "⛔ NOCH NICHT IM CODE"  (der Echo-Vorabschnitt)
+stimme.md:1193   "`VORAB_MS = 150` ... ist fuer Qwen richtig"  — setzt ihn voraus
+                 1100 Zeilen auseinander, beide gleich glaubwuerdig
+```
+
+Der Lauf nannte auch die Bilanz: **sechs von sieben** waeren mit einem `grep` auf
+den Kernbegriff vor dem Anhaengen aufgefallen. `doku-veraltet` ist mit **25
+Vorkommen** die haeufigste Projekt-Klasse im Debug-Ordner ueberhaupt.
+
+⚠ **Der Detektor ersetzt die Suche NICHT.**
+`references/cleaner_duplikate.py` findet solche Widersprueche nachtraeglich
+(`--widersprueche`), aber nur, wenn beide Stellen eine **gemeinsame Marke**
+tragen — einen Bezeichner, Pfad oder Zahlenwert. Ein Widerspruch, bei dem die eine
+Seite den Bezeichner nennt und die andere ihn nur umschreibt, ist fuer ihn
+unsichtbar. **Die Suche vor dem Schreiben ist die tragende Massnahme, das Werkzeug
+das Netz darunter.**
+
 ## Hard Constraints
 
 - **NEVER apply without a successful `mind_snapshot` (Step 0)** — Snapshot fehlgeschlagen = keine Edits, Abbruch. (Ersetzt v5.0.0 die alte Regel "NEVER apply without User-Bestätigung": Sicherheit kommt jetzt vom Netz, nicht von der Rückfrage.)
