@@ -53,7 +53,14 @@ import os
 import re
 import sys
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+# ⛔ `newline=""` ist PFLICHT auf Windows. Ohne diesen Zusatz uebersetzt
+#    TextIOWrapper jeden Zeilenumbruch in die Windows-Fassung (CR + LF).
+#    Jede zeilenverankerte Zusicherung (das Dollarzeichen in grep) bricht
+#    dann — und zwar STILL, denn die Ausgabe sieht voellig richtig aus.
+#    Gemessen 24.08.2026 an `cleaner_duplikate.py`: zwei Prueffaelle meldeten
+#    0 Treffer fuer Zeilen, die dastanden. Dieselbe Klasse wie der in der
+#    globalen CLAUDE.md dokumentierte `write_text()`-Fall.
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="")
 
 # --- Die Signale ----------------------------------------------------------
 # ⚠ Jedes Signal ist eine ENTSCHEIDUNG darueber, was zaehlt. Sie stehen hier

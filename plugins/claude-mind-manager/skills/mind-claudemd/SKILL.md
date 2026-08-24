@@ -466,13 +466,58 @@ Bei Modularize-Fix: zusaetzlich Write der neuen Rule-Datei (kein Read noetig —
 
 ### Step 5b: Fixes anwenden
 
+### Step 4f: ⛔ Das Urteilsbuch — PFLICHT vor jedem `Deduplicate` (NEU v5.16.0)
+
+**Nutzer-Entscheidung 24.08.2026: `/mind-claudemd` UND `/mind-cleaner` dürfen beide
+aufräumen.** Damit ist ein gemeinsamer Zustand keine Kür, sondern die Bedingung dafür,
+dass die Entscheidung trägt.
+
+⭐ **Der Fall, der ohne das Buch zwangsläufig eintritt:**
+
+1. `/mind-cleaner` sieht: die CLAUDE.md **fasst** eine Regel zusammen **und nennt ihren
+   Pfad**. Das ist die **Zielform** — kürzere Fassung plus Zeiger. Urteil: nichts tun.
+2. Dieser Skill sieht beim nächsten `/mind-all` zwei Stellen mit demselben Inhalt, hält es
+   für ein Duplikat und entfernt eine — **autonom, ohne Rückfrage**.
+3. Beim übernächsten Lauf fehlt der Kurz-Regel ihr Inhalt, und niemand weiß, warum.
+
+**Vor jedem `Deduplicate` also:**
+
+```bash
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_urteile.py" "$PROJ" \
+       --orte "<stelle-a>" "<stelle-b>"
+```
+
+| Rückgabe | Bedeutung | was du tust |
+|---|---|---|
+| `unbekannt` | noch nie beurteilt | anwenden **und Urteil eintragen** |
+| `gueltig` + `duplikat` | schon als Duplikat erkannt | anwenden |
+| `gueltig` + `zielform`/`zeiger` | ⛔ **bewusst so gelassen** | **NICHT anfassen** |
+| `veraltet` | Inhalt hat sich geändert | neu beurteilen |
+
+⛔ **`zielform` und `zeiger` darf dieser Skill NIE aufheben.** Er läuft autonom; das wäre
+die Umkehrung einer menschlichen Entscheidung ohne Rückfrage. `duplikat` darf er anwenden —
+das ist Aufräumen, keine Umkehrung.
+
+**Nach jedem Urteil eintragen — auch bei „nichts tun":**
+
+```bash
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_urteile.py" "$PROJ" --schreiben \
+       --orte "<a>" "<b>" --urteil duplikat --werkzeug mind-claudemd --von autonom \
+       --grund "<ein Satz>"
+```
+
+⚠ **Widerspricht dein Befund dem Buch, überstimme es nicht — melde es:**
+*„Buch sagt `zielform` (mensch, 24.08.), ich sehe ein Duplikat."*
+
+**Im Self-Check-Block ausweisen:** `Urteilsbuch: <n> gefragt · <n> gesperrt · <n> eingetragen`.
+
 Für jeden bestätigten Fix:
 | Fix-Typ | Tool | Aktion |
 |---|---|---|
 | Version updaten | Edit | `old_string: "2.3.0"` → `new_string: "2.6.0"` |
 | Modularize | Write + Edit | Write neue Rule-Datei (**ohne `globs:`**), Edit CLAUDE.md: Sektion durch **Zeiger** ersetzen. ⛔ **Die vier Gates aus Step 4e sind Pflicht** — ohne sie nicht anwenden, sondern listen |
 | Shorten | Edit | `old_string: verbose Zeile` → `new_string: kompakte Zeile` |
-| Deduplicate | Edit | Duplikat-Zeile aus CLAUDE.md entfernen |
+| Deduplicate | Edit | Duplikat-Zeile aus CLAUDE.md entfernen. ⛔ **Erst das Urteilsbuch fragen** — Step 4f |
 | Dead path (`DEAD`) | Edit | Pfad-Zeile entfernen oder aktualisieren. ⛔ **>5 auf einmal bleibt gesperrt** (Massenlösch-Sicherung) |
 | **`EXTERN`-Pfad** | **nichts** | ⛔ **NIE anfassen.** Der Pfad existiert — nur nicht unter diesem Projekt. Nur als Hinweis listen |
 | Add info | Edit | Neue Zeile in passende Sektion einfügen |

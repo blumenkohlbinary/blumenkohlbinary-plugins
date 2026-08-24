@@ -57,7 +57,14 @@ import os
 import re
 import sys
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+# ⛔ `newline=""` ist PFLICHT auf Windows. Ohne diesen Zusatz uebersetzt
+#    TextIOWrapper jeden Zeilenumbruch in die Windows-Fassung (CR + LF).
+#    Jede zeilenverankerte Zusicherung (das Dollarzeichen in grep) bricht
+#    dann — und zwar STILL, denn die Ausgabe sieht voellig richtig aus.
+#    Gemessen 24.08.2026 an `cleaner_duplikate.py`: zwei Prueffaelle meldeten
+#    0 Treffer fuer Zeilen, die dastanden. Dieselbe Klasse wie der in der
+#    globalen CLAUDE.md dokumentierte `write_text()`-Fall.
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="")
 
 # --- Beschreibungs-Grenzen, mit HERKUNFT ----------------------------------
 #
@@ -107,8 +114,24 @@ def _ohne_frontmatter(t):
 
 
 def inhaltszeilen(t):
-    """Zeilen mit Substanz: keine Leerzeilen, keine reinen Trennlinien."""
+    """Zeilen mit Substanz: keine Leerzeilen, keine Trennlinien, KEINE HTML-Kommentare.
+
+    ⛔ HTML-Kommentare werden VOR jeder Injektion in den Kontext entfernt `[DOKU]`.
+       Ihr Text erreicht das Modell NIE — sichtbar ist er nur beim direkten Read.
+
+       Die erste Fassung zaehlte sie mit. Gemessen 24.08.2026: `.claude/rules/hooks.md`
+       enthaelt einen Kommentar mit 3 Inhaltszeilen. Ein Umzug haette damit eine
+       Erhaltung bestaetigt, die es nicht gibt — 3 Zeilen galten als gerettet,
+       obwohl sie in KEINER der beiden Dateien je gelesen werden.
+
+       > Ein Gate, das unsichtbaren Text als erhaltenen Inhalt zaehlt, bestaetigt
+       > eine Erhaltung, die es nicht gibt.
+
+    ⚠ Deshalb auch: NIEMALS Inhalt in HTML-Kommentare "archivieren". Er ist dann
+      weg, nicht versteckt.
+    """
     rumpf, offen = _ohne_frontmatter(t)
+    rumpf = re.sub(r"<!--.*?-->", "", rumpf, flags=re.S)
     n = 0
     for z in rumpf.split("\n"):
         s = z.strip()
