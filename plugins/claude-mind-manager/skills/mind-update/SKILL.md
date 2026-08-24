@@ -843,14 +843,70 @@ Agent 1+2 in einem Tool-Call, Welle 2 = Agent 3+4 im nächsten). Alle 4 laufen �
 **Skip-Logik pro Agent:**
 - Agent 4 (`custom-context`) skippen wenn `${#CUSTOM_CONTEXT_FILES[@]} == 0` (Plan EC4) — das ist die EINZIGE erlaubte Auslassung; die anderen 3 sind unbedingt Pflicht.
 
+### ⛔ Die Agentenzahl kommt aus dem Kontextstand, nicht aus dem Ermessen (NEU v5.19.0)
+
+**Der Anlass ist gemessen, dreimal an zwei Tagen:** bei 888k–914k Kontext wuerden vier
+Agents die Kompaktierung **mitten im Lauf** ausloesen. In allen drei Faellen wurde deshalb
+gekuerzt — und jedes Mal war das eine **stille Ermessensentscheidung**, die nirgends
+auftauchte. Der Creator-Lauf hat den Ausweg selbst benannt:
+
+> *„`mind-all` koennte den Kontextstand VOR dem Agent-Dispatch pruefen und die Zahl der
+> Agents daran anpassen, statt sie fest auf vier zu setzen — dann bleibt die Entscheidung
+> nicht dem Ermessen des Laufs ueberlassen und landet automatisch im Bericht."*
+
+```bash
+_ATOK=""
+if type mind_kontext_tokens >/dev/null 2>&1; then
+  _ATP=$(ls -t "$HOME/.claude/projects/$(hash_project_dir "$PROJ")"/*.jsonl 2>/dev/null | head -1)
+  [ -n "$_ATP" ] && _ATOK=$(mind_kontext_tokens "$_ATP" 2>/dev/null)
+fi
+_VOLL="${MIND_AGENT_VOLL_TOKENS:-600000}"
+_HALB="${MIND_AGENT_HALB_TOKENS:-800000}"
+
+# ⚠ Keine Zahl ist KEINE Null: ohne lesbares Transkript wird NICHT gekuerzt.
+case "$_ATOK" in ''|*[!0-9]*) AGENT_MAX=4 ;;
+  *) if   [ "$_ATOK" -lt "$_VOLL" ]; then AGENT_MAX=4
+     elif [ "$_ATOK" -lt "$_HALB" ]; then AGENT_MAX=2
+     else                                 AGENT_MAX=0
+     fi ;;
+esac
+AGENT_SOLL=$AGENT_MAX          # Step 2.96a von mind-all liest das
+[ "$AGENT_MAX" -lt 4 ] && echo "⚠ Kontext bei ${_ATOK:-?} Tokens -> nur $AGENT_MAX von 4 Agents. Der Rest gilt als UNGEPRUEFT."
+```
+
+⛔ **Das senkt den Anspruch nicht, es macht ihn ehrlich.** Alle vier Bereiche bleiben
+Pflicht; was entfaellt, steht im Bericht und erzeugt ueber `sync-stand`/`OPEN` eine
+**Schuld**, die den naechsten Lauf dazu zwingt. Der Unterschied zu vorher ist nicht die
+Zahl, sondern **wer sie festlegt**.
+
+⛔ **Bei `AGENT_MAX=0` ist der grep-Rueckfall PFLICHT**, nicht optional — Step 2 von
+`mind-all` verlangt ihn schon heute bei leerer Rueckgabe. Am 21.08.2026 dauerte er unter
+einer Minute und fand genau den Befund, den der Agent finden sollte.
+
+⚠ **Die beiden Schwellen sind GERATEN, nicht gemessen.** Belegt sind nur drei Datenpunkte
+(888k und 914k: Ausfall) und die Laufzeiten frueherer Agents (105 s / 163 s / 199 s).
+Deshalb sind sie **Regler mit dokumentierter Herkunft** und keine Konstanten — dieselbe
+Begruendung wie bei den drei v5.5.0-Reglern. ⛔ **Das Plugin setzt sie nie selbst**
+(`claude-mem` #2836 machte so 75 Erinnerungen unsichtbar).
+
 ### ⛔ Agent-Quittung — PFLICHT, vor UND nach jedem Agent (NEU v5.14.0)
 
 ```bash
-mind_agent_quittung_start "$PROJ"          # einmal, vor dem ersten Agent
+# v5.19.0: NUR anlegen, wenn keine existiert. In der Kette hat mind-all sie
+# schon in Step 0 angelegt — ein blindes `start` wuerde sie hier LOESCHEN und
+# genau die Spur vernichten, die den Teilsync belegt. Bei einem Einzelaufruf
+# von /mind-update gibt es keine, und dann legt dieser Zweig sie an.
+[ -f "$PROJ/.claude-mind/agent-quittung.jsonl" ] || mind_agent_quittung_start "$PROJ"
 mind_agent_dispatch "<bereich>" "$PROJ"    # VOR dem Start
 # ... Agent laeuft ...
 mind_agent_ergebnis "<bereich>" "$(printf '%s' "$RUECKGABE" | wc -c)" "$PROJ"
 ```
+
+⛔ **Der Anleger sass bis v5.18.0 AUSSCHLIESSLICH hier — also in genau dem Schritt,
+den ein Lauf bei hohem Kontext auslaesst.** Fiel Step 3.5 aus, entstand keine Quittung,
+und ihr **Fehlen war von ihrem Schweigen nicht zu unterscheiden**. Dreimal gemessen
+(23.08. + 24.08. Claude Mind Manager, 24.08. Creator mit 2 von 4 Agents). Seit v5.19.0
+legt `mind-all` Step 0 sie an, bevor die Kette startet.
 
 **Der `dispatch`-Eintrag steht VOR dem Start.** Das ist der ganze Punkt: ein Agent, der
 stirbt, hinterlaesst dann einen Merker, den nur er selbst aufloesen kann. Wer erst nach der

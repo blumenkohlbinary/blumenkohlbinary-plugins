@@ -120,11 +120,27 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
       # Dann entsteht KEINE neue Schuld — der Sync ist ja erledigt, die Kompaktierung ist
       # seine Folge und nicht sein Ausloeser. Der Merker wird hier verbraucht und stellt damit
       # den 800k-Ausloeser fuer den naechsten Zyklus automatisch wieder scharf.
-      SYNC_LIEF_SCHON="nein"
+      #
+      # ⛔ v5.19.0: DREI Zustaende, nicht zwei. Bis v5.18.0 hiess "Merker da" pauschal
+      #    "Sync lief" — und ein Lauf, der die vier Knowledge-Sync-Agents wegen hohem
+      #    Kontext ausliess, loeschte damit seine eigene Schuld. Dreimal gemessen
+      #    (23.08. + 24.08. hier, 24.08. im Projekt Creator, 2 von 4 Agents bei 888k);
+      #    jedes Mal verschwand der ungepruefte Bereich spurlos.
+      SYNC_LIEF_SCHON="nein"; TEIL_UNGEPRUEFT=""
       if [ -f "$RESCUE_DIR/sync-stand" ]; then
-        SYNC_LIEF_SCHON="ja"
+        if mind_sync_voll "$RESCUE_DIR/sync-stand"; then
+          SYNC_LIEF_SCHON="ja"
+          mind_log "Sync lief vor dieser Kompaktierung -> keine neue Schuld"
+        else
+          SYNC_LIEF_SCHON="teil"
+          TEIL_UNGEPRUEFT=$(grep -m1 '^ungepruef=' "$RESCUE_DIR/sync-stand" 2>/dev/null \
+                            | cut -d= -f2-)
+          mind_log WARN "TEILSYNC vor dieser Kompaktierung -> Schuld BLEIBT (ungepruef: ${TEIL_UNGEPRUEFT:-unbekannt})"
+        fi
+        # Der Merker wird in BEIDEN Faellen verbraucht. Ein liegengebliebener
+        # sync-stand waere die Dauersperre aus v5.11.0 — die Schuld traegt ab
+        # hier OPEN, nicht mehr der Merker.
         rm -f "$RESCUE_DIR/sync-stand" 2>/dev/null
-        mind_log "Sync lief vor dieser Kompaktierung -> keine neue Schuld"
       fi
       # v5.7.5: Die Kompaktierung ist da — die Faelligkeit ist damit erledigt. Ohne diese
       # Zeile bliebe der Merker liegen und der Stop-Hook wuerde nach der Kompaktierung
@@ -202,6 +218,13 @@ EOF
           echo "trigger=$TRIGGER"
           echo "compactions=$((PREV_C + 1))"   # seit dem letzten erfolgreichen Sync
           echo "blocks=0"                       # Stop-Hook-Notausgang, s. hooks/stop.sh
+          # v5.19.0: WARUM die Schuld besteht. Ohne diese zwei Zeilen sieht ein
+          # Teilsync im Merker aus wie ein ausgefallener Sync — und der naechste
+          # Lauf wuesste nicht, dass nur der Fan-out fehlt und welche Bereiche.
+          if [ "$SYNC_LIEF_SCHON" = "teil" ]; then
+            echo "grund=teilsync"
+            echo "ungepruef=${TEIL_UNGEPRUEFT:-unbekannt}"
+          fi
         } > "$RESCUE_DIR/OPEN" 2>/dev/null
         # Neue Rettung -> in JEDER Sitzung neu ankuendigen, Notausgang-Zaehler auf 0
         rm -f "$RESCUE_DIR/OPEN.seen-"* 2>/dev/null

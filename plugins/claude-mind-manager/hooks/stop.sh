@@ -239,11 +239,26 @@ if [ -n "$COMPACTIONS" ] && [ "$COMPACTIONS" -gt 1 ] 2>/dev/null; then
   NACHHOL=" Es sind bereits ${COMPACTIONS} Kompaktierungen seit dem letzten Sync aufgelaufen."
 fi
 
+# v5.19.0: Warum steht die Schuld? Bei einem TEILSYNC lief die Kette bereits — nur
+# der Fan-out fehlt. Ohne diesen Satz sucht der Blockierte an der falschen Stelle
+# und faehrt womoeglich den ganzen Lauf noch einmal.
+TEILGRUND=""
+if [ "$(grep -m1 '^grund=' "$OPEN" 2>/dev/null | cut -d= -f2-)" = "teilsync" ]; then
+  _UNG=$(grep -m1 '^ungepruef=' "$OPEN" 2>/dev/null | cut -d= -f2-)
+  TEILGRUND="
+⚠ TEILSYNC: Die Skill-Kette lief bereits, der Knowledge-Sync NICHT. Ungeprueft sind:
+  ${_UNG:-unbekannt}
+Diese Bereiche gelten als UNGEPRUEFT, nicht als unauffaellig. Reicht der Kontext fuer
+die Agents nicht, ist der grep-Rueckfall PFLICHT — und was dann immer noch offen bleibt,
+gehoert ausdruecklich in den Bericht. Nach ${MIND_STOP_MAX_BLOCKS:-3} erfolglosen Blockaden
+gibt dieser Hook auf: ein Zwang, den du nicht aufloesen kannst, darf dich nicht festnageln."
+fi
+
 # v5.4.1: alle offenen Rettungen auflisten, nicht nur die juengste
 OFFENE_LISTE=$(printf '%s\n' "$_ALIVE" | while IFS= read -r _p; do
                  [ -n "$_p" ] && echo "    - $_p"; done)
 
-REASON="[Mind Manager] Der Context-Sync steht noch aus.${NACHHOL}
+REASON="[Mind Manager] Der Context-Sync steht noch aus.${NACHHOL}${TEILGRUND}
 
 ⛔ REIHENFOLGE: /mind-all ZUERST — ohne Ausnahme. Der Auftrag ist woertlich in der
 RESUME-Datei gesichert und kommt im Sync-Bericht mit der FORTSETZUNG-Zeile zurueck. Der Sync

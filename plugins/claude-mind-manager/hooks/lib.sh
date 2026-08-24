@@ -860,6 +860,62 @@ PYEOF
 
 
 # ==========================================================================
+# mind_sync_voll  (NEU v5.19.0)
+# ==========================================================================
+# Ist der `sync-stand`-Merker der Beleg fuer einen VOLLSTAENDIGEN Lauf?
+#
+# ANLASS -- dreimal an zwei Tagen gemessen, in drei Projekten:
+#   23.08. Claude Mind Manager  Knowledge-Sync-Agents nicht dispatcht (Kontext)
+#   24.08. Claude Mind Manager  Knowledge-Sync-Agents nicht dispatcht (914k)
+#   24.08. Creator              nur 2 von 4 gefahren (888k)
+# Alle drei setzten den Merker, alle drei erzeugten KEINE Schuld, und in allen
+# drei Faellen verschwand der ungepruefte Bereich spurlos. Der Ablauf kannte
+# nur "Sync lief" und "Sync lief nicht" -- der Normalfall bei hohem Kontext,
+# "Sync lief UNVOLLSTAENDIG", hatte gar keinen Zustand.
+#
+# Gelesen wird eine Zeile der Form
+#   umfang=5/5 skills 0/4 agents
+# Jedes <n>/<m> zaehlt; ein einziges n < m macht den Lauf zum Teilsync.
+#
+# Rueckgabe 0 = vollstaendig  ·  1 = Teilsync
+#
+# ⛔ FAIL-SAFE ist hier "vollstaendig" -- die UMGEKEHRTE Richtung als bei
+#    mind_sync_frisch, und das ist Absicht. Eine faelschlich behauptete
+#    Vollstaendigkeit kostet eine Mahnung. Ein faelschlich behaupteter
+#    Teilsync nagelt die Sitzung an einem Zwang fest, den sie selbst nicht
+#    aufloesen kann -- und ein unaufloesbarer Zwang kostet die Sitzung
+#    (dieselbe Linie wie der Notausgang in stop.sh, v5.7.6).
+#    Als vollstaendig gilt deshalb:
+#      - kein Merker           (nicht unsere Frage)
+#      - Merker ohne umfang=   (jeder Bestand aus v5.18.0 und aelter)
+#      - unparsbares umfang=   (ein Formatfehler darf nicht festnageln)
+mind_sync_voll() {
+  local stand="${1:-}" u paar a b teil=0 _glob=0
+  [ -f "$stand" ] || return 0
+  u=$(grep -m1 '^umfang=' "$stand" 2>/dev/null | cut -d= -f2-)
+  [ -n "$u" ] || return 0
+
+  # Wortzerlegung ist gewollt, Dateinamen-Expansion NICHT: ein `*` im Wert
+  # wuerde sonst gegen das Arbeitsverzeichnis aufgeloest.
+  case "$-" in *f*) _glob=1 ;; esac
+  set -f
+  for paar in $u; do
+    case "$paar" in
+      *[!0-9/]*) continue ;;   # etwas anderes als Ziffern und /
+      */*/*)     continue ;;   # mehr als ein /
+      */*)       ;;            # genau ein / -> Kandidat
+      *)         continue ;;   # gar kein /
+    esac
+    a="${paar%%/*}"; b="${paar##*/}"
+    [ -n "$a" ] && [ -n "$b" ] || continue        # faengt "/4" und "5/"
+    [ "$a" -lt "$b" ] 2>/dev/null && teil=1
+  done
+  [ "$_glob" = 1 ] || set +f
+
+  [ "$teil" -eq 0 ]
+}
+
+# ==========================================================================
 # mind_sync_frisch  (NEU v5.11.0)
 # ==========================================================================
 # ⛔ Ein Merker, dessen Verbraucher nie laeuft, ist eine Dauersperre.
@@ -884,6 +940,10 @@ PYEOF
 mind_sync_frisch() {
   local stand="$1" jetzt="$2" delta="${MIND_SYNC_DELTA:-60000}" beim
   [ -f "$stand" ] || return 1
+  # v5.19.0: ein TEILSYNC ist kein Sync. Er darf die Mahnung nicht stumm
+  # schalten -- sonst schweigt die Kette genau dann, wenn am meisten fehlt.
+  # Wirkt sofort in derselben Sitzung, ohne Umweg ueber eine Kompaktierung.
+  mind_sync_voll "$stand" || return 1
   beim=$(grep -m1 '^tokens=' "$stand" 2>/dev/null | cut -d= -f2-)
   # Merker aus einer Fassung vor v5.11.0 traegt keine Zahl. Ihn als "frisch"
   # zu behandeln waere genau die Dauersperre -- also gilt er als VERBRAUCHT.

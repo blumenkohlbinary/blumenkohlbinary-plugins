@@ -33,6 +33,13 @@ KLASSEN = {
     "zeilenenden": "CRLF/LF gemischt oder unbeabsichtigt umgestellt",
     "agent-fehlbericht": "Ein Subagent gab etwas Falsches zurueck",
     "agent-gestorben": "Ein Subagent lieferte kein Ergebnis (= UNGEPRUEFT, nicht unauffaellig)",
+    # NEU v5.19.0. ⛔ NICHT dasselbe wie `agent-gestorben`: dort lieferte ein
+    # GESTARTETER Agent nichts, hier wurde nie einer gestartet. Der Unterschied
+    # ist nicht akademisch — derselbe Vorfall wurde am 24.08.2026 zweimal
+    # verschieden einsortiert (hier als `agent-gestorben`, im Projekt Creator
+    # als `sonstiges`). Solange ein Ereignis zwei Namen traegt, kann die
+    # Wiederholungserkennung das Muster nicht sehen.
+    "lauf-unvollstaendig": "Ein Pflichtteil eines Laufs wurde ausgelassen (Kontext, Abbruch)",
     "plugin-defekt": "Fehler im Plugin selbst",
     "doku-veraltet": "Dokumentation widerspricht dem gemessenen Stand",
     "sichtbarkeit": "Inhalt existiert, wird aber nicht geladen/ausgewaehlt",
@@ -48,6 +55,9 @@ KLASSEN = {
 PLUGIN_KLASSEN = {
     "instrument-nachgebaut", "instrument-misst-nichts", "plugin-defekt",
     "agent-fehlbericht", "agent-gestorben", "sichtbarkeit",
+    # v5.19.0: gehoert zum Plugin, nicht zum Projekt — ein ausgelassener
+    # Pflichtteil ist ein Befund ueber den Ablauf, nicht ueber den Inhalt.
+    "lauf-unvollstaendig",
 }
 
 

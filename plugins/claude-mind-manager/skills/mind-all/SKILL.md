@@ -66,6 +66,17 @@ if [ "$DRY_RUN" = "no" ]; then
 else
   rm -f "$SCOPES_FILE"   # Probelauf hinterlaesst KEINE Marke
 fi
+
+# ⛔ v5.19.0: Die Agent-Quittung wird HIER angelegt, nicht in mind-update.
+#    Bis v5.18.0 rief `mind_agent_quittung_start` ausschliesslich mind-update
+#    Step 3.5 — also GENAU DER SCHRITT, DER AUSFAELLT. Faellt er aus, faellt die
+#    Quittung mit aus, und ihr FEHLEN sieht aus wie ihr SCHWEIGEN.
+#    Das ist woertlich dasselbe Muster, das v5.3.1 eine Ebene tiefer behoben hat:
+#    ein Hook, der schweigt weil er soll, und einer, der schweigt weil er tot ist,
+#    sind im Log nicht zu unterscheiden.
+#    Ab hier gilt: keine Quittung == die Kette kam nie bis zum Fan-out. Von
+#    aussen messbar, weil der Anleger nicht mehr im Ausfallpfad liegt.
+[ "$DRY_RUN" = "no" ] && mind_agent_quittung_start "$PROJ"
 ```
 
 **Geretteter Chat (v5.1.0) + offene Schuld (v5.2.1):** Existiert `.claude-mind/rescued/OPEN`,
@@ -161,7 +172,18 @@ Fuer jeden der 5 in der Reihenfolge oben:
    und sie dann **vollstaendig** ausfuehren (inkl. Self-Check-Bloecken und Pflicht-Schritten).
    Nicht aus der Beschreibung improvisieren. **Skill-Logik ausfuehren** wie dort beschrieben — mit den durchgereichten
    Flags (`AUTO_MODE`/`DRY_RUN`). Kein erneuter Snapshot (Step 0 hat ihn).
-2. **Scope-Marke schreiben — NUR mit Modus-Angabe** (M3-Fix):
+2. **Laufspur schreiben — PFLICHT, nach JEDEM der fuenf** (NEU v5.19.0):
+   ```bash
+   echo "skill=<name>" >> "$SCOPES_FILE"   # nach jedem der 5, ohne Ausnahme
+   ```
+   ⛔ **Eigener Schluessel, bewusst getrennt von den Scope-Marken unten.** `skill=` sagt
+   *„dieser Teil lief"*, die Scope-Marken sagen *„diese Analyse ist in diesem Modus schon
+   gelaufen"* — zwei verschiedene Aussagen. Sie in einen Schluessel zu legen haette die
+   Dedup-Logik in Schritt 5 mitverbogen.
+   **Ohne diese Zeile ist der Lauf nicht zaehlbar**, und Step 2.96a kann `SYNC_LIEF` nicht
+   ableiten. Bis v5.18.0 gab es sie nicht — der Lauf vom 24.08.2026 hinterliess deshalb
+   **gar keine Spur** (gemessen: `analyzed-scopes.done` trug den Stand des Vortages).
+3. **Scope-Marke schreiben — NUR mit Modus-Angabe** (M3-Fix):
    ```bash
    echo "claude-md=mind-claudemd:default" >> "$SCOPES_FILE"   # nach mind-claudemd
    echo "memory=mind-memory:default"      >> "$SCOPES_FILE"   # nach mind-memory
@@ -169,7 +191,7 @@ Fuer jeden der 5 in der Reihenfolge oben:
    # ueberhaupt keine semantische Analyse — eine rules-Marke wuerde den rules-Agent in
    # Schritt 5 unterdruecken, ohne dass je einer gelaufen waere.
    ```
-3. **Ergebnis sammeln** (angewendet / DESIGN / offen / Fehler) fuer den Schlussbericht.
+4. **Ergebnis sammeln** (angewendet / DESIGN / offen / Fehler) fuer den Schlussbericht.
 
 **Scope-Dedup in Schritt 5 — nur bei GLEICHEM Modus (M3-Fix, kritisch):**
 `mind-claudemd`/`mind-memory` dispatchen den context-analyzer mit **`mode: default`**
@@ -326,8 +348,63 @@ Step 0 macht die Ruecknahme in einem Schritt moeglich.
 **Direkt nach einem tatsaechlich gelaufenen Sync** — und zwar unabhaengig davon, ob eine
 Schuld bestand:
 
+### ⛔ v5.19.0: `SYNC_LIEF` wird ABGELEITET, nicht behauptet
+
+Bis v5.18.0 stand hier `[ "$SYNC_LIEF" = "ja" ]` — und **kein Code im ganzen Plugin hat
+diese Variable je zugewiesen** (gemessen 24.08.2026: 2 Lesezugriffe, **0 Zuweisungen**).
+Sie wurde vom ausfuehrenden Modell aus Absicht gesetzt. Das ist woertlich
+Selbsteinschaetzung — genau das, was `cleaner_belege.py` seit v5.18.0 ueberall sonst als
+untaugliche Belegquelle ersetzt.
+
 ```bash
-if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" = "ja" ]; then
+# --- Was ist tatsaechlich gelaufen? Aus der Spur, nicht aus der Erinnerung. ---
+_SF="$SCOPES_FILE"; [ -f "$_SF" ] || _SF="${SCOPES_FILE}.done"   # Step 2.9 hat umbenannt
+_SKILL_IST=$(grep -c '^skill=' "$_SF" 2>/dev/null); _SKILL_IST=${_SKILL_IST:-0}
+_SKILL_SOLL=5
+
+_BILANZ="$PROJ/.claude-mind/lauf-bilanz.txt"
+mind_agent_bilanz "$PROJ" > "$_BILANZ" 2>/dev/null; _BRC=$?
+_DIS=$(sed -n 's/.*DISPATCH=\([0-9]*\).*/\1/p' "$_BILANZ" | head -1); _DIS=${_DIS:-0}
+# Soll: 4 Bereiche. 3, wenn custom-context mangels Dateien entfaellt (die EINZIGE
+# erlaubte Auslassung, mind-update Step 3.5). 0 nur bei --quick.
+_AGENT_SOLL="${AGENT_SOLL:-4}"
+
+# ⛔ Der Rueckgabewert der Bilanz REICHT NICHT — am Code gemessen, 24.08.2026.
+#    mind_agent_bilanz zaehlt nur, was in der Quittung STEHT. Ein Agent, der nie
+#    dispatcht wurde, hinterlaesst gar keine Zeile und ist unsichtbar. "2 dispatcht,
+#    beide mit Ergebnis" ergibt deshalb Rueckgabe 0 — "alles gut" — und waere als
+#    vollstaendig durchgewunken worden. Das ist exakt der Creator-Lauf vom 24.08.
+#    Deshalb entscheidet die ZAHL, nicht der Zustand. (tests/test_teilsync.sh, Fall 18)
+if [ "$_SKILL_IST" -eq 0 ] 2>/dev/null; then
+  SYNC_LIEF="nein"
+elif [ "$_BRC" = 0 ] && [ "$_DIS" -ge "$_AGENT_SOLL" ] 2>/dev/null \
+     && [ "$_SKILL_IST" -ge "$_SKILL_SOLL" ] 2>/dev/null; then
+  SYNC_LIEF="ja"
+else
+  SYNC_LIEF="teil"
+fi
+UMFANG="$_SKILL_IST/$_SKILL_SOLL skills $_DIS/$_AGENT_SOLL agents"
+
+# Welche Bereiche gelten als ungeprueft? Zwei Quellen, weil sie VERSCHIEDENE
+# Ausfaelle sehen: die Bilanz kennt leere und stumme Rueckgaben, aber einen nie
+# dispatchten Bereich kennt nur die Abwesenheit in der Quittung.
+_Q="$PROJ/.claude-mind/agent-quittung.jsonl"; UNGEPRUEFT=""
+for _b in claude-md memory rules custom-context; do
+  if ! grep -q "\"bereich\":\"$_b\"" "$_Q" 2>/dev/null \
+     || grep -q "UNGEPRUEFT: $_b" "$_BILANZ" 2>/dev/null; then
+    UNGEPRUEFT="${UNGEPRUEFT}${_b},"
+  fi
+done
+UNGEPRUEFT="${UNGEPRUEFT%,}"
+```
+
+⚠ **`nein` und `teil` sind verschiedene Dinge.** `nein` heisst: kein einziger Skill lief
+(Abbruch in Step 0/1) — dann entsteht kein Merker und die Schuld bleibt unberuehrt
+bestehen. `teil` heisst: die Kette lief, der Fan-out nicht — dann entsteht ein Merker,
+**der seine eigene Unvollstaendigkeit traegt**.
+
+```bash
+if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" != "nein" ]; then
   mkdir -p "$PROJ/.claude-mind/rescued"
   # v5.11.0: `tokens=` ist PFLICHT. Ohne die Zahl gilt der Merker beim naechsten
   # Lauf als verbraucht (mind_sync_frisch) -- lieber eine Mahnung zu viel als
@@ -337,8 +414,14 @@ if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" = "ja" ]; then
     _STP=$(ls -t "$HOME/.claude/projects/$(hash_project_dir "$PROJ")"/*.jsonl 2>/dev/null | head -1)
     [ -n "$_STP" ] && _STOK=$(mind_kontext_tokens "$_STP" 2>/dev/null)
   fi
-  printf 'ts=%s\ntokens=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${_STOK:-0}" \
+  # v5.19.0: `umfang=` ist der Beleg, `ungepruef=` sagt WAS fehlt. Ohne beide
+  # sieht ein Teilsync im Merker aus wie ein Vollsync — und pre-compact.sh
+  # loescht dann die Schuld fuer Arbeit, die nie stattgefunden hat.
+  printf 'ts=%s\ntokens=%s\numfang=%s\nungepruef=%s\n' \
+    "$(date '+%Y-%m-%d %H:%M:%S')" "${_STOK:-0}" "$UMFANG" "$UNGEPRUEFT" \
     > "$PROJ/.claude-mind/rescued/sync-stand"
+  [ "$SYNC_LIEF" = "teil" ] && \
+    echo "⚠ TEILSYNC: $UMFANG — ungeprueft: ${UNGEPRUEFT:-(nichts)}. Die Schuld bleibt bestehen."
 
   # v5.7.5: War dies ein Sync WEGEN der Token-Schwelle? Dann ist die Kompaktierung faellig.
   # Ein Handaufruf bei 100k Kontext soll NICHT zum Kompaktieren draengen — daher die
@@ -403,6 +486,12 @@ Mal; danach gibt er auf, damit niemand festgenagelt wird, der bewusst nicht komp
 Erst **nach** einem tatsaechlich gelaufenen Sync (nicht im Probelauf, nicht nach Abbruch von
 mind-update) wird die offene Schuld entfernt — sonst blockt der Stop-Hook zu Recht weiter:
 
+⛔ **Hier steht `= "ja"` und bleibt dabei — anders als in Step 2.96a.** Ein Teilsync setzt
+zwar einen Merker (der seine Unvollstaendigkeit selbst traegt), begleicht aber **keine
+Schuld**. Der Unterschied ist der ganze Zweck von v5.19.0: `sync-stand` sagt „so weit bin
+ich gekommen", `OPEN` sagt „das steht noch aus". Wer beides an dieselbe Bedingung haengt,
+hat wieder zwei Zustaende statt drei.
+
 ```bash
 if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" = "ja" ]; then
   OPEN="$PROJ/.claude-mind/rescued/OPEN"
@@ -434,6 +523,8 @@ passieren darf — genau daran ist v5.2.0 gescheitert.
 ```
 === /mind-all — Durchlauf abgeschlossen ===
 Modus: autonom | --ask | --dry-run
+Ausfuehrungstiefe: <UMFANG>          ⛔ PFLICHT, v5.19.0 — aus $UMFANG, nicht aus dem Kopf
+NICHT GEFAHREN:    <was und warum>   ⛔ PFLICHT — "(nichts)" ist die Antwort bei 5/5 + 4/4
 Hook-Gesundheit: OK (Herzschlag vor <N> min, Version <v>)  |  <Warnung woertlich>
 Session-Quelle: gerettet <pfad> (<N> Beitraege)  |  live
 Snapshot: <pfad>
@@ -483,6 +574,32 @@ Die Rettungsdatei `*_chat.md` **bleibt** liegen.
 
 **Der Bericht ist die einzige Stelle, an der du siehst was passiert ist** — deshalb luegt er
 nicht: jede Aenderung einzeln, jede Auslassung mit Grund, Snapshot-Pfad immer dabei.
+
+### ⛔ `Ausfuehrungstiefe` und `NICHT GEFAHREN` sind PFLICHT (NEU v5.19.0)
+
+**Ein kurzer Bericht kann zwei voellig verschiedene Dinge heissen:** „es war nichts zu tun"
+oder „es wurde abgekuerzt". Bis v5.18.0 waren die beiden **von aussen nicht
+unterscheidbar** — auch nicht an der Laufzeit, denn die haengt an der Zahl der Befunde.
+
+Genau daran ist am 24.08.2026 die Frage *„mind all war ziemlich schnell, woran liegt das?"*
+haengengeblieben. Die ehrliche Antwort war: **0 von 4 Agents gelaufen** — aber im Bericht
+stand davon nichts, weil es dafuer keine Zeile gab.
+
+```
+Ausfuehrungstiefe: 5/5 skills 0/4 agents
+NICHT GEFAHREN:    knowledge-sync (Kontext 914k) -> claude-md, memory, rules, custom-context
+                   Diese Bereiche gelten als UNGEPRUEFT, nicht als unauffaellig.
+```
+
+- Beide Zeilen kommen aus `$UMFANG` und `$UNGEPRUEFT` (Step 2.96a) — **aus der Spur, nicht
+  aus der Erinnerung.**
+- `NICHT GEFAHREN: (nichts)` ist die zulaessige Antwort bei einem vollstaendigen Lauf.
+  **Ein leerer Wert ist es nicht** — dieselbe Regel wie bei `listeverbesserungen.md`.
+- Ein Teilsync gehoert zusaetzlich als Befund der Klasse **`lauf-unvollstaendig`** in die
+  Befundzeilen von Step 2.95. Nicht als `agent-gestorben`: dort lieferte ein **gestarteter**
+  Agent nichts, hier wurde nie einer gestartet. Der Unterschied ist nicht akademisch —
+  am 24.08.2026 wurde derselbe Vorfall in zwei Projekten **verschieden** einsortiert, und
+  solange ein Ereignis zwei Namen traegt, sieht die Wiederholungserkennung kein Muster.
 
 ## Hard Constraints
 
