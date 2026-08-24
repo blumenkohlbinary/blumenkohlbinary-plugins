@@ -167,6 +167,33 @@ den Skill schiebt und die Erklärung in der Rule lässt, besteht **alle vier**.
   Auswähler mit Grenze 5; Skills haben **keinen** (am Binärprogramm 2.1.237 nachgesehen).
   Die Kappung liegt bei 1 536. Gemessen half **direktiver Stil**, nicht Kürze.
 
+### ⛔ Step 5b: Stille Kappungen — PFLICHT vor jedem Umzug (NEU v5.17.0)
+
+```bash
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_grenzen.py" --ziel <zieldatei> --dazu <inhalt>
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_grenzen.py" --bestand "$PROJ"
+```
+
+**Ein Werkzeug, das eine stille Grenze nicht kennt, verschiebt Inhalt an einen Ort, wo er
+lautlos abgeschnitten wird.** Vorher war der Text zu lang, nachher ist er **weg** — ohne Meldung.
+
+| Grenze | Wert | Verhalten |
+|---|---|---|
+| `MEMORY.md` | 200 Zeilen **oder** 25 KB | ⛔ **still** weg |
+| ⭐ **`paths:`-Budget** | **1 000 Muster** | ⛔ Muster bleibt unexpandiert → **die Regel feuert nie mehr** |
+| `@`-Import-Tiefe | 4 Hops | ⛔ still nicht aufgelöst |
+| Skill-`description` | 1 536 Zeichen | ⛔ in der Liste gekappt |
+| HTML-Kommentare | — | ⛔ **vor jeder Injektion entfernt** |
+| Hook-Ausgabe | 10 000 Zeichen | Rest in Datei |
+| Datei | 4 MiB | **laut** übersprungen |
+
+⭐ **Das `paths:`-Budget ist die gefährlichste.** Alle anderen kappen Inhalt. Diese eine macht
+eine **ganze Regel unwirksam**, ohne dass sich etwas Sichtbares ändert. ⚠ `{a,b,c}` zählt
+**expandiert** — drei Muster, nicht eins.
+
+⛔ **HTML-Kommentare sind keine Ablage.** Wer Inhalt dort „archiviert", hat ihn **gelöscht**,
+nicht versteckt. Rückgabe **2 heißt NICHT MESSBAR** — kein bestandenes Gate.
+
 ## Step 7: Nachmessen und zurückrollen
 
 ```
@@ -178,6 +205,37 @@ den Skill schiebt und die Erklärung in der Rule lässt, besteht **alle vier**.
 
 ⛔ **Schritt 3 kann der Befehl NICHT selbst** — er braucht eine frische Sitzung. Bis das
 Protokoll es belegt, heißt der Lauf **„verschoben, Wirkung unbestätigt"**.
+
+### ⭐ Step 7b: Die Ratsche — damit aufgeräumt auch aufgeräumt BLEIBT (NEU v5.17.0)
+
+```bash
+# beim Archivieren — der Grund ist PFLICHT
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_ratsche.py" \
+       --archiviere <datei> --grund "<warum es weggeht>" --projekt "$PROJ"
+
+# bei jedem Lauf
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_ratsche.py" --pruefe --projekt "$PROJ"
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_ratsche.py" --verlauf --projekt "$PROJ"
+```
+
+⛔ **Sie misst WIEDERAUFERSTEHUNG, nicht Bytes.** Eine Größenbremse wäre falsch: ein Bestand
+**darf** wachsen, neues Wissen ist kein Fehler. **Eine Bremse gegen legitimes Wachstum ist
+eine Bremse gegen Lernen.**
+
+Was nicht passieren darf, ist etwas anderes — dass etwas **bewusst Herausgenommenes**
+unbemerkt zurückkommt:
+
+> *„`MIND_NOTFALL_TOKENS` wurde am 22.08. archiviert (Grund: im Code entfallen) und steht
+> seit dem 24.08. wieder in `CLAUDE.md`."*
+
+⚠ **Eine Wiederauferstehung ist NICHT automatisch ein Fehler.** Vielleicht wurde damals zu
+Unrecht archiviert. Die Ratsche meldet **mit Vorgeschichte**, sie urteilt nicht.
+
+⛔ **Ohne `--grund` gibt es keinen Eintrag.** *„X ist zurück"* ohne *„warum es wegging"* hilft
+beim nächsten Mal niemandem.
+
+⚠ **`--verlauf` ist KEIN Gate.** Er schreibt eine Zeile je Lauf mit Dateizahl und Bytes je
+Ablage — eine Kurve, die man ansehen kann. Nichts bricht daran ab.
 
 ## `--hook-bauen <datei>` — nur auf ausdrückliche Ansage
 
