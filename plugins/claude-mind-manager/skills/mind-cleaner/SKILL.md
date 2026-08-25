@@ -71,8 +71,24 @@ unbeobachtBAR sind.** Wer 5b für eine Restmenge hält, liest den Bericht falsch
 
 | Quelle | was sie zeigt |
 |---|---|
-| `Debug/index.jsonl` | datierte Verstöße — **hören sie an einem Modellwechsel auf?** |
+| `Debug/index.jsonl` | datierte Verstöße — wie viele, wie alt, wann zuletzt |
 | Git-Historie | **Ein-Commit** = seit Anlage nie überarbeitet („Init Fossilization") |
+
+⛔ **Die Modell-Alterung ist NICHT eingebaut — die Behauptung stand hier zu Unrecht.**
+Bis v5.20.1 warb dieser Abschnitt mit *„hören sie an einem Modellwechsel auf?"*. Das Wort
+*Modell* kam in `cleaner_belege.py` **null mal** vor.
+
+**Gemessen 25.08.2026, warum es (noch) nicht lohnt:**
+
+```
+Modellwechsel sind ableitbar   claude-opus-4-7  ab 29.05. · 4-8 ab 04.06. · 5 ab 29.07.
+Debug-Befunde                  142, ältester 20.08., jüngster 25.08.
+davon VOR dem letzten Wechsel  0
+```
+
+**Trennschärfe heute: null.** Jede Regel wäre „nicht entscheidbar". Der Bau ist
+zurückgestellt, bis das Debug-Fenster einen Modellwechsel überspannt — die Datenquelle
+(`~/.claude/projects/<slug>/*.jsonl`, Feld `message.model`) ist dann ohne Handpflege da.
 
 ⛔ **Die Frage *„würdest du das auch ohne die Regel tun?"* wird NICHT gestellt.** Sie ist
 nicht zuverlässig beantwortbar: am 24.08.2026 wurden **vier Regeln gebrochen, die wörtlich in
@@ -302,7 +318,14 @@ Aufruf — mit Prüffall, und ohne Eintrag in `hooks.json`, bis der Prüffall gr
   belegt das.
 - ⛔ **NIE bei gebrochenem Gate trotzdem umziehen** — listen statt anwenden.
 - ⛔ **NIE eine Datei anfassen, die nicht dem Nutzer gehört** (`upstream_datei()`).
-- ⛔ **NIE kürzen.** Kein Satz wird gestrichen. Wer kürzen will, tut das getrennt und sichtbar.
+- ⛔ **NIE LÖSCHEN.** Kein Satz verschwindet. **Kürzen heißt hier VERSCHIEBEN ins Archiv**
+  (`.claude/archiv/`, liegt in keinem Ladepfad — gegen `geladene_dateien()` geprüft).
+  Nutzer-Auftrag 24.08.2026, wörtlich: *„Formuliere diese Regeln so kurz wie möglich und
+  verschiebe alles andere in einen archive-Ordner (**niemals dauerhaft löschen**)"*.
+  ⛔ **Das Kürzen gilt NUR für `--rebuild`.** `--umzug`, `--plan` und `--hook-bauen`
+  nehmen weiterhin keinen Satz aus einer lebenden Datei.
+  ⚠ Bis v5.20.1 stand hier „NIE kürzen" — ohne Nutzer-Zuschreibung und im direkten
+  Widerspruch zum Auftrag oben. **Kürzen war mit Löschen verwechselt worden.**
 
 ## Was der Befehl ausdrücklich NICHT tut
 
@@ -311,6 +334,29 @@ Aufruf — mit Prüffall, und ohne Eintrag in `hooks.json`, bis der Prüffall gr
 - **Behaupten, der Umzug habe sich gelohnt.** ⚠ Dass ein großer Startkontext schadet, ist
   seit 24.08.2026 belegt (20 gestapelte Regeln: 96 % → 60,4 % Befolgung). **Ob 135 → 28 KB
   der richtige Betrag war, folgt aus keiner Quelle.** Belegt ist die Richtung, nicht der Betrag.
+
+
+### ⛔ Step 8: Protokollieren — PFLICHT (NEU v5.21.0)
+
+```bash
+mind_debug_write "$PROJ" "mind-cleaner" "$ABSCHNITT" "$BEFUNDE"
+```
+
+**Bis v5.20.1 protokollierte KEIN einziges Cleaner-Werkzeug** — `grep -c "mind_log|logging"`
+über alle neun ergab **0**, und `/mind-cleaner` meldete **nichts** an `MIND_DEBUG_DIR`,
+während `/mind-all` es tut.
+
+⛔ **Die Folge ist gemessen:** die zwei Werkzeugfehler vom 25.08.2026 (positionales Argument
+still verworfen · Stamm `sicherung` gegen deutsche Prosa) sind **nur deshalb** bekannt, weil
+sie zufällig auffielen. In der Wiederholungserkennung wären sie nie gelandet.
+
+⚠ **Ein Lauf, der nichts findet, protokolliert das ebenfalls.** Ein Werkzeug, das schweigt
+weil es soll, und eines, das schweigt weil es kaputt ist, sind sonst nicht zu unterscheiden
+— dieselbe Lehre wie v5.3.1 (zwei Hooks mit 0 Log-Aufrufen) und v5.19.0 (die Quittung lag im
+Ausfallpfad).
+
+**Klassen für die Befundzeilen:** `instrument-misst-nichts` (das Werkzeug traf seinen
+Gegenstand nicht) · `lauf-unvollstaendig` (ein Pflichtteil entfiel) · `doku-veraltet`.
 
 ## Self-Check — PFLICHT im Bericht
 
@@ -324,6 +370,8 @@ Aufruf — mit Prüffall, und ohne Eintrag in `hooks.json`, bis der Prüffall gr
 [Gates]          nur bei --umzug: <je Gate OK/BRUCH>
 [Stufe]          BERICHT | PLAN | ANGEWENDET
 [Wirkung]        unbestaetigt bis zum Ladeprotokoll einer NEUEN Sitzung
+[Protokoll]      <n> Zeilen nach $MIND_LOG_FILE · <n> Befunde nach MIND_DEBUG_DIR
+                 oder "still: nichts zu melden" — ein Lauf, der schweigt, sagt WARUM
 ```
 
 ⛔ Fehlt eine Zeile, ist der Bericht unvollständig und darf zurückgewiesen werden.

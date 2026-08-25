@@ -36,6 +36,28 @@ import sys
 
 sys.stdout.reconfigure(encoding="utf-8", newline="")
 
+
+def _md_rekursiv(d):
+    """Alle .md unter d, REKURSIV, sortiert.
+
+    ⛔ Bis v5.20.1 stand hier ueberall `os.listdir` — flach. Ein Unterordner
+       (etwa ein `archive/`) war damit unsichtbar. Genau daran hing der
+       teuerste Einzelbefund dieses Bestands: am 23.08.2026 kamen **267 von
+       920** Ladevorgaengen aus einem `archive/`-Ordner, der angelegt worden
+       war, UM den Bestand zu kuerzen.
+
+    ⭐ Nicht nachgebaut: dieselbe Schleife steht seit v5.17.0 in
+       cleaner_ratsche.py:90 (`geladene_dateien`).
+    """
+    aus = []
+    if not os.path.isdir(d):
+        return aus
+    for wurzel, _dirs, dateien in os.walk(d):
+        for f in dateien:
+            if f.endswith(".md"):
+                aus.append(os.path.join(wurzel, f))
+    return sorted(aus)
+
 # ---------------------------------------------------------------------------
 # Check 3 — Emoji. NIE nach Unicode-Kategorie.
 # ---------------------------------------------------------------------------
@@ -399,9 +421,7 @@ def pruefe(pfad, projekt):
             befund(17, i, "Secret-Muster")
 
     # --- 18 · Modularity messbar --------------------------------------------
-    rules = len([f for f in os.listdir(os.path.join(projekt, ".claude", "rules"))
-                 if f.endswith(".md")]) if os.path.isdir(
-        os.path.join(projekt, ".claude", "rules")) else 0
+    rules = len(_md_rekursiv(os.path.join(projekt, ".claude", "rules")))
     imports = len(re.findall(r"@import", text))
 
     # --- 19 · Ueberschriften-Hierarchie, keine Spruenge ----------------------

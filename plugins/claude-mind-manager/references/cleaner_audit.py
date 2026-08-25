@@ -46,6 +46,11 @@ import cleaner_belege as bel                                     # noqa: E402
 import cleaner_aussagen as aus                                   # noqa: E402
 import cleaner_grenzen as gre                                    # noqa: E402
 import cleaner_urteile as urt                                    # noqa: E402
+# L6 (v5.21.0): die Referenz-Existenzpruefung. ⛔ NICHT nachbauen — diese Kette
+# traegt die Narben von DREI gescheiterten Nachbauten (20.08.2026: 11
+# Slash-Commands als tote Pfade · 21.08.: 9 gemeldet, echte 0 · ein dritter
+# Anlauf mit demselben Wurzel-Fehler).
+import claudemd_pipeline as pipe                                 # noqa: E402
 
 # ⛔ ERST importieren, DANN reconfigure — nie einen zweiten TextIOWrapper.
 sys.stdout.reconfigure(encoding="utf-8", newline="")
@@ -203,6 +208,64 @@ def lauf(projekt, nur="alles"):
         for p, n in blind[:8]:
             print("       %-32s %d Stelle(n)" % (os.path.basename(p)[:32], n))
 
+    # ======================================================================
+    # L6 · TOTE VERWEISE (NEU v5.21.0)
+    # ======================================================================
+    # ⭐ Die EINZIGE Stelle, an der ohne Verstossdaten "veraltet" geurteilt
+    #    werden darf: der genannte Gegenstand existiert nicht mehr. Das ist
+    #    eine Existenzpruefung, keine Verhaltensfrage.
+    # ⚠ `pfade` mischt Listen und Zaehler — am Code nachgesehen, nicht geraten:
+    #   dead/extern sind LISTEN, skip/unsure/befehle sind ZAHLEN. Die erste
+    #   Fassung dieses Blocks iterierte ueber `unsure` und brach mit
+    #   "'int' object is not iterable" ab.
+    tot, extern, unlesbar = [], [], []
+    unsure = 0
+    for p in ds:
+        try:
+            erg = pipe.pruefe(p, projekt)
+        except Exception as e:                       # noqa: BLE001
+            unlesbar.append((p, str(e)[:60]))
+            continue
+        pf = erg.get("pfade") or {}
+        # ⛔ EIN GLOBALER PFAD IST VON HIER AUS NICHT ENTSCHEIDBAR.
+        #    Eine Regel in `~/.claude/rules/` nennt Pfade relativ zur
+        #    ARBEITSWURZEL des Nutzers, nicht relativ zu diesem Projekt.
+        #    GEMESSEN 25.08.2026: der erste Lauf meldete 22 tote Pfade — und
+        #    `_claude_backups/_auto`, `_claude_tools/hooks/sicherung.py` und
+        #    `_claude_vm/sichtpruef.py` existieren alle, nur eben unter
+        #    `C:\CD\KOHLEKTIV`. **Alle 22 stammten aus globalen Regeln.**
+        #    Sie als tot zu melden hiesse, gueltige Verweise zum Loeschen
+        #    vorzuschlagen — genau der Fehler, den `classify_path` dreimal
+        #    gemacht hat, bevor er portiert wurde.
+        global_regel = os.path.abspath(p).startswith(
+            os.path.abspath(os.path.join(os.path.expanduser("~"), ".claude")))
+        if global_regel:
+            unsure += len(pf.get("dead") or []) + len(pf.get("extern") or [])
+        else:
+            tot += [(p, x) for x in (pf.get("dead") or [])]
+            extern += [(p, x) for x in (pf.get("extern") or [])]
+        # ⛔ UNSURE ist die DRITTE Klasse und wird NIE geurteilt, nur gezaehlt.
+        #    Ein Pfad, den das Instrument nicht einordnen kann, ist nicht tot —
+        #    er ist UNGEMESSEN. Wer beides gleichsetzt, loescht gueltige Verweise.
+        unsure += int(pf.get("unsure") or 0)
+
+    print()
+    print("  ⚠ REFERENZ-EXISTENZ [EXPERIMENTELL] — %d fraglich · %d extern · %d ungemessen"
+          % (len(tot), len(extern), unsure))
+    print("     ⛔ NICHT ALS BEFUNDLISTE AUSGEGEBEN, und das ist Absicht.")
+    print("        Gemessen 25.08.2026 am eigenen Bestand: von 11 Meldungen war")
+    print("        KEINE EINZIGE ein echter toter Pfad. Darunter `\\|` (maskierte")
+    print("        Tabellen-Pipe), `hooks/lib.sh:104-106` (Zitat mit Zeilennummer),")
+    print("        `rmdir /s /q` und `2>/dev/null` (Shell-Fragmente).")
+    print("        `classify_path` ist fuer CLAUDE.md gebaut, nicht fuer Regeldateien")
+    print("        voller Code-Zitate. Eine Liste, die zu 100 Prozent Fehlalarm ist, waere")
+    print("        schaedlicher als keine — sie schluege vor, gueltige Verweise zu")
+    print("        loeschen. Der Weg steht in werkzeuge-zuerst.md: den Fall als")
+    print("        Prueffall ZUM ORIGINAL geben und das Original erweitern.")
+    for p, was in unlesbar:
+        # ⛔ Ein unlesbarer Lauf ist NICHT MESSBAR, nicht "sauber" — der wird gemeldet.
+        print("       %-30s ⛔ NICHT MESSBAR: %s" % (os.path.basename(p)[:30], was))
+
     print()
     print("  " + "=" * 84)
     print("  NICHT GEPRUEFT — und das gehoert in jeden Bericht")
@@ -211,6 +274,9 @@ def lauf(projekt, nur="alles"):
     print("     · welche Seite eines Widerspruchs recht hat")
     print("     · ob der Code dasselbe sagt wie die Regel (er sagt WAS, sie oft WARUM)")
     print("     · ob eine Regel FEHLT — ein Audit sieht nur, was da ist")
+    print("     · ob eine Regel nur eine Schwaeche AELTERER Modelle behebt —")
+    print("       ableitbar, aber die Debug-Daten liegen alle NACH dem letzten")
+    print("       Modellwechsel (142 von 142). Trennschaerfe heute: null.")
     if idx is None:
         print("     · ⛔ KEIN Verstoss-Protokoll erreichbar — alle Belege sind leer,")
         print("          und das ist KEIN 'nichts gefunden'")

@@ -50,6 +50,28 @@ import sys
 #    dann — und zwar STILL, denn die Ausgabe sieht voellig richtig aus.
 sys.stdout.reconfigure(encoding="utf-8", newline="")
 
+
+def _md_rekursiv(d):
+    """Alle .md unter d, REKURSIV, sortiert.
+
+    ⛔ Bis v5.20.1 stand hier ueberall `os.listdir` — flach. Ein Unterordner
+       (etwa ein `archive/`) war damit unsichtbar. Genau daran hing der
+       teuerste Einzelbefund dieses Bestands: am 23.08.2026 kamen **267 von
+       920** Ladevorgaengen aus einem `archive/`-Ordner, der angelegt worden
+       war, UM den Bestand zu kuerzen.
+
+    ⭐ Nicht nachgebaut: dieselbe Schleife steht seit v5.17.0 in
+       cleaner_ratsche.py:90 (`geladene_dateien`).
+    """
+    aus = []
+    if not os.path.isdir(d):
+        return aus
+    for wurzel, _dirs, dateien in os.walk(d):
+        for f in dateien:
+            if f.endswith(".md"):
+                aus.append(os.path.join(wurzel, f))
+    return sorted(aus)
+
 MEMORY_ZEILEN = 200
 MEMORY_BYTES = 25 * 1024
 SKILL_DESC = 1536
@@ -352,9 +374,7 @@ def main():
         kandidaten = []
         for d in (os.path.join(H, ".claude", "rules"),
                   os.path.join(projekt, ".claude", "rules")):
-            if os.path.isdir(d):
-                kandidaten += [os.path.join(d, f) for f in sorted(os.listdir(d))
-                               if f.endswith(".md")]
+            kandidaten += _md_rekursiv(d)
         for f in (os.path.join(H, ".claude", "CLAUDE.md"),
                   os.path.join(projekt, "CLAUDE.md")):
             if os.path.isfile(f):

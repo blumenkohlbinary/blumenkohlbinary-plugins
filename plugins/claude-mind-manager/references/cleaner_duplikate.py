@@ -69,6 +69,28 @@ import collections
 #    globalen CLAUDE.md dokumentierte `write_text()`-Fall.
 sys.stdout.reconfigure(encoding="utf-8", newline="")
 
+
+def _md_rekursiv(d):
+    """Alle .md unter d, REKURSIV, sortiert.
+
+    ⛔ Bis v5.20.1 stand hier ueberall `os.listdir` — flach. Ein Unterordner
+       (etwa ein `archive/`) war damit unsichtbar. Genau daran hing der
+       teuerste Einzelbefund dieses Bestands: am 23.08.2026 kamen **267 von
+       920** Ladevorgaengen aus einem `archive/`-Ordner, der angelegt worden
+       war, UM den Bestand zu kuerzen.
+
+    ⭐ Nicht nachgebaut: dieselbe Schleife steht seit v5.17.0 in
+       cleaner_ratsche.py:90 (`geladene_dateien`).
+    """
+    aus = []
+    if not os.path.isdir(d):
+        return aus
+    for wurzel, _dirs, dateien in os.walk(d):
+        for f in dateien:
+            if f.endswith(".md"):
+                aus.append(os.path.join(wurzel, f))
+    return sorted(aus)
+
 # Marken, die eine Uebersetzung ueberleben und spezifisch genug sind.
 # ⚠ Bewusst ENG. Lieber ein Duplikat uebersehen als eine Liste voller Rauschen.
 _MARKE = re.compile(
@@ -415,8 +437,7 @@ def ablagen(projekt, bereich="alles"):
     H = os.path.expanduser("~")
 
     def md(d):
-        return ([os.path.join(d, f) for f in sorted(os.listdir(d))
-                 if f.endswith(".md")] if os.path.isdir(d) else [])
+        return _md_rekursiv(d)
     a = {}
     if bereich in ("alles", "global"):
         a["g:CLAUDE.md"] = [os.path.join(H, ".claude", "CLAUDE.md")]

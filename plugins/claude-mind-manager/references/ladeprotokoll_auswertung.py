@@ -28,6 +28,28 @@ import collections
 sys.stdout.reconfigure(encoding="utf-8", newline="")
 
 
+def _md_rekursiv(d):
+    """Alle .md unter d, REKURSIV, sortiert.
+
+    ⛔ Bis v5.20.1 stand hier ueberall `os.listdir` — flach. Ein Unterordner
+       (etwa ein `archive/`) war damit unsichtbar. Genau daran hing der
+       teuerste Einzelbefund dieses Bestands: am 23.08.2026 kamen **267 von
+       920** Ladevorgaengen aus einem `archive/`-Ordner, der angelegt worden
+       war, UM den Bestand zu kuerzen.
+
+    ⭐ Nicht nachgebaut: dieselbe Schleife steht seit v5.17.0 in
+       cleaner_ratsche.py:90 (`geladene_dateien`).
+    """
+    aus = []
+    if not os.path.isdir(d):
+        return aus
+    for wurzel, _dirs, dateien in os.walk(d):
+        for f in dateien:
+            if f.endswith(".md"):
+                aus.append(os.path.join(wurzel, f))
+    return sorted(aus)
+
+
 def finde_log():
     for k in ("MIND_LADEPROTOKOLL",):
         if os.environ.get(k):
@@ -136,7 +158,9 @@ def main():
 
     # --- was NICHT vorkam ----------------------------------------------
     if os.path.isdir(rules):
-        vorhanden = {n for n in os.listdir(rules) if n.endswith(".md")}
+        # relativer Pfad, damit `archive/x.md` nicht mit `x.md` verwechselt wird
+        vorhanden = {os.path.relpath(p, rules).replace(os.sep, "/")
+                     for p in _md_rekursiv(rules)}
         fehlend = sorted(vorhanden - set(dateien))
         print()
         print("  " + "-" * 74)

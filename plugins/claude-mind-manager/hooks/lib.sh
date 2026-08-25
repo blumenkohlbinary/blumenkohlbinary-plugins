@@ -580,9 +580,20 @@ mind_snapshot() {
   # 3) Projekt-Rules (die editieren die Skills ebenfalls)
   if [ -d "$project_dir/.claude/rules" ]; then
     mkdir -p "$snap/rules"
-    for f in "$project_dir/.claude/rules"/*.md; do
-      [ -f "$f" ] && { cp "$f" "$snap/rules/" 2>/dev/null && count=$((count+1)); }
-    done
+    # v5.21.0: REKURSIV. Vorher `*.md` -- flach. Ein Unterordner (etwa ein
+    # `archive/`) war damit fuer die LESER sichtbar, fuer das NETZ aber nicht.
+    # Genau der Fall, der am 23.08.2026 267 von 920 Ladevorgaengen erzeugte:
+    # ein archive/-Ordner, angelegt UM den Bestand zu kuerzen, der ihn
+    # stattdessen verdoppelte. Der relative Pfad bleibt erhalten, sonst
+    # verdraengt `archive/env-vars.md` die `env-vars.md` der Wurzel.
+    while IFS= read -r f; do
+      [ -n "$f" ] && [ -f "$f" ] || continue
+      _rel="${f#$project_dir/.claude/rules/}"
+      mkdir -p "$snap/rules/$(dirname "$_rel")" 2>/dev/null
+      cp "$f" "$snap/rules/$_rel" 2>/dev/null && count=$((count+1))
+    done <<EOF_RULES
+$(find "$project_dir/.claude/rules" -name '*.md' -type f 2>/dev/null)
+EOF_RULES
   fi
 
   # 3b) ZUSAETZLICHE Projektdateien (NEU v5.2.1, Befund 3)
@@ -664,9 +675,15 @@ EOF
     fi
     if [ -d "$HOME/.claude/rules" ]; then
       mkdir -p "$snap/global/rules"
-      for f in "$HOME/.claude/rules"/*.md; do
-        [ -f "$f" ] && { cp "$f" "$snap/global/rules/" 2>/dev/null && count=$((count+1)); }
-      done
+      # v5.21.0: REKURSIV -- siehe Begruendung bei den Projekt-Rules oben.
+      while IFS= read -r f; do
+        [ -n "$f" ] && [ -f "$f" ] || continue
+        _rel="${f#$HOME/.claude/rules/}"
+        mkdir -p "$snap/global/rules/$(dirname "$_rel")" 2>/dev/null
+        cp "$f" "$snap/global/rules/$_rel" 2>/dev/null && count=$((count+1))
+      done <<EOF_GRULES
+$(find "$HOME/.claude/rules" -name '*.md' -type f 2>/dev/null)
+EOF_GRULES
     fi
   else
     mind_log INFO "mind_snapshot: global ausgelassen (label=$label kann ~/.claude nicht schreiben)"

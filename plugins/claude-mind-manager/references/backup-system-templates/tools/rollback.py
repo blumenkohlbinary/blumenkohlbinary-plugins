@@ -31,6 +31,7 @@ __version__ = 1.0.0
 """
 from __future__ import annotations
 import os
+import re
 import shutil
 import sys
 from datetime import datetime
@@ -42,12 +43,109 @@ DEFAULT_TARGET = os.environ.get("BACKUP_TARGET", ".claude-mind/backups")
 PROJECT_ROOT = Path.cwd()
 
 
+HOME = Path(os.path.expanduser("~"))
+
+
+def wurzeln() -> list:
+    """Alle Orte, an denen Snapshots liegen koennen.
+
+    ⛔ ZWEI ABLAGEN, und rollback.py kannte bis v5.20.1 nur EINE:
+       `mind_snapshot` (hooks/lib.sh) schreibt nach `.claude-mind/snapshots`,
+       das Backup-System nach `.claude-mind/backups`. `rollback.py list` fand
+       die Snapshots des Plugins damit **gar nicht** — der Rueckweg existierte
+       nur auf dem Papier. Gefunden im Plan-Review am 25.08.2026.
+
+    ⚠ Ist BACKUP_TARGET ausdruecklich gesetzt, gilt NUR dieser Ort — eine
+      bewusste Wahl wird nicht heimlich erweitert.
+    """
+    aus = []
+    t = Path(DEFAULT_TARGET)
+    aus.append(t if t.is_absolute() else PROJECT_ROOT / t)
+    if "BACKUP_TARGET" not in os.environ:
+        aus.append(PROJECT_ROOT / ".claude-mind" / "snapshots")
+    return [p.resolve() for p in aus]
+
+
 def get_backup_root() -> Path:
-    """Resolved Backup-Root (absolut)."""
-    target = Path(DEFAULT_TARGET)
-    if not target.is_absolute():
-        target = PROJECT_ROOT / target
-    return target.resolve()
+    """Der ERSTE Ort — bleibt fuer Aufrufer, die genau einen erwarten."""
+    return wurzeln()[0]
+
+
+def finde_snapshot(name: str):
+    """Snapshot in ALLEN Wurzeln suchen. -> (pfad, wurzel) oder (None, None)."""
+    for w in wurzeln():
+        if not w.exists():
+            continue
+        p = _safe_join(w, name)
+        if p is not None and p.is_dir():
+            return p, w
+    return None, None
+
+
+def _slug(win_pfad: str) -> str:
+    """Spiegelbild von hash_project_dir() aus hooks/lib.sh (Regel ab v5.7.0).
+
+    ⛔ NICHT nachgebaut: dieselbe Formel steht in references/slug_regression.py
+       und ist dort gegen 12 Vektoren geprueft — einschliesslich des `&`-Falls,
+       der Memory einst in den Fallback schickte.
+    """
+    return re.sub(r"^-*", "", re.sub(r"[^A-Za-z0-9]", "-", win_pfad))
+
+
+def ziel_fuer(rel: str):
+    """Snapshot-Zweig -> echter Zielort. -> (Path, "") oder (None, grund).
+
+    ⛔ Ein Snapshot hat VIER Zweige (rules/, global/, memory/, project/), und
+       KEINER liegt unter <projekt>/<zweig>/. Bis v5.20.1 schrieb restore()
+       stumpf `PROJECT_ROOT / rel` — `rules/hooks.md` landete damit in
+       <projekt>/rules/hooks.md statt in <projekt>/.claude/rules/hooks.md.
+       **Nur die blanke CLAUDE.md kam richtig an.**
+
+    ⭐ Die Zuordnung stand die ganze Zeit dokumentiert, in
+       skills/mind-all/SKILL.md Step 3 ("Restore (Ziele liegen NICHT alle im
+       Projekt!)"). Sie war nur nie implementiert.
+    """
+    r = rel.replace("\\", "/")
+    if r == "dot-claude-CLAUDE.md":
+        return PROJECT_ROOT / ".claude" / "CLAUDE.md", ""
+    if r == "global/CLAUDE.md":
+        return HOME / ".claude" / "CLAUDE.md", ""
+    if r.startswith("global/rules/"):
+        return HOME / ".claude" / "rules" / r[len("global/rules/"):], ""
+    if r.startswith("rules/"):
+        return PROJECT_ROOT / ".claude" / "rules" / r[len("rules/"):], ""
+    if r.startswith("project/"):
+        return PROJECT_ROOT / r[len("project/"):], ""
+    if r.startswith("memory/"):
+        # ⛔ get_memory_dir faellt bei Slug-Mismatch auf das NEUESTE FREMDE
+        #    Projekt zurueck (lib.sh). mind_snapshot sichert dagegen ab, indem
+        #    es den Pfad nur nimmt, wenn GENAU DIESES Verzeichnis existiert —
+        #    derselbe Schutz gilt hier. Lieber nicht restaurieren als in ein
+        #    fremdes Projekt schreiben.
+        d = HOME / ".claude" / "projects" / _slug(str(PROJECT_ROOT)) / "memory"
+        if not d.is_dir():
+            return None, "memory uebersprungen: %s existiert nicht" % d
+        return d / r[len("memory/"):], ""
+    if r == "CLAUDE.md":
+        return PROJECT_ROOT / "CLAUDE.md", ""
+    return PROJECT_ROOT / r, ""          # unbekannter Zweig: wie bisher
+
+
+def _erlaubt(ziel: Path) -> bool:
+    """Schreiben nur unter die Projektwurzel oder unter ~/.claude.
+
+    Der Traversal-Schutz von `_safe_join` reichte, solange alles ins Projekt
+    ging. Seit ziel_fuer() auch nach ~/.claude schreibt, braucht es zwei
+    erlaubte Wurzeln — und weiterhin KEINE dritte.
+    """
+    z = ziel.resolve()
+    for w in (PROJECT_ROOT.resolve(), (HOME / ".claude").resolve()):
+        try:
+            z.relative_to(w)
+            return True
+        except ValueError:
+            continue
+    return False
 
 
 def _safe_join(base: Path, untrusted: str) -> Path | None:
@@ -66,21 +164,25 @@ def _safe_join(base: Path, untrusted: str) -> Path | None:
 
 
 def list_snapshots() -> int:
-    """Listet alle Snapshots im Backup-Root."""
-    root = get_backup_root()
-    if not root.exists():
-        print(f"Backup-Root existiert nicht: {root}")
-        print(f"Setze $BACKUP_TARGET oder lege das Verzeichnis an.")
+    """Listet alle Snapshots aus ALLEN Wurzeln (backups/ UND snapshots/)."""
+    orte = [w for w in wurzeln() if w.exists()]
+    if not orte:
+        print("Keine Snapshot-Ablage gefunden. Gesucht in:")
+        for w in wurzeln():
+            print(f"  {w}")
+        print("Setze $BACKUP_TARGET oder lege eines der Verzeichnisse an.")
         return 1
 
-    snapshots = sorted([p for p in root.iterdir() if p.is_dir()],
-                       key=lambda p: p.stat().st_mtime, reverse=True)
+    snapshots = []
+    for w in orte:
+        snapshots += [p for p in w.iterdir() if p.is_dir()]
+    snapshots.sort(key=lambda p: p.stat().st_mtime, reverse=True)
 
     if not snapshots:
-        print(f"Keine Snapshots in {root}")
+        print("Keine Snapshots in: " + " · ".join(str(w) for w in orte))
         return 0
 
-    print(f"Verfuegbare Snapshots in {root}:\n")
+    print("Verfuegbare Snapshots in " + " · ".join(str(w) for w in orte) + ":\n")
     for s in snapshots:
         mtime = datetime.fromtimestamp(s.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
         # File-Count + Total-Size
@@ -109,14 +211,12 @@ def list_snapshots() -> int:
 
 def snapshot_info(snapshot_name: str) -> int:
     """Zeigt Details eines Snapshots."""
-    root = get_backup_root()
-    # Security-Fix CWE-22: Path-Traversal-Check
-    snap = _safe_join(root, snapshot_name)
+    # Security-Fix CWE-22: Path-Traversal-Check steckt in finde_snapshot()
+    snap, _root = finde_snapshot(snapshot_name)
     if snap is None:
-        print(f"FEHLER: '{snapshot_name}' ausserhalb Backup-Root", file=sys.stderr)
-        return 2
-    if not snap.exists() or not snap.is_dir():
-        print(f"Snapshot nicht gefunden: {snap}", file=sys.stderr)
+        print(f"Snapshot nicht gefunden: {snapshot_name}", file=sys.stderr)
+        for w in wurzeln():
+            print(f"  gesucht in: {w}", file=sys.stderr)
         return 1
 
     print(f"Snapshot: {snap}")
@@ -138,14 +238,11 @@ def snapshot_info(snapshot_name: str) -> int:
 def restore(snapshot_name: str, target_path: str | None = None,
             dry_run: bool = False) -> int:
     """Restore aus Snapshot. Sichert vorher aktuellen Stand."""
-    root = get_backup_root()
-    # Security-Fix CWE-22: Path-Traversal-Check fuer snapshot_name
-    snap = _safe_join(root, snapshot_name)
+    snap, root = finde_snapshot(snapshot_name)
     if snap is None:
-        print(f"FEHLER: snapshot_name '{snapshot_name}' ausserhalb Backup-Root", file=sys.stderr)
-        return 2
-    if not snap.exists() or not snap.is_dir():
-        print(f"Snapshot nicht gefunden: {snap}", file=sys.stderr)
+        print(f"Snapshot nicht gefunden: {snapshot_name}", file=sys.stderr)
+        for w in wurzeln():
+            print(f"  gesucht in: {w}", file=sys.stderr)
         print(f"Hinweis: `python tools/rollback.py list` zeigt alle Snapshots", file=sys.stderr)
         return 1
 
@@ -179,8 +276,11 @@ def restore(snapshot_name: str, target_path: str | None = None,
         pre_dir.mkdir(parents=True, exist_ok=True)
     saved_count = 0
     for rel in files_to_restore:
-        current = PROJECT_ROOT / rel
-        if current.exists() and current.is_file():
+        # ⛔ NICHT PROJECT_ROOT / rel — siehe ziel_fuer(). Wer hier den falschen
+        #    Ort sichert, sichert eine Datei, die gar nicht ueberschrieben wird,
+        #    und laesst die echte ungesichert.
+        current, _grund = ziel_fuer(rel)
+        if current is not None and current.exists() and current.is_file():
             if not dry_run:
                 pre_target = pre_dir / rel
                 pre_target.parent.mkdir(parents=True, exist_ok=True)
@@ -194,9 +294,20 @@ def restore(snapshot_name: str, target_path: str | None = None,
 
     # Restore aus Snapshot
     restored = 0
+    uebersprungen = 0
     for rel in files_to_restore:
         src = snap / rel
-        dst = PROJECT_ROOT / rel
+        dst, grund = ziel_fuer(rel)
+        if dst is None:
+            # z.B. memory/, dessen Zielverzeichnis nicht existiert
+            print(f"  UEBERSPRUNGEN {rel}: {grund}")
+            uebersprungen += 1
+            continue
+        if not _erlaubt(dst):
+            print(f"  ABGEWIESEN {rel}: Ziel ausserhalb Projekt und ~/.claude "
+                  f"({dst})", file=sys.stderr)
+            uebersprungen += 1
+            continue
         if dry_run:
             print(f"  [DRY-RUN] {src} -> {dst}")
             restored += 1
@@ -207,6 +318,8 @@ def restore(snapshot_name: str, target_path: str | None = None,
             restored += 1
         except OSError as e:
             print(f"  FAIL {rel}: {e}", file=sys.stderr)
+    if uebersprungen:
+        print(f"  {uebersprungen} Datei(en) uebersprungen — s. Meldungen oben.")
 
     # Resilience-Fix: exit-code reflektiert partial failure (war: immer 0)
     failed_count = len(files_to_restore) - restored

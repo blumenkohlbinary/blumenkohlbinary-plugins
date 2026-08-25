@@ -137,6 +137,121 @@ def archiviere(projekt, datei, grund):
     return e
 
 
+
+# ==========================================================================
+# v5.21.0 — Archiv-Schreiber je SATZ
+# ==========================================================================
+# ⛔ WAS HIER VORHER FEHLTE: `archiviere()` liest eine Datei und schreibt ihre
+#    MARKEN nach `archiviert-marken.json`. Kein `copy`, kein `move`. Es gab
+#    ueberhaupt keinen Ort, an den etwas archiviert wurde — der Schritt
+#    "Archiv anlegen" war schlicht nicht ausfuehrbar.
+#
+# ⛔ UND EIN KORNFEHLER: `archiviere()` arbeitet je DATEI, `--rebuild` je SATZ.
+#    `pruefe()` schliesst `e["datei"]` von der Suche aus. Uebergibt man beim
+#    Satz-Archivieren den Originalpfad, wird die Ratsche fuer diese Datei
+#    DAUERHAFT BLIND — die Datei lebt ja weiter. Uebergibt man den Archivpfad,
+#    meldet jede in der Kurzfassung VERBLIEBENE Marke eine Wiederauferstehung.
+#    Beide Wege sind falsch. Der Ausweg steht in `_marken_der_saetze()`.
+#
+# ⭐ DER ARCHIVORT IST GEPRUEFT, NICHT GERATEN: `geladene_dateien()` scannt
+#    `<projekt>/.claude/rules/` (rekursiv) und `<projekt>/CLAUDE.md`.
+#    `<projekt>/.claude/archiv/` liegt in KEINEM Ladepfad. Ein Archiv unter
+#    `rules/` waere genau der 267-von-920-Fall vom 23.08.2026: ein Ordner,
+#    angelegt UM zu kuerzen, der den Bestand verdoppelte.
+ARCHIV_UNTER = os.path.join(".claude", "archiv")
+
+
+def archiv_datei(projekt, quelle):
+    """Wohin die Saetze einer Quelldatei wandern."""
+    name = os.path.basename(quelle)
+    if name.endswith(".md"):
+        name = name[:-3]
+    return os.path.join(projekt, ARCHIV_UNTER, name + ".archiv.md")
+
+
+def _marken_der_saetze(saetze, rest):
+    """Marken, die MIT den Saetzen weggehen — ohne die, die bleiben.
+
+    ⛔ Ohne den Abzug meldet die Ratsche jede Marke, die bewusst in der
+       Kurzfassung stehen bleibt (etwa im Zeiger), als Wiederauferstehung.
+       Das ist die zweite Haelfte des Kornfehlers oben.
+    """
+    weg = set()
+    for s in saetze:
+        weg |= marken(s)
+    return sorted(weg - marken(rest))
+
+
+def archiviere_saetze(projekt, quelle, saetze, grund, rest=None):
+    """Schreibt SAETZE ins Archiv und vermerkt NUR deren Marken.
+
+    `rest` ist der Text, der in der Quelldatei bleiben soll.
+
+    ⛔ Diese Funktion SCHREIBT das Archiv, sie schneidet die Quelle NICHT.
+       Wer beides in einem Schritt taete, haette bei einem Abbruch einen
+       Zustand, den nichts erkennt: Saetze teils in der Regel, teils im
+       Archiv. Der Aufrufer schneidet erst NACH dem gruenen Gate.
+    """
+    if not saetze:
+        return None
+    if rest is None:
+        rest = _lies(quelle) or ""
+    ziel = archiv_datei(projekt, quelle)
+    os.makedirs(os.path.dirname(ziel), exist_ok=True)
+
+    kopf = "" if os.path.isfile(ziel) else (
+        "# Archiv zu `%s`\n\n"
+        "> Hierher verschiebt `/mind-cleaner --rebuild`, was aus der Regeldatei\n"
+        "> genommen wurde. **Nichts hiervon ist geloescht** — der Nutzer-Auftrag\n"
+        "> vom 24.08.2026 lautet woertlich: niemals dauerhaft loeschen.\n"
+        "> Dieser Ordner laedt NICHT automatisch mit (geprueft gegen\n"
+        "> `geladene_dateien()`).\n" % os.path.basename(quelle))
+
+    teile = ["\n---\n\n## %s — %s\n\n" % (time.strftime("%Y-%m-%d %H:%M"), grund)]
+    for s in saetze:
+        teile.append(s if s.endswith("\n") else s + "\n")
+    with open(ziel, "a", encoding="utf-8", newline="\n") as fh:
+        fh.write(kopf + "".join(teile))
+
+    p = _mp(projekt)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    bestand = json.loads(_lies(p) or "[]") if os.path.isfile(p) else []
+    e = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "korn": "satz",
+        "quelle": quelle.replace("\\", "/"),
+        "datei": ziel.replace("\\", "/"),
+        "grund": grund,
+        "marken": _marken_der_saetze(saetze, rest),
+    }
+    bestand.append(e)
+    with open(p, "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(bestand, fh, ensure_ascii=True, indent=1)
+    return e
+
+
+def entarchiviere(projekt, index):
+    """Einen Eintrag aus der Ratsche nehmen. -> (eintrag, grund)
+
+    ⛔ Die ARCHIVDATEI bleibt. Entfernt wird nur der Wachposten. Ohne diesen
+       Weg blieb ein falsch gesetzter Eintrag fuer immer stehen und meldete
+       fortan bei jedem Lauf eine Wiederauferstehung.
+    """
+    p = _mp(projekt)
+    if not os.path.isfile(p):
+        return None, "kein Archiv vorhanden"
+    try:
+        bestand = json.loads(_lies(p) or "[]")
+    except ValueError:
+        return None, "archiviert-marken.json unlesbar"
+    if not isinstance(index, int) or index < 0 or index >= len(bestand):
+        return None, "Index %s liegt ausserhalb von 0..%d" % (index, len(bestand) - 1)
+    weg = bestand.pop(index)
+    with open(p, "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(bestand, fh, ensure_ascii=True, indent=1)
+    return weg, ""
+
+
 def pruefe(projekt, nur_projekt=False):
     """(auferstanden, geprueft) — auferstanden je (marke, eintrag, fundorte)"""
     p = _mp(projekt)
@@ -282,6 +397,44 @@ def main():
             return 2
         print("  archiviert: %s — %d Marke(n) festgehalten"
               % (os.path.basename(datei), len(e["marken"])))
+        return 0
+
+    # v5.21.0: einen falsch gesetzten Wachposten wieder wegnehmen.
+    # ⛔ Die ARCHIVDATEI bleibt — geloescht wird nie etwas.
+    if "--entarchiviere" in argv:
+        i = argv.index("--entarchiviere") + 1
+        roh = argv[i] if i < len(argv) else ""
+        try:
+            idx = int(roh)
+        except ValueError:
+            print("--entarchiviere braucht einen Index (s. --liste)")
+            return 2
+        e, grund = entarchiviere(projekt, idx)
+        if e is None:
+            print("⛔ %s" % grund)
+            return 2
+        print("  Wachposten entfernt: %s — %d Marke(n)"
+              % (os.path.basename(e.get("datei", "?")), len(e.get("marken", []))))
+        print("  ⚠ Die Archivdatei bleibt liegen. Entfernt ist nur die Ueberwachung.")
+        return 0
+
+    if "--liste" in argv:
+        p = _mp(projekt)
+        if not os.path.isfile(p):
+            print("⛔ NICHT MESSBAR — kein Archiv unter %s" % p)
+            print("   Das ist KEIN 'nichts auferstanden'. Es wurde nie etwas archiviert.")
+            return 2
+        try:
+            bestand = json.loads(_lies(p) or "[]")
+        except ValueError:
+            print("⛔ archiviert-marken.json unlesbar")
+            return 2
+        print("  %d Eintrag/Eintraege:" % len(bestand))
+        for n, e in enumerate(bestand):
+            print("    [%d] %-6s %-34s %2d Marke(n)  — %s"
+                  % (n, e.get("korn", "datei"),
+                     os.path.basename(e.get("datei", "?"))[:34],
+                     len(e.get("marken", [])), e.get("grund", "")[:40]))
         return 0
 
     if "--verlauf" in argv:

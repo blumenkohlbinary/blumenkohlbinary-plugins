@@ -53,6 +53,28 @@ import sys
 
 sys.stdout.reconfigure(encoding="utf-8", newline="")
 
+
+def _md_rekursiv(d):
+    """Alle .md unter d, REKURSIV, sortiert.
+
+    ⛔ Bis v5.20.1 stand hier ueberall `os.listdir` — flach. Ein Unterordner
+       (etwa ein `archive/`) war damit unsichtbar. Genau daran hing der
+       teuerste Einzelbefund dieses Bestands: am 23.08.2026 kamen **267 von
+       920** Ladevorgaengen aus einem `archive/`-Ordner, der angelegt worden
+       war, UM den Bestand zu kuerzen.
+
+    ⭐ Nicht nachgebaut: dieselbe Schleife steht seit v5.17.0 in
+       cleaner_ratsche.py:90 (`geladene_dateien`).
+    """
+    aus = []
+    if not os.path.isdir(d):
+        return aus
+    for wurzel, _dirs, dateien in os.walk(d):
+        for f in dateien:
+            if f.endswith(".md"):
+                aus.append(os.path.join(wurzel, f))
+    return sorted(aus)
+
 # ⚠ Wie weit zurueck gilt ein Verstoss als "aktuell"? Ein Regler mit Herkunft:
 #    die Debug-Daten reichen ueber wenige Wochen, deshalb 21 Tage. Wer laengere
 #    Reihen hat, setzt ihn hoch.
@@ -313,9 +335,7 @@ def main():
         H = os.path.expanduser("~")
         for wurzel in (os.path.join(H, ".claude", "rules"),
                        os.path.join(projekt, ".claude", "rules")):
-            if os.path.isdir(wurzel):
-                dateien += [os.path.join(wurzel, f) for f in sorted(os.listdir(wurzel))
-                            if f.endswith(".md")]
+            dateien += _md_rekursiv(wurzel)
     if not dateien:
         print("⛔ Keine Regeldatei gefunden. Eher ein falscher Pfad als ein leerer Bestand.")
         return 2
