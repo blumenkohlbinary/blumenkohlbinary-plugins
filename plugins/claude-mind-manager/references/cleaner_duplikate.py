@@ -291,6 +291,131 @@ _AUFLOESEND = re.compile(
     r"|\b(vorher|frueher|damals|inzwischen|stand hier|galt)\b", re.IGNORECASE)
 
 
+# ---------------------------------------------------------------------------
+# L5 — WIEDERHOLUNG INNERHALB EINER DATEI
+#
+# ⛔ Warum das keine Duplikat-Pruefung findet: `ablagen()` vergleicht Ablagen
+#    GEGENEINANDER. Eine Datei, die dieselbe Sache viermal sagt, ist in jeder
+#    dieser Pruefungen unauffaellig — sie ist ja nur EINE Ablage.
+#
+#    Gemessen an `.claude/rules/hooks.md`: die Kaskade 810k/850k/940k steht in
+#    den Abschnitten v5.7.0, v5.7.5, v5.7.6 und v5.7.7. Vier Mal.
+#
+# ⚠ DER BEFUND HEISST SCHNITT, NICHT DEDUPLIZIERUNG.
+#    Eine Datei mit Versionsabschnitten SOLL dieselbe Sache mehrfach nennen —
+#    jede Nennung gehoert zu ihrer Version. Was fehlt, ist die Trennung
+#    zwischen "gilt heute" und "galt damals". Wer hier dedupliziert, loescht
+#    Historie; wer schneidet, macht sie auffindbar.
+
+# Ein Absatz unter dieser Markenzahl ist zu duenn fuer ein Urteil.
+_WDH_MIN_MARKEN = 3
+# So viele Marken muessen zwei Absaetze TEILEN, damit sie als dieselbe Sache gelten.
+_WDH_MIN_GETEILT = 3
+# ⛔ Und der Anteil muss stimmen. NUR die Zahl der geteilten Marken zu fordern
+#    meldet jeden langen Absatz gegen jeden anderen langen Absatz — dieselben
+#    drei Umgebungsvariablen kommen in einer Regeldatei staendig vor.
+#    Der Anteil ist das, was "gleiche Zahlen, andere Aussage" ausschliesst.
+_WDH_ANTEIL = 0.55
+# Erst ab drei Vorkommen ist es ein Muster. Zwei sind in einer versionierten
+# Datei der Normalfall: eine Aussage und ihre spaetere Korrektur.
+_WDH_MIN_GRUPPE = 3
+
+
+def _absaetze(text):
+    """[(startzeile, text)] — Bloecke, getrennt durch Leerzeilen.
+
+    ⚠ Ueberschriften bleiben bei ihrem Absatz. Ein "## v5.7.5" allein traegt
+      keine Marken und faellt ohnehin unter _WDH_MIN_MARKEN heraus.
+    """
+    aus = []
+    zeilen = text.split("\n")
+    puffer = []
+    start = 1
+    for i, z in enumerate(zeilen, 1):
+        if z.strip():
+            if not puffer:
+                start = i
+            puffer.append(z)
+        elif puffer:
+            aus.append((start, "\n".join(puffer)))
+            puffer = []
+    if puffer:
+        aus.append((start, "\n".join(puffer)))
+    return aus
+
+
+def wiederholung_in_datei(pfad, text=None):
+    """Sagt EINE Datei dieselbe Sache mehr als zweimal?
+
+    Gibt eine Liste von dicts zurueck:
+      zeilen     Startzeilen der beteiligten Absaetze
+      geteilt    die Marken, die alle teilen (sortiert)
+      anzahl     wie viele Absaetze
+      nimmt_zurueck  True, wenn mindestens einer der Absaetze eine frueherere
+                     Aussage ausdruecklich zurueckehmt (~~, "bis v5.6.0",
+                     "stand hier"). ⛔ Das UNTERDRUECKT den Befund NICHT — es
+                     ist genau das Muster, das einen Schnitt verdient.
+
+    ⛔ Ein Befund JE GRUPPE, nicht je Paar. Vier Absaetze ergeben sonst sechs
+       Meldungen ueber eine einzige Sache.
+    """
+    if text is None:
+        text = _inhalt(pfad)
+    bloecke = [(zl, t, marken(t)) for zl, t in _absaetze(text)]
+    bloecke = [b for b in bloecke if len(b[2]) >= _WDH_MIN_MARKEN]
+
+    # ⛔ NICHT transitiv gruppieren. Der erste Anlauf tat das und meldete NULL
+    #    Befunde ueber 34 Dateien: transitiv verkettete Absaetze wachsen zu
+    #    einer grossen Gruppe zusammen, deren gemeinsamer Kern dabei unter die
+    #    Schwelle faellt. Gemessen an hooks.md: sechs Absaetze in einer Kette,
+    #    gemeinsamer Kern zu klein, Ergebnis still.
+    #
+    #    Stattdessen: aus jedem Paar den KERN nehmen und die Gruppe als die
+    #    Menge ALLER Absaetze bilden, die diesen Kern vollstaendig tragen.
+    #    Dann sagt jedes Mitglied nachweislich dieselbe Sache.
+    kerne = {}
+    for i in range(len(bloecke)):
+        for j in range(i + 1, len(bloecke)):
+            a, b = bloecke[i][2], bloecke[j][2]
+            geteilt = a & b
+            if len(geteilt) < _WDH_MIN_GETEILT:
+                continue
+            # Anteil an der KLEINEREN Menge — sonst schlaegt jeder kurze Absatz
+            # gegen einen langen an, der ihn zufaellig enthaelt. Das ist der
+            # Filter, der "gleiche Zahlen, andere Aussage" ausschliesst.
+            if len(geteilt) / float(min(len(a), len(b))) < _WDH_ANTEIL:
+                continue
+            kerne[frozenset(geteilt)] = None
+
+    roh = []
+    for kern in kerne:
+        mit = [k for k in range(len(bloecke)) if kern <= bloecke[k][2]]
+        if len(mit) < _WDH_MIN_GRUPPE:
+            continue
+        roh.append((kern, tuple(mit)))
+
+    # ⛔ Ein Kern, der in einem groesseren Kern MIT DERSELBEN Absatzmenge steckt,
+    #    ist dieselbe Meldung noch einmal. Nur den groessten behalten — sonst
+    #    ergaeben vier Absaetze mit 5 gemeinsamen Marken bis zu zehn Befunde.
+    roh.sort(key=lambda x: -len(x[0]))
+    behalten = []
+    for kern, mit in roh:
+        if any(kern < k2 and mit == m2 for k2, m2 in behalten):
+            continue
+        behalten.append((kern, mit))
+
+    aus = []
+    for kern, mit in behalten:
+        aus.append({
+            "datei": pfad,
+            "zeilen": sorted(bloecke[k][0] for k in mit),
+            "geteilt": sorted(kern),
+            "anzahl": len(mit),
+            "nimmt_zurueck": any(_AUFLOESEND.search(bloecke[k][1]) for k in mit),
+        })
+    return sorted(aus, key=lambda x: (-x["anzahl"], -len(x["geteilt"])))
+
+
 def widerspruch_in_datei(pfad, text=None, min_abstand=10):
     """Widerspricht sich EINE Datei selbst?
 

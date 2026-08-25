@@ -266,6 +266,43 @@ def lauf(projekt, nur="alles"):
         # ⛔ Ein unlesbarer Lauf ist NICHT MESSBAR, nicht "sauber" — der wird gemeldet.
         print("       %-30s ⛔ NICHT MESSBAR: %s" % (os.path.basename(p)[:30], was))
 
+    # ---------------------------------------------------------------- L5
+    # ⛔ Diese Pruefung sieht KEINE andere: `ablagen()` vergleicht Ablagen
+    #    GEGENEINANDER. Eine Datei, die dieselbe Sache viermal sagt, ist dort
+    #    unauffaellig — sie ist ja nur EINE Ablage.
+    # ⚠ Steht bewusst ganz am ENDE. tests/test_audit.sh haengt an der
+    #    Reihenfolge (Gruppe 5 vor Gruppe 1) und an einem sed-Bereich von
+    #    "5b ·" bis "1 ·"; ein Abschnitt dazwischen braeche beides.
+    wdh = []
+    for p in ds:
+        try:
+            wdh.extend(dup.wiederholung_in_datei(p))
+        except (OSError, ValueError):
+            continue
+    if wdh:
+        print()
+        print("  " + "=" * 84)
+        print("  WIEDERHOLUNG INNERHALB EINER DATEI — Vorschlag: SCHNITT (%d)" % len(wdh))
+        print("  " + "=" * 84)
+        print("     ⚠ KEIN Fehler und NICHT in der Befundzahl. Eine Datei mit")
+        print("       Versionsabschnitten SOLL dieselbe Sache mehrfach nennen —")
+        print("       jede Nennung gehoert zu ihrer Version. Was fehlt, ist die")
+        print("       Trennung zwischen 'gilt heute' und 'galt damals'.")
+        print("       ⛔ Wer hier dedupliziert, loescht Historie.")
+        for b in wdh[:10]:
+            print("     %-28s %dx, Zeilen %s"
+                  % (os.path.basename(b["datei"])[:28], b["anzahl"],
+                     ", ".join(str(z) for z in b["zeilen"])))
+            print("       Kern: %s" % ", ".join(b["geteilt"][:6]))
+            if b["nimmt_zurueck"]:
+                print("       ⭐ eine der Stellen nimmt eine andere ausdruecklich")
+                print("          zurueck — genau das verdient einen Schnitt")
+        if len(wdh) > 10:
+            print("     ... und %d weitere (nicht gelistet)" % (len(wdh) - 10))
+        print("     ⚠ GRENZE: gefunden werden Wiederholungen BENANNTER Dinge")
+        print("       (Dateien, Variablen, Pfade). Eine wiederholte Zahlen- oder")
+        print("       Prosakaskade findet das NICHT — die Marken dafuer gibt es nicht.")
+
     print()
     print("  " + "=" * 84)
     print("  NICHT GEPRUEFT — und das gehoert in jeden Bericht")
