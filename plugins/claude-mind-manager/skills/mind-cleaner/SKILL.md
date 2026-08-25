@@ -24,6 +24,7 @@ allowed-tools: Bash, Read, Glob, Grep, Edit, Write
 2. PLAN        /mind-cleaner --plan [--bereich …]                  schreibt einen Plan
       ↓  Nutzer gibt den Plan frei
 3. ANWENDEN    /mind-cleaner --umzug <datei>                       GENAU EINE Datei
+               /mind-cleaner --rebuild <datei> [--auto]           GENAU EINE Datei
 ```
 
 **Nutzer-Entscheidung 24.08.2026, wörtlich:** *„er soll erstmal berichten dann wenn ich
@@ -296,6 +297,78 @@ beim nächsten Mal niemandem.
 
 ⚠ **`--verlauf` ist KEIN Gate.** Er schreibt eine Zeile je Lauf mit Dateizahl und Bytes je
 Ablage — eine Kurve, die man ansehen kann. Nichts bricht daran ab.
+
+## `--rebuild` — KÜRZEN, und zwar durch VERSCHIEBEN (NEU v5.21.0)
+
+**Dein AUDIT/REBUILD-Auftrag vom 24.08.2026, wörtlich:** *„Behalte nur die Regeln, bei denen
+du ohne sie tatsächlich Fehler machen würdest. Formuliere diese Regeln so kurz wie möglich
+und verschiebe alles andere in einen archive-Ordner (**niemals dauerhaft löschen**)."*
+Präzisiert am 25.08.2026: das Kriterium ist *„würdest du das **VERSTEHEN** ohne diese Rule"* —
+nicht „würdest du es tun".
+
+⛔ **Bis v5.20.2 stand hier „NIE kürzen".** Das war keine Nutzer-Entscheidung (Commit
+`82efd0d` dokumentiert alle anderen namentlich, diese nicht) und setzte **kürzen** mit
+**löschen** gleich. Hier wird nichts gelöscht: jeder Satz landet in der Kurzfassung oder im
+Archiv, und der Weg zurück steht offen.
+
+```bash
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_rebuild.py" --bereich "$PROJ" <regel.md>
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_rebuild.py" --bereich "$PROJ" <regel.md> --auto
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_rebuild.py" --bereich "$PROJ" <regel.md> --auto --anwenden
+```
+
+⛔ **`--anwenden` geht NUR zusammen mit `--auto`** (sonst rc=2). Ohne `--auto` ist der Lauf ein
+Vorschlag, und die Auswahl der Sätze gehört dir.
+⛔ **Eine Datei je Lauf** — im Code gezählt, nicht als Prosa behauptet. Ein Rebuild schneidet
+die Wissensbasis; zwei auf einmal heißt zwei Schnitte, die niemand einzeln angesehen hat.
+
+### Das Gate: SATZ-Identität, gefahren VOR dem Schreiben
+
+| | |
+|---|---|
+| 1 VOLLSTÄNDIG | jeder Satz aus ALT steht in KURZ **oder** im ARCHIV |
+| 2 VERSCHOBEN | kein Satz steht in **beiden** (sonst kopiert statt verschoben) |
+| 3 NICHTS ERFUNDEN | kein Satz in KURZ/ARCHIV, der nicht in ALT stand |
+| 4 ZEIGER | die Kurzfassung nennt den **Archivpfad wörtlich** |
+
+⛔ **Das ERHALTUNGS-Gate aus Step 5 taugt hier NICHT.** Es zählt Zeilen, und ein Archiv mit
+Kopf und Datum hat **immer** mehr Zeilen als das Entnommene — es ist trivial grün. Sein
+eigener Docstring sagt es: *„Die Gates schliessen VERLUST aus, nicht VERTAUSCHUNG."*
+
+⛔ **rc=2 heißt: die Datei wurde NICHT angefasst.** Geschrieben wird erst nach den Gates, und
+dann atomar.
+
+### Drei Sperren, die kein Gate ersetzen kann
+
+Alle drei sind **Vertauschung, nicht Verlust** — kein Satz geht verloren, alle vier Gates
+bleiben grün, und die Datei ist trotzdem schlechter. Gefunden wurden alle drei beim **Ansehen
+eines Diffs**, nicht von einer Zusicherung:
+
+- **Überschrift** — `## Was ein Snapshot enthaelt` wanderte mit seinem Absatz ins Archiv, die
+  Tabelle darunter blieb überschriftenlos zurück (gemessen an `env-vars.md`, 26.08.2026).
+- **Tabellenzeile** — `zerlege()` gibt jede Zeile als eigenen Satz zurück; eine mittendrin
+  entnommene Zeile zerreißt die Tabelle.
+- **Rückbezug** — entfernt wurde *„Teilentwarnung seit 17.08.2026: … lokales Git-Repo"*,
+  stehen blieb *„Die Lücke bleibt **trotzdem** bestehen"*. Das „trotzdem" zeigt ins Leere.
+
+⚠ Die Rückbezug-Sperre ist eine **Heuristik**: sie findet den sprachlichen Rückbezug, nicht
+den gedanklichen. Ihr Fenster (50 Zeichen) steht zwischen einer Positiv- und einer
+Negativkontrolle und kostet gemessen 1–2 von 16–20 Kandidaten. Sie fällt zur sicheren Seite:
+**ein Fehlalarm heißt, der Satz bleibt.**
+
+### Was `--auto` bewegen darf
+
+**Nur BELEGE.** ⛔ **Prosa nie** (352 von 620 Aussagen im gemessenen Bestand), ⛔ **gemischt
+nie** (da steckt ein Gebot drin), ⛔ **`autonom-arbeiten.md` gar nicht** — sie meldet
+**0 Gebote bei 31 Kandidaten**, das dokumentierte Fehlurteil des Einordners. Eine Datei, deren
+Einordnung nachweislich falsch ist, wird nicht automatisch zerschnitten.
+
+### Der Rückweg
+
+Das Archiv liegt unter `.claude/archiv/` — **außerhalb jedes Ladepfads**. Das ist der ganze
+Punkt: `geladene_dateien()` ist rekursiv, ein Archiv unter `rules/` **lädt weiter mit**.
+Zurück geht es mit `cleaner_ratsche.py --entarchiviere <n>`; die Archivdatei nennt den Befehl
+in ihrer eigenen Kopfzeile.
 
 ## `--hook-bauen <datei>` — nur auf ausdrückliche Ansage
 
