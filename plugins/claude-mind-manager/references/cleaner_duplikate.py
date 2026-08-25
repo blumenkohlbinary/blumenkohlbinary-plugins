@@ -364,8 +364,16 @@ def einordnen(marke, a_pfad, a_text, b_pfad, b_text):
         tot = lebt = False
         werte = set()
         for x in zeilen:
-            tot = tot or bool(_TOT.search(x))
-            lebt = lebt or bool(_LEBT.search(x))
+            # ⛔ _naehe, NICHT .search — sonst faerbt ein Statuswort irgendwo in
+            #    der Zeile die ganze Seite ein. Gemessen 25.08.2026 am einzigen
+            #    zahlendrift-Befund des L4-Laufs: in env-vars.md:17 stand
+            #    "entfernt" 76 Zeichen von `.sync-protect.json` entfernt und
+            #    meinte den ZWECK des Schutzes ("damit der Aufraeumer keine
+            #    frisch installierte Version entfernt"), nicht sein Ende.
+            #    Dieselbe Klasse, die Zeile 205-219 fuer die Status-Achse schon
+            #    beschreibt — der zahlendrift-Pfad war der einzige ohne den Filter.
+            tot = tot or _naehe(x, marke, _TOT)
+            lebt = lebt or _naehe(x, marke, _LEBT)
             # Datum und Version herausschneiden, BEVOR Werte gelesen werden.
             rest = _VERSION.sub(" ", _DATUM.sub(" ", x))
             werte.update(w.strip() for w in _WERT.findall(rest) if len(w.strip()) >= 3)
@@ -424,6 +432,79 @@ def einordnen(marke, a_pfad, a_text, b_pfad, b_text):
                         % (la, lb))
 
 
+
+def _slug(win_pfad):
+    """Spiegelbild von hash_project_dir() aus hooks/lib.sh (Regel ab v5.7.0).
+
+    ⛔ NICHT nachgebaut: dieselbe Formel steht in references/slug_regression.py
+       und ist dort gegen 12 Vektoren geprueft — einschliesslich des `&`-Falls,
+       der Memory einst in den Fallback schickte.
+    """
+    return re.sub(r"^-*", "", re.sub(r"[^A-Za-z0-9]", "-", win_pfad))
+
+
+def _memory_dir(heim, projekt=None):
+    """Das Memory-Verzeichnis — oder ein leerer Pfad.
+
+    ⛔ KEIN FALLBACK. `get_memory_dir` in lib.sh faellt bei Slug-Mismatch auf
+       das NEUESTE FREMDE Projekt zurueck. `mind_snapshot` sichert seit v5.2.1
+       dagegen ab, indem es den Pfad nur nimmt, wenn GENAU DIESES Verzeichnis
+       existiert — derselbe Schutz gilt hier. Lieber eine Ablage weniger als
+       Marken aus einem fremden Projekt.
+    """
+    if projekt is None:
+        return ""
+    d = os.path.join(heim, ".claude", "projects", _slug(os.path.abspath(projekt)),
+                     "memory")
+    return d if os.path.isdir(d) else ""
+
+
+def ablage_wurzeln(projekt, bereich="alles"):
+    """{name: verzeichnis} — die VERZEICHNISSE der Ablagen, nicht ihre Dateien.
+
+    ⭐ EINE Quelle fuer beides. Bis v5.20.2 stand dieselbe Liste ein zweites
+       Mal hartcodiert in `cleaner_ratsche.verlauf_schreiben()` — ein
+       Typ-2-Duplikat, das bei einer Erweiterung von 4 auf 9 still
+       auseinandergedriftet waere (gefunden im Plan-Review 25.08.2026).
+
+    ⚠ NICHT aus `ablagen()` ableitbar: dort steht nur die Dateiliste, und
+      `dirname(erste_datei)` liefert bei rekursiver Suche einen UNTERordner —
+      und bei leerer Ablage gar nichts. Genau daran ist der erste Anlauf
+      gescheitert (Selbsttest "Verlauf hat Ablagen" wurde rot).
+    """
+    H = os.path.expanduser("~")
+    w = {}
+    if bereich in ("alles", "global"):
+        w["g:rules"] = os.path.join(H, ".claude", "rules")
+        w["g:skills"] = os.path.join(H, ".claude", "skills")
+        # kein "g:memory" — siehe ablagen()
+    if bereich in ("alles", "projekt"):
+        w["p:rules"] = os.path.join(projekt, ".claude", "rules")
+        w["p:skills"] = os.path.join(projekt, ".claude", "skills")
+        w["p:memory"] = _memory_dir(H, projekt)
+    return {k: v for k, v in w.items() if v}
+
+
+def _ahnen(projekt):
+    """CLAUDE.md und CLAUDE.local.md in den ELTERNverzeichnissen.
+
+    Sie laden laut Doku mit ("alle CLAUDE.md/CLAUDE.local.md entlang der
+    Verzeichniskette aufwaerts"), wurden aber von keinem Werkzeug je gesehen.
+    ⚠ Nur AUFWAERTS und nur bis zur Laufwerkswurzel — nie seitwaerts.
+    """
+    aus = []
+    d = os.path.abspath(projekt)
+    while True:
+        eltern = os.path.dirname(d)
+        if not eltern or eltern == d:
+            break
+        d = eltern
+        for n in ("CLAUDE.md", "CLAUDE.local.md", ".claude.local.md"):
+            p = os.path.join(d, n)
+            if os.path.isfile(p):
+                aus.append(p)
+    return aus
+
 def ablagen(projekt, bereich="alles"):
     """Welche Ablagen verglichen werden.
 
@@ -442,9 +523,25 @@ def ablagen(projekt, bereich="alles"):
     if bereich in ("alles", "global"):
         a["g:CLAUDE.md"] = [os.path.join(H, ".claude", "CLAUDE.md")]
         a["g:rules"] = md(os.path.join(H, ".claude", "rules"))
+        # v5.21.0 — die drei Ablagen, die dein AUDIT-Prompt woertlich nennt
+        # ("CLAUDE.md, Rules-Dateien, Skills, Hooks und Memory") und die bis
+        # v5.20.2 NIE verglichen wurden.
+        a["g:skills"] = md(os.path.join(H, ".claude", "skills"))
+        # ⛔ KEIN "g:memory": ein globales Memory-Verzeichnis GIBT ES NICHT.
+        #    `get_memory_dir` (lib.sh:372) bildet den Pfad IMMER aus dem
+        #    Projekt-Slug. Die Ablage war in der ersten L4-Fassung dabei und
+        #    haette in keinem Lauf je eine Datei enthalten — gefunden von
+        #    tests/test_ablagen.sh, weil es auf die Dict-SCHLUESSEL zusichert.
     if bereich in ("alles", "projekt"):
         a["p:CLAUDE.md"] = [os.path.join(projekt, "CLAUDE.md")]
         a["p:rules"] = md(os.path.join(projekt, ".claude", "rules"))
+        a["p:memory"] = md(_memory_dir(H, projekt))
+        a["p:skills"] = md(os.path.join(projekt, ".claude", "skills"))
+        # ⭐ AHNEN: CLAUDE.md/CLAUDE.local.md in den Elternverzeichnissen laden
+        #    laut Doku MIT. Gemessen liegt hier eine:
+        #    `Plugin - Entwicklung/.claude.local.md`, 2 445 B — von keinem
+        #    Werkzeug je gesehen.
+        a["ahnen"] = _ahnen(projekt)
     return {k: [p for p in v if os.path.isfile(p)] for k, v in a.items()}
 
 
@@ -465,7 +562,7 @@ def lauf(projekt, bereich="alles"):
                 wo[m].add((name, p))
 
     print("=" * 86)
-    print("  Duplikat-Pruefung ueber %d Ablagen" % len([k for k, v in abl.items() if v]))
+    print("  Duplikat-Pruefung ueber %d Ablagen" % len(abl))
     print("=" * 86)
     for name, pfade in abl.items():
         print("  %-14s %2d Datei(en)" % (name, len(pfade)))
@@ -571,6 +668,37 @@ def selbsttest():
     z2 = schreib("z2.md", "# B\n\n`MIND_NOTFALL_TOKENS` steht auf 940000 und ist aktiv.\n")
     k, grund = einordnen("MIND_NOTFALL_TOKENS", z1, _inhalt(z1), z2, _inhalt(z2))
     pruef("gleicher Name, anderer Status -> zahlendrift", k, "zahlendrift")
+
+    # 3b) ⛔ NEGATIVKONTROLLE mit ECHTEM Wortlaut (25.08.2026).
+    #     Der einzige zahlendrift-Befund des ersten Laufs ueber acht Ablagen
+    #     war ein Fehlalarm: "entfernt" stand 76 Zeichen von der Marke weg
+    #     und meinte den ZWECK des Schutzes, nicht sein Ende. Vor dem
+    #     Naehe-Filter im zahlendrift-Pfad war dieser Fall ROT.
+    #     ⚠ Der Wortlaut ist woertlich aus `.claude/rules/env-vars.md:17`
+    #       und `memory/sync-loescht-laufende-version.md:33` uebernommen —
+    #       konstruierte Faelle bilden nur die eigene Erwartung ab
+    #       (werkzeuge-zuerst.md, Lehre 3).
+    n1 = schreib("n1.md", "# A\n\n| MIND_SYNC_PROTECT_HOURS | 168 | Schutzfenster "
+                          "in Stunden fuer `.sync-protect.json`, damit der "
+                          "Aufraeumer keine frisch installierte Version "
+                          "entfernt |\n")
+    n2 = schreib("n2.md", "# B\n\n| Schutz | aus der Registry | "
+                          "**`.sync-protect.json`** neben den "
+                          "Versionsverzeichnissen, `PROTECT_HOURS=168` |\n")
+    k, _ = einordnen(".sync-protect.json", n1, _inhalt(n1), n2, _inhalt(n2))
+    pruef("Statuswort 76 Zeichen weg -> KEIN zahlendrift",
+          k != "zahlendrift", True)
+
+    # 3c) ⭐ POSITIVKONTROLLE zur selben Schwelle — sonst ist 3b nur Stille.
+    #     Dasselbe Wort, aber NAH an der Marke: dann MUSS es anschlagen.
+    #     (werkzeuge-zuerst.md: "Jede Schwelle steht zwischen einer
+    #      Positiv- UND einer Negativkontrolle.")
+    p1 = schreib("p1.md",
+                 "# A\n\n`.sync-protect.json` entfernt, gibt es nicht mehr.\n")
+    p2 = schreib("p2.md",
+                 "# B\n\n`.sync-protect.json` steht auf 168 und ist aktiv.\n")
+    k, _ = einordnen(".sync-protect.json", p1, _inhalt(p1), p2, _inhalt(p2))
+    pruef("Statuswort direkt an der Marke -> zahlendrift", k, "zahlendrift")
 
     # 4) Reiner Zeiger
     r1 = schreib("r1.md", "# A\n\nSiehe `r2.md` fuer `MIND_LOG_MAX_LINES`.\n")
@@ -727,12 +855,24 @@ def main():
     if "--selbsttest" in argv:
         return selbsttest()
     projekt = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    # ⚠ --nur global|projekt|alles schraenkt die Ablagen ein. Vorgabe: alles.
+    bereich = "alles"
     if "--bereich" in argv:
         i = argv.index("--bereich") + 1
         if i < len(argv):
-            projekt = argv[i]
-    # ⚠ --nur global|projekt|alles schraenkt die Ablagen ein. Vorgabe: alles.
-    bereich = "alles"
+            # ⛔ VERWECHSLUNGSSCHUTZ (25.08.2026): SKILL.md:22 und die CLAUDE.md
+            #    versprechen dem Nutzer `--bereich global|projekt|alles`, im Code
+            #    ist `--bereich` aber der PROJEKTPFAD und `--nur` der Bereich.
+            #    Wer die dokumentierte Form eintippt, setzte den Pfad auf die
+            #    Zeichenkette "projekt" — und die Ausgabe zeigte dann `p:rules 0`,
+            #    was wie ein Befund ueber das Projekt aussieht statt wie ein
+            #    Bedienfehler. Klasse `instrument-misst-nichts`.
+            if argv[i] in ("global", "projekt", "alles") and not os.path.isdir(argv[i]):
+                bereich = argv[i]
+                print("Hinweis: --bereich %s als BEREICH verstanden "
+                      "(--nur waere die Tool-Form)." % argv[i])
+            else:
+                projekt = argv[i]
     if "--nur" in argv:
         i = argv.index("--nur") + 1
         if i < len(argv) and argv[i] in ("global", "projekt", "alles"):
@@ -740,6 +880,11 @@ def main():
         else:
             print("--nur braucht global|projekt|alles")
             return 2
+    # ⛔ Ein Projektpfad, den es nicht gibt, bricht AB. Vorher wurde still ein
+    #    leeres Projekt gemessen und das Ergebnis sah aus wie ein Befund.
+    if not os.path.isdir(projekt):
+        print("Projektpfad existiert nicht: %s" % projekt)
+        return 2
     if "--widersprueche" in argv:
         return widersprueche_lauf(projekt, bereich)
     return lauf(projekt, bereich)

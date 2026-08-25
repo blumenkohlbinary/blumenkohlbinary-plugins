@@ -281,8 +281,19 @@ def verlauf_schreiben(projekt):
     """⚠ Kein Gate. Nur eine Kurve, die man ansehen kann."""
     H = os.path.expanduser("~")
     zeile = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "ablagen": {}}
-    for name, wurzel in (("g:rules", os.path.join(H, ".claude", "rules")),
-                         ("p:rules", os.path.join(projekt, ".claude", "rules"))):
+    # ⛔ TYP-2-DUPLIKAT, gefunden im Plan-Review am 25.08.2026: hier stand
+    #    dieselbe Ablagen-Liste ein ZWEITES Mal, hartcodiert. Waechst
+    #    `ablagen()` von 4 auf 8, bleibt diese Kurve stumm bei 4 — und driftet
+    #    still auseinander. Jetzt EINE Quelle.
+    #    ⚠ NICHT aus `ablagen()` ableiten: dort stehen DATEIEN, und
+    #    `dirname(erste_datei)` liefert bei rekursiver Suche einen UNTERordner;
+    #    eine LEERE Ablage faellt ganz weg. Genau daran ist der erste Anlauf
+    #    gescheitert (Selbsttest "Verlauf hat Ablagen" wurde rot).
+    from cleaner_duplikate import ablage_wurzeln as _wz
+    for name, wurzel in sorted(_wz(projekt).items()):
+        if not os.path.isdir(wurzel):
+            zeile["ablagen"][name] = {"dateien": 0, "bytes": 0}
+            continue
         n = b = 0
         for w, _, fs in os.walk(wurzel):
             for f in fs:
