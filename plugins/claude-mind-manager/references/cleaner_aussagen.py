@@ -132,6 +132,131 @@ def blinde_verweise(aussagen):
     return out
 
 
+# ---------------------------------------------------------------------------
+# L1 — CODE-KANDIDATEN
+#
+# ⛔ DIESES WERKZEUG URTEILT NICHT. Es legt vor, wo der Quellbaum dieselben
+#    benannten Dinge nennt wie eine Aussage. Die Frage "wuerdest du das auch
+#    OHNE diese Regel verstehen?" beantwortet ein Mensch oder ein Modell mit
+#    den Fundstellen vor Augen — nicht ein Zaehler.
+#
+# ⛔ WARUM KEIN AUTOMATISCHES URTEIL: `calculate_km`. Die km-Dynamik der
+#    Zustellplan-App verschwand still bei einem Umbau, GENAU WEIL nur der Code
+#    sie trug und keine Regel das Warum festhielt. Ein Werkzeug, das
+#    "steht im Code -> Regel ueberfluessig" urteilt, haette genau diesen
+#    Verlust empfohlen.
+#
+# ⚠ Der Code sagt WAS. Die Regel sagt oft WARUM.
+
+CODE_ENDUNGEN = (".py", ".sh", ".bash", ".js", ".ts", ".tsx", ".jsx", ".mjs",
+                 ".c", ".h", ".cpp", ".hpp", ".cs", ".java", ".go", ".rs",
+                 ".rb", ".php", ".sql", ".ps1", ".bat", ".toml", ".ini",
+                 ".yaml", ".yml", ".json")
+
+# ⛔ Mindestens SO VIELE Marken einer Aussage muessen in DERSELBEN Datei stehen.
+#    Mit 1 schlaegt jeder Allerweltsbezeichner ueberall an — dieselbe Lehre wie
+#    beim Anteils-Filter in cleaner_duplikate: eine geteilte Marke ist Zufall,
+#    mehrere sind ein Bezug.
+_CODE_MIN_MARKEN = 2
+_CODE_MAX_JE_AUSSAGE = 3
+
+
+def _codedateien(wurzel):
+    """Quelldateien unter `wurzel`, ohne fremden Code und ohne Kopien.
+
+    ⛔ Die Ausschlussliste wird NICHT nachgebaut — sie steht in
+       `learnings_quellen.AUS` und ist dort gegen den echten Bestand geeicht
+       (blosse Rekursion fand 57 Projekte statt 23; 34 kamen aus Sicherungen).
+    """
+    try:
+        from learnings_quellen import AUS
+    except ImportError:                     # eigenstaendiger Aufruf
+        AUS = ("node_modules", ".git", "__pycache__", ".venv", "venv",
+               "dist", "build", ".claude-mind", "Beispiele", "cache")
+    aus = []
+    for w, ds, fs in os.walk(wurzel):
+        ds[:] = [d for d in ds if d not in AUS and not d.startswith(".")]
+        for f in fs:
+            if f.endswith(CODE_ENDUNGEN):
+                aus.append(os.path.join(w, f))
+    return aus
+
+
+def code_kandidaten(aussagen, quellbaum, regeldatei=None):
+    """{aussage_nr: [(datei, zeile, ausschnitt, getroffene_marken)]}
+
+    ⛔ Gibt KANDIDATEN zurueck, keine Urteile. Es gibt bewusst kein Feld
+       "ueberfluessig", "redundant" oder "kann weg".
+    """
+    try:
+        from cleaner_duplikate import marken as _marken
+    except ImportError:
+        return {}
+    dateien = _codedateien(quellbaum)
+    if regeldatei:
+        rd = os.path.abspath(regeldatei)
+        dateien = [d for d in dateien if os.path.abspath(d) != rd]
+
+    # Einmal lesen, nicht je Aussage — sonst ist es bei 600 Aussagen unbenutzbar.
+    inhalt = {}
+    for d in dateien:
+        try:
+            with open(d, encoding="utf-8", errors="replace") as fh:
+                inhalt[d] = fh.read()
+        except OSError:
+            continue
+
+    out = {}
+    for i, a in enumerate(aussagen):
+        ms = _marken(a)
+        if len(ms) < _CODE_MIN_MARKEN:
+            continue
+        treffer = []
+        for d, txt in inhalt.items():
+            drin = sorted(m for m in ms if m in txt)
+            if len(drin) < _CODE_MIN_MARKEN:
+                continue
+            # erste Zeile, in der eine der Marken steht — als Beleg, nicht als Urteil
+            zeile, schnipsel = 0, ""
+            for nr, z in enumerate(txt.split(chr(10)), 1):
+                if any(m in z for m in drin):
+                    zeile, schnipsel = nr, z.strip()[:90]
+                    break
+            treffer.append((d, zeile, schnipsel, drin))
+        if treffer:
+            treffer.sort(key=lambda x: -len(x[3]))
+            out[i] = treffer[:_CODE_MAX_JE_AUSSAGE]
+    return out
+
+
+def code_bericht(aussagen, kand, wurzel):
+    """Legt die Fundstellen vor. ⛔ Kein Urteil, kein Vorschlag zum Loeschen."""
+    print()
+    print("  " + "=" * 84)
+    print("  CODE-KANDIDATEN — %d von %d Aussagen haben eine Entsprechung im Code"
+          % (len(kand), len(aussagen)))
+    print("  " + "=" * 84)
+    print("     Quellbaum: %s" % wurzel)
+    print("     ⛔ DAS IST KEIN URTEIL. Der Code sagt WAS, die Regel sagt oft WARUM.")
+    print("        Die Frage lautet: WUERDEST DU DAS AUCH OHNE DIESE REGEL VERSTEHEN?")
+    print("        Sie wird mit den Fundstellen vor Augen beantwortet, nicht gezaehlt.")
+    print("     ⛔ Gegenbeispiel, das hier immer mitgedacht wird: `calculate_km`.")
+    print("        Die km-Dynamik verschwand still bei einem Umbau, GENAU WEIL nur")
+    print("        der Code sie trug. 'Steht im Code' heisst nicht 'Regel ueberfluessig'.")
+    print()
+    for i in sorted(kand):
+        kurz = re.sub(r"\s+", " ", aussagen[i])[:74]
+        print("     [%d] %s" % (i, kurz))
+        for d, z, s, ms in kand[i]:
+            print("         %s:%d" % (os.path.relpath(d, wurzel).replace(chr(92), "/"), z))
+            print("           %s" % s)
+            print("           Marken: %s" % ", ".join(ms[:5]))
+    if not kand:
+        print("     (keine) — kein Quellcode nennt dieselben benannten Dinge.")
+        print("     ⚠ Das heisst NICHT 'die Regeln sind alle noetig'. Es heisst,")
+        print("       dass dieser Abgleich nichts beitragen kann.")
+
+
 def lauf(pfad, zeige=False):
     try:
         with open(pfad, encoding="utf-8", errors="replace") as fh:
@@ -244,8 +369,24 @@ def main():
             dateien += [os.path.join(wurzel, f) for f in sorted(fs) if f.endswith(".md")]
     else:
         dateien = [a for a in argv if not a.startswith("--")]
+    # L1 — Code-Kandidaten. Ohne die Flagge aendert sich nichts.
+    quellbaum = None
+    if "--code" in argv:
+        i = argv.index("--code") + 1
+        if i >= len(argv) or argv[i].startswith("--"):
+            print("--code braucht einen Quellbaum-Pfad")
+            return 2
+        quellbaum = argv[i]
+        if not os.path.isdir(quellbaum):
+            # ⛔ Abbruch statt still ins Leere messen. "0 Kandidaten" waere von
+            #    "Pfad falsch" nicht zu unterscheiden — dieselbe Klasse wie der
+            #    Bedienfehler bei --bereich in cleaner_duplikate (25.08.2026).
+            print("Quellbaum existiert nicht: %s" % quellbaum)
+            return 2
+        dateien = [d for d in dateien if d != quellbaum]
     if not dateien:
-        print("usage: cleaner_aussagen.py <datei.md> | --verzeichnis <pfad> | --selbsttest")
+        print("usage: cleaner_aussagen.py <datei.md> [--code <quellbaum>]")
+        print("       cleaner_aussagen.py --verzeichnis <pfad> | --selbsttest")
         return 2
     rc = 0
     for p in dateien:
@@ -255,6 +396,13 @@ def main():
             rc = max(rc, 2)
             continue
         rc = max(rc, bericht(e))
+        if quellbaum:
+            try:
+                txt = open(p, encoding="utf-8", errors="replace").read()
+            except OSError:
+                txt = ""
+            aussagen, _ = zerlege(txt)
+            code_bericht(aussagen, code_kandidaten(aussagen, quellbaum, p), quellbaum)
         print()
     return rc
 
