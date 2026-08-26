@@ -90,8 +90,41 @@ _WEB = re.compile(r"(^|/)([a-z0-9-]+\.)+" + TLD + r"(/|$)", re.I)
 _PROTO = re.compile(r"^(https?|ftp|mailto|file)://", re.I)
 
 
+def _ohne_zeilennummer(p):
+    """`hooks/lib.sh:104-106` -> `hooks/lib.sh`. Sonst unveraendert.
+
+    ⛔ EINE Quelle fuer Einordner UND Aufrufer. Die erste Fassung (26.08.2026)
+       hatte die Regel nur im Einordner: der klassifizierte dann korrekt CHECK,
+       und der Aufrufer prueste danach den ungekuerzten String auf Existenz —
+       der Pfad blieb "tot", nur ueber einen anderen Weg. Halb repariert ist
+       hier nicht besser als gar nicht: die Zahl bewegt sich nicht, und der
+       naechste Lauf haelt den Fall fuer ungeloest.
+    """
+    m = re.fullmatch(r"(.+\.[A-Za-z0-9]{1,8}):\d+(?:-\d+)?", p)
+    return m.group(1) if m else p
+
+
 def classify_path(p):
     """SKIP | UNSURE | CHECK — Wortlaut und Reihenfolge wie in mind-update Step 3b."""
+    # 0) NORMALISIEREN: Zitat mit Zeilennummer (NEU 26.08.2026).
+    #    `hooks/lib.sh:104-106` ist ein ECHTER Pfad mit einer Fundstellenangabe.
+    #    SKIP waere hier falsch — der Pfad davor soll sehr wohl geprueft werden.
+    #    Deshalb abschneiden und mit dem Rest weitermachen, nicht ueberspringen.
+    p = _ohne_zeilennummer(p)
+    # 0a) SKIP: Leerzeichen UNMITTELBAR VOR dem Schraegstrich (NEU 26.08.2026).
+    #     Ein Pfadtrenner hat NIE ein Leerzeichen davor — auch nicht auf Windows.
+    #     Gefangen werden damit die Ausgabezeile `gefunden / gefahren / gruen`
+    #     (tests/alle.sh) und Befehlsschalter wie `rmdir /s /q`.
+    #     ⚠ ENG gefasst mit Absicht: der Selbsttest fuehrt
+    #       ("APP - Zustellplan/dist", "CHECK") — einen echten Pfad MIT
+    #       Leerzeichen. Dort steht vor dem Schraegstrich keines.
+    if re.search(r"\s/", p):
+        return "SKIP"
+    # 0b) SKIP: Shell-Umleitung (NEU 26.08.2026). `2>/dev/null`, `>/dev/null`.
+    #     Der Schraegstrich gehoert zum Ziel der Umleitung, der Span ist ein
+    #     Befehlsfragment — Check 14 ist dafuer zustaendig, nicht Check 13.
+    if re.search(r"\d*>\s*/", p):
+        return "SKIP"
     # 1) SKIP: Web-Adresse ohne Protokoll
     if _WEB.search(p):
         return "SKIP"
@@ -393,6 +426,11 @@ def pruefe(pfad, projekt):
             continue
         # pytest-Notation `datei.py::test_name` — der Teil hinter :: ist kein Pfad.
         rel = roh.split('::')[0] if '::' in roh else roh
+        # Fundstellenangabe `datei.sh:104-106` — dito, und aus derselben Quelle
+        # wie im Einordner. Ohne diese Zeile klassifiziert classify_path zwar
+        # richtig, die Existenzpruefung laeuft aber weiter gegen den langen
+        # String und meldet denselben toten Pfad (gemessen 26.08.2026).
+        rel = _ohne_zeilennummer(rel)
         # Windows: ein genanntes Werkzeug liegt oft als .exe/.bat/.cmd vor.
         varianten = [rel] + ([rel + e for e in ('.exe', '.bat', '.cmd')]
                              if os.name == 'nt' and '.' not in os.path.basename(rel)
@@ -533,6 +571,26 @@ def selbsttest():
         (chr(92) + "udc90", "SKIP", "Unicode-Escape"),
         ("C:" + chr(92) + "x0bdd_settings.xml", "SKIP", "zerstoerter Beispielpfad"),
         ('"hooks": "hooks/hooks.json"', "SKIP", "JSON-Fragment"),
+        # ⛔ Die drei Fehlalarme aus dem /mind-all-Lauf vom 25.08.2026. Sie
+        #    standen dort als Verbesserungsvorschlag und waren beim naechsten
+        #    Lauf immer noch da. Jeder Fall EINZELN — ein Prueffall mit zwei
+        #    Signalen belegt nur, dass EINES lebt (werkzeuge-zuerst.md).
+        ("gefunden / gefahren / gr\u00fcn", "SKIP",
+         "Ausgabezeile von tests/alle.sh, Leerzeichen vor dem Schraegstrich"),
+        ("rmdir /s /q", "SKIP", "Befehlsschalter, kein Pfad"),
+        ("2>/dev/null", "SKIP", "Shell-Umleitung"),
+        (">/dev/null", "SKIP", "Umleitung ohne Deskriptor"),
+        ("hooks/lib.sh:104-106", "CHECK",
+         "Zitat MIT Zeilennummer -> der Pfad davor WIRD geprueft, nicht uebersprungen"),
+        ("tests/alle.sh:12", "CHECK", "einzelne Zeilennummer"),
+        # ⭐ NEGATIVKONTROLLEN zu genau diesen Regeln. Ohne sie waere die
+        #    Verschaerfung nur Stille — und der teuerste Fehler dieses Werkzeugs
+        #    war immer ein zu breiter Filter.
+        ("APP - Zustellplan/dist", "CHECK",
+         "echter Pfad MIT Leerzeichen — vor dem Schraegstrich steht keines"),
+        ("Plugin - Entwicklung/Claude Mind Manager", "CHECK",
+         "zwei Leerzeichen im Namen, keines vor dem Trenner"),
+        ("knowledge/README.md", "CHECK", "gewoehnlicher Pfad bleibt CHECK"),
         (".tsx/.jsx", "SKIP", "Endungspaar"),
         (".claude/rules/x.md", "CHECK", "fuehrender Punkt ALLEIN ist ein echter Pfad"),
         (".venv/Scripts/python", "SKIP", "Interpreter-Aufruf, gehoert an Check 14"),

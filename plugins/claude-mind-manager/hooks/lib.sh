@@ -907,8 +907,33 @@ PYEOF
 #      - Merker ohne umfang=   (jeder Bestand aus v5.18.0 und aelter)
 #      - unparsbares umfang=   (ein Formatfehler darf nicht festnageln)
 mind_sync_voll() {
-  local stand="${1:-}" u paar a b teil=0 _glob=0
+  local stand="${1:-}" u paar a b teil=0 _glob=0 _ung
   [ -f "$stand" ] || return 0
+
+  # v5.21.1: `ungepruef=` ist Teil des Urteils, nicht nur Beiwerk.
+  #    Bis hierher entschied AUSSCHLIESSLICH `umfang=`. Gemessen am eigenen
+  #    /mind-all-Lauf vom 26.08.2026: 4 von 4 Bereichen dispatcht, EINER kam
+  #    mit 0 Byte zurueck. `umfang=4/4 agents` hiess damit "vollstaendig",
+  #    waehrend `ungepruef=custom-context` in DERSELBEN Datei danebenstand.
+  #    pre-compact.sh:136 liest das Feld zwar -- aber erst im else-Zweig,
+  #    also nur wenn dieses Tor hier schon "teil" gesagt hat. Unerreichbar.
+  #
+  #    Woertlich die Klasse, gegen die v5.19.0 gebaut wurde, ein Feld weiter:
+  #    dort loeschte ein Lauf OHNE Fan-out seine eigene Schuld, hier einer,
+  #    dessen Agent LEER zurueckkam. Der Unterschied zwischen "nie gestartet"
+  #    und "nichts geliefert" war der ganze Anlass fuer mind_agent_bilanz.
+  #
+  #    FAIL-SAFE unveraendert: FEHLT das Feld (Bestand aus v5.18.0 und
+  #    aelter) oder ist es leer, bleibt es bei "vollstaendig". Nur ein
+  #    AUSGEFUELLTES Feld macht daraus einen Teilsync -- diese Pruefung kann
+  #    das Tor also nur STRENGER machen, nie milder.
+  #
+  #    Sie steht VOR der umfang-Auswertung, weil die bei fehlendem umfang=
+  #    frueh zurueckkehrt: sonst waere ein Merker mit ungepruef= und ohne
+  #    umfang= wieder unsichtbar.
+  _ung=$(grep -m1 '^ungepruef=' "$stand" 2>/dev/null | cut -d= -f2-)
+  [ -n "$_ung" ] && return 1
+
   u=$(grep -m1 '^umfang=' "$stand" 2>/dev/null | cut -d= -f2-)
   [ -n "$u" ] || return 0
 
