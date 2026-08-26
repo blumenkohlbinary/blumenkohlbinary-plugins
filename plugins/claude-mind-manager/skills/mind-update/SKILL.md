@@ -946,7 +946,11 @@ Begruendung wie bei den drei v5.5.0-Reglern. ⛔ **Das Plugin setzt sie nie selb
 # schon in Step 0 angelegt — ein blindes `start` wuerde sie hier LOESCHEN und
 # genau die Spur vernichten, die den Teilsync belegt. Bei einem Einzelaufruf
 # von /mind-update gibt es keine, und dann legt dieser Zweig sie an.
-[ -f "$PROJ/.claude-mind/agent-quittung.jsonl" ] || mind_agent_quittung_start "$PROJ"
+# ⛔ v5.21.3: die 4 ist PFLICHT — siehe mind-all Step 0. Ohne sie meldet die
+#    Bilanz `DISPATCH=0` und behauptet damit, der Fan-out habe nicht
+#    stattgefunden. Bei nur 3 Bereichen (custom-context entfaellt mangels
+#    Dateien) hier 3 uebergeben, nicht 4.
+[ -f "$PROJ/.claude-mind/agent-quittung.jsonl" ] || mind_agent_quittung_start "$PROJ" 4
 mind_agent_dispatch "<bereich>" "$PROJ"    # VOR dem Start
 # ... Agent laeuft ...
 mind_agent_ergebnis "<bereich>" "$(printf '%s' "$RUECKGABE" | wc -c)" "$PROJ"

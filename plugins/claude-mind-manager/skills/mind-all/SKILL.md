@@ -53,6 +53,43 @@ if [ "$DRY_RUN" = "no" ]; then
   SNAPSHOT=$(mind_snapshot "$PROJ" "pre-mind-all") || {
     echo "ABBRUCH: Snapshot fehlgeschlagen — KEIN Skill wird gestartet." >&2; exit 1; }
   echo "Snapshot fuer den gesamten Durchlauf: $SNAPSHOT"
+
+  # ⛔ v5.21.3 — SAGEN, WAS NICHT DRIN IST.
+  #    Befund aus `Pc Forschung` (26.08.2026): `INDEX.md`, die zentrale
+  #    Projektdatei, lag nicht im Snapshot. Alle Aenderungen daran liefen ohne
+  #    Netz, und die Restore-Liste im Bericht war fuer sie schlicht falsch.
+  #
+  #    Ihr Vorschlag war, `INDEX.md` fest einzubauen. Das waere ein
+  #    projektspezifisches Pflaster in einem allgemeinen Werkzeug —
+  #    `MIND_SNAPSHOT_EXTRA` loest den Fall seit v5.2.1 allgemein.
+  #
+  #    ⭐ GEMESSEN, warum sie das nicht wissen konnten: die Variable kommt in
+  #       `hooks/lib.sh` vor und in KEINEM Skill, KEINEM Bericht, KEINER
+  #       Referenz. Wer den Schlussbericht liest, sieht eine Restore-Liste und
+  #       hat keinen Weg zu erfahren, dass sie erweiterbar ist. Genau dasselbe
+  #       ist hier zweimal mit `knowledge/` passiert (env-vars.md).
+  #
+  #    ⚠ Gemeldet wird nur — welche Datei wichtig ist, weiss der Nutzer.
+  #    ⚠ NUR die zuletzt GEAENDERTEN, hoechstens fuenf. Eine vollstaendige Liste
+  #      waere hier 15 Namen lang (gemessen in diesem Projekt) und damit genau
+  #      die Ausgabe, die man gewohnheitsmaessig ueberliest — wovor `Pc Forschung`
+  #      im selben Bericht warnt. Die juengsten sind die, an denen gearbeitet wird.
+  #    ⛔ Der GLOB laeuft, NICHT `$(ls -t ...)`. Eine unquotierte
+  #      Befehlssubstitution zerlegt am Leerzeichen — und dieses Projekt heisst
+  #      `Plugin - Entwicklung/Claude Mind Manager`. Erste Fassung meldete
+  #      dadurch "79 Dateien" statt 15, mit Namen wie "Plugin - Claude Mind".
+  #      Klasse `windows-pfad`, in diesem Projekt seit v5.2.1 dokumentiert
+  #      ("Rotation nie mit xargs") und trotzdem wieder entstanden.
+  #    ⛔ Und KEINE Pipe in die Schleife: die liefe in einer Subshell, und `_N`
+  #      waere danach wieder 0 — derselbe Fehler steckt schon einmal in dieser
+  #      Datei (mind_check_tools_have_rules, dort mit einer Merkdatei geloest).
+  _LK=$(mind_snapshot_luecken "$PROJ" "$SNAPSHOT")
+  _N="${_LK%%|*}"; _UNGEDECKT="${_LK#*|}"
+  if [ "${_N:-0}" -gt 0 ] 2>/dev/null; then
+    echo "  ⚠ NICHT im Snapshot ($_N Datei(en), die zuletzt geaenderten): $_UNGEDECKT"
+    echo "    Ist eine davon fuer diesen Lauf tragend, VOR dem naechsten Mal setzen:"
+    echo "      export MIND_SNAPSHOT_EXTRA=\"\$PWD/<pfad>\"   # ⛔ ABSOLUT, relativ wird still verworfen"
+  fi
 fi
 
 # Kettenmarke — NUR wenn ein Snapshot existiert (C2-Fix: im Probelauf keine Marke,
@@ -76,7 +113,14 @@ fi
 #    sind im Log nicht zu unterscheiden.
 #    Ab hier gilt: keine Quittung == die Kette kam nie bis zum Fan-out. Von
 #    aussen messbar, weil der Anleger nicht mehr im Ausfallpfad liegt.
-[ "$DRY_RUN" = "no" ] && mind_agent_quittung_start "$PROJ"
+#    ⛔ v5.21.3: die 4 ist PFLICHT. v5.21.2 gab der Funktion den Parameter und
+#       liess beide Aufrufer unveraendert — die Quittung verhielt sich damit
+#       exakt wie vorher. Woertlich der v5.7.1-Fall ("es sammelte die Variable
+#       und benutzte sie nie") und derselbe Halbfix wie bei classify_path am
+#       selben Tag. Ohne die Zahl kann die Bilanz "nie dispatcht" nicht von
+#       "ueber das Agent-Werkzeug gestartet" unterscheiden — und genau das hat
+#       `Pc Forschung` am 26.08. zum ZWEITEN Mal unveraendert gemeldet.
+[ "$DRY_RUN" = "no" ] && mind_agent_quittung_start "$PROJ" 4
 ```
 
 **Geretteter Chat (v5.1.0) + offene Schuld (v5.2.1):** Existiert `.claude-mind/rescued/OPEN`,

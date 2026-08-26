@@ -1301,6 +1301,51 @@ _mind_quittung_pfad() {
 #    vollstaendig automatisierbar. Ihr FEHLEN ist es.
 #
 # ⚠ Ohne $2 verhaelt sich alles wie bisher — kein Bestand wird ungueltig.
+# $1 = Projekt, $2 = Snapshot-Verzeichnis
+# Ausgabe: "<anzahl>|<bis zu fuenf Namen, durch Leerzeichen>"  — leer, wenn alles gedeckt.
+#
+# ⛔ v5.21.3 — BEFUND aus `Pc Forschung`, 26.08.2026:
+#    "INDEX.md liegt NICHT im /mind-all-Snapshot. Alle Aenderungen daran hatten
+#     kein Netz, und der Restore-Weg im Bericht ist fuer sie falsch."
+#    Ihr Vorschlag war, `INDEX.md` fest einzubauen. Das waere ein
+#    projektspezifisches Pflaster in einem allgemeinen Werkzeug —
+#    `MIND_SNAPSHOT_EXTRA` loest den Fall seit v5.2.1 allgemein.
+#
+#    ⭐ GEMESSEN, warum sie das nicht wissen konnten: die Variable kommt in
+#       `hooks/lib.sh` vor und in KEINEM Skill, KEINEM Bericht, KEINER Referenz.
+#       Wer den Schlussbericht liest, sieht eine Restore-Liste und hat keinen
+#       Weg zu erfahren, dass sie erweiterbar ist. Klasse `sichtbarkeit`.
+#       Dasselbe ist hier zweimal mit `knowledge/` passiert (env-vars.md).
+#
+# ⚠ NUR die fuenf zuletzt GEAENDERTEN. Die volle Liste waere in diesem Projekt
+#   15 Namen lang und damit die Ausgabe, die man gewohnheitsmaessig ueberliest —
+#   wovor `Pc Forschung` im selben Bericht warnt. Die Gesamtzahl bleibt sichtbar.
+#
+# ⛔ Der GLOB laeuft, NICHT `$(ls -t ...)`: eine unquotierte Befehlssubstitution
+#   zerlegt am Leerzeichen, und dieses Projekt heisst `Plugin - Entwicklung/...`.
+#   Erste Fassung meldete dadurch "79 Dateien" statt 15, mit Namen wie
+#   "Plugin - Claude Mind". Klasse `windows-pfad`, seit v5.2.1 dokumentiert.
+# ⛔ Und KEINE Pipe in die Schleife — die liefe in einer Subshell, und der
+#   Zaehler waere danach wieder 0.
+mind_snapshot_luecken() {
+  local projekt="${1:-}" snap="${2:-}" f b mt n=0 namen=""
+  [ -d "$projekt" ] || { echo "0|"; return 0; }
+  [ -d "$snap" ] || { echo "0|"; return 0; }
+  mt="${TMPDIR:-/tmp}/.mind_luecke_$$"; : > "$mt" || { echo "0|"; return 0; }
+  for f in "$projekt"/*.md; do
+    [ -f "$f" ] || continue
+    b=$(basename "$f")
+    [ "$b" = "CLAUDE.md" ] && continue
+    [ -f "$snap/project/$b" ] && continue
+    printf '%s\t%s\n' "$(date -r "$f" +%s 2>/dev/null || echo 0)" "$b" >> "$mt"
+  done
+  n=$(grep -c . "$mt" 2>/dev/null); n=${n:-0}
+  namen=$(sort -rn "$mt" 2>/dev/null | head -5 | cut -f2 | tr '\n' ' ')
+  rm -f "$mt"
+  echo "${n}|${namen}"
+}
+
+
 mind_agent_quittung_start() {
   local q; q=$(_mind_quittung_pfad "${1:-}")
   local erwartet="${2:-}"

@@ -131,6 +131,34 @@ pruefe "DISPATCH zaehlt Bereiche, nicht Aufrufe" \
 
 echo
 echo "=============================================================================="
+echo "  ⛔ RATSCHE — die Aufrufer muessen die Zahl auch UEBERGEBEN"
+echo "=============================================================================="
+# ⛔ v5.21.2 gab der Funktion den Parameter und liess BEIDE Aufrufer unveraendert.
+#    Die Quittung verhielt sich damit exakt wie vorher — der Fix war HALB.
+#    Woertlich der v5.7.1-Fall ("es sammelte `_wurzel_py` und benutzte es nie")
+#    und derselbe Halbfix wie bei classify_path am selben Tag: die Funktion war
+#    richtig, der Aufrufer benutzte sie nicht.
+#    Gefunden hat es erst der `Pc Forschung`-Lauf um 23:02, der denselben Befund
+#    zum ZWEITEN Mal unveraendert meldete.
+#
+# ⚠ Diese Faelle sind STRIKT ADDITIV — sie koennen die Sammlung nur strenger
+#   machen, nie milder. Deshalb stehen sie hier statt in einer vierten Datei:
+#   sie gehoeren thematisch zur Erwartungszahl.
+for s in mind-all mind-update; do
+  F="$CLAUDE_PLUGIN_ROOT/skills/$s/SKILL.md"
+  if [ -f "$F" ]; then
+    # Ein Aufruf OHNE folgende Zahl ist der Rueckfall.
+    N=$(grep -cE 'mind_agent_quittung_start "\$PROJ"[[:space:]]*$' "$F")
+    pruefe "$s uebergibt die Erwartungszahl" "$N" "0"
+    M=$(grep -cE 'mind_agent_quittung_start "\$PROJ" [0-9]+' "$F")
+    pruefe "$s: Aufruf MIT Zahl vorhanden" "$([ "$M" -ge 1 ] && echo ja || echo nein)" "ja"
+  else
+    pruefe "$s/SKILL.md gefunden" "fehlt" "vorhanden"
+  fi
+done
+
+echo
+echo "=============================================================================="
 echo "  $OK ok, $ROT rot"
 echo "=============================================================================="
 [ "$ROT" -eq 0 ]
