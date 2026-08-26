@@ -186,6 +186,27 @@ mind_check_tools_have_rules() {
       grep -q -- "$base" "$project_dir/CLAUDE.md" 2>/dev/null \
         && kandidaten="${kandidaten}${tool}"$'\n'
     done
+
+    # ⛔ v5.21.2 — DRITTER Ort, und zwar der allgemeine Fall.
+    #    Bis hierher sah die Pruefung NUR `tools/` und die Projektwurzel.
+    #    Gemessen 26.08.2026: drei Werkzeuge unter `Learnings/` waren unsichtbar,
+    #    zwei davon standen in KEINER Context-Datei — und die Pruefung meldete
+    #    `PASS`. Das liest sich wie "alle Werkzeuge erreichbar" und war es nicht.
+    #
+    #    ⭐ Keine dritte Sonderregel, sondern die VERALLGEMEINERUNG der zweiten:
+    #       im Wurzelverzeichnis zaehlt, was CLAUDE.md namentlich nennt — jetzt
+    #       gilt dasselbe fuer jeden Unterordner. Nennt CLAUDE.md die AUFRUFFORM
+    #       `Learnings/zaehl_gate.py`, ist es ein dokumentiertes Werkzeug.
+    _rel=$(grep -oE '[A-Za-z0-9_.@+-]+/[A-Za-z0-9_.@+-]+\.(py|sh)' \
+             "$project_dir/CLAUDE.md" 2>/dev/null | sort -u)
+    for r in $_rel; do
+      case "$r" in tools/*) continue ;; esac      # schon oben eingesammelt
+      [ -f "$project_dir/$r" ] || continue
+      case "$kandidaten" in
+        *"$project_dir/$r"$'\n'*) ;;
+        *) kandidaten="${kandidaten}${project_dir}/${r}"$'\n' ;;
+      esac
+    done
   fi
 
   if [ -z "$kandidaten" ]; then
@@ -197,13 +218,20 @@ mind_check_tools_have_rules() {
     return 0
   fi
 
+  # ⚠ Sagen, WO gesucht wurde. Ein `PASS` ohne diese Angabe behauptet mehr, als
+  #   die Pruefung weiss — genau der Eindruck, der den Befund vom 26.08. verdeckt hat.
+  echo "  Tool->Rule-Nachweis geprueft in: tools/ · Projektwurzel · jede in CLAUDE.md genannte Aufrufform (<ordner>/<datei>.py|.sh)"
+
   printf '%s' "$kandidaten" | while IFS= read -r tool; do
     [ -n "$tool" ] || continue
     base=$(basename "$tool")
     case "$tool" in
-      "$tools_dir"/*)
-        # Aufrufform verlangen — eine Nutzungs-Rule nennt den Pfad, eine Historie nur den Namen.
-        muster="tools/$base" ;;
+      "$project_dir"/*/*)
+        # Aufrufform verlangen — eine Nutzungs-Rule nennt den PFAD, eine Historie nur den Namen.
+        # ⭐ v5.21.2: gilt fuer JEDEN Unterordner, nicht mehr nur fuer tools/.
+        #    Fuer `$project_dir/tools/x.py` ergibt das `tools/x.py` — identisch zur
+        #    frueheren Hartkodierung. Eine Sonderregel weniger, gleiche Wirkung.
+        muster="${tool#$project_dir/}" ;;
       *)
         # Im Wurzelverzeichnis gibt es keinen Pfad-Praefix. Ersatz: ein Aufrufwort davor.
         muster="\(python3\?\|bash\|sh\|\./\)[[:space:]]*$base" ;;
@@ -218,6 +246,24 @@ mind_check_tools_have_rules() {
     done
     if [ -n "$rulehit" ]; then
       echo "  PASS  $base  ->  .claude/rules/$rulehit"
+      # ⛔ v5.21.2 (B6) — PASS sagt: die Rule ist ERREICHBAR. Nicht: sie stimmt noch.
+      #    Gemessen 26.08.2026: `backup-usage.md` beschrieb `rollback.py` im Stand
+      #    VOR dem Fix desselben Tages, und die Pruefung meldete durchgehend PASS.
+      #    Eine Rule, die das Werkzeug von gestern beschreibt, ist von einer
+      #    richtigen nicht zu unterscheiden.
+      #
+      #    ⚠ Aktualitaet ist nicht mechanisch entscheidbar. Das Aenderungsdatum ist
+      #      ein VERDACHT, kein Beweis: ein Werkzeug kann sich aendern, ohne dass
+      #      seine Nutzung sich aendert. Deshalb PRUEFEN statt FAIL und KEIN
+      #      Einfluss auf den Rueckgabewert — sonst entsteht die naechste Pruefung,
+      #      der man gewohnheitsmaessig nicht mehr glaubt.
+      for r in $(printf '%s' "$rulehit" | tr ',' ' '); do
+        _rp="$project_dir/.claude/rules/$r"
+        [ -f "$_rp" ] || continue
+        if [ "$tool" -nt "$_rp" ]; then
+          echo "        PRUEFEN: $base ist juenger als $r — beschreibt die Rule noch den heutigen Stand? (Verdacht, kein Befund)"
+        fi
+      done
     else
       echo "  FAIL  $base  ->  KEINE glob-getriggerte Rule ruft '$base' auf (totes Tool)"
       echo "__MIND_TOOLRULE_FAIL__" >> "${TMPDIR:-/tmp}/.mind_toolrule_$$"
@@ -1244,10 +1290,27 @@ _mind_quittung_pfad() {
 }
 
 # Zu Beginn eines Laufs: alte Quittungen wegraeumen.
+# $1 = Projekt, $2 = wie viele Agenten GEPLANT sind (optional).
+#
+# ⛔ v5.21.2: die Erwartungszahl ist der einzige Weg, "nie dispatcht" von
+#    "dispatcht, aber nie quittiert" zu unterscheiden. `mind_agent_dispatch`
+#    ist eine PROSA-Anweisung in mind-update/SKILL.md, die ein Modell abtippen
+#    muss — und am 26.08.2026 hat ein Lauf im Projekt `Pc Forschung` vier
+#    Agenten gefahren und DISPATCH=0 gemeldet, weil niemand quittiert hat.
+#    Ein Bash-Aufruf kann keinen Agenten STARTEN; die Quittung ist also nicht
+#    vollstaendig automatisierbar. Ihr FEHLEN ist es.
+#
+# ⚠ Ohne $2 verhaelt sich alles wie bisher — kein Bestand wird ungueltig.
 mind_agent_quittung_start() {
   local q; q=$(_mind_quittung_pfad "${1:-}")
+  local erwartet="${2:-}"
   mkdir -p "$(dirname "$q")" 2>/dev/null || return 1
   : > "$q" || return 1
+  case "$erwartet" in
+    ''|*[!0-9]*) ;;
+    *) printf '{"ereignis":"start","erwartet":%s,"ts":"%s"}\n' \
+         "$erwartet" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$q" ;;
+  esac
 }
 
 # VOR dem Start des Agents aufrufen.
@@ -1290,20 +1353,48 @@ mind_agent_bilanz() {
 
   # Bereiche sammeln. Bewusst ohne jq: die Bilanz muss auch dann funktionieren,
   # wenn jq fehlt — sonst faellt genau die Pruefung aus, die den Ausfall melden soll.
-  local dispatcht="" mit_ergebnis="" leere=""
+  local dispatcht="" mit_ergebnis="" erwartet="" wdh=0 nachtrag=""
+  erwartet=$(sed -n 's/.*"ereignis":"start".*"erwartet":\([0-9]*\).*/\1/p' "$q" | head -1)
   while IFS= read -r zeile; do
     [ -n "$zeile" ] || continue
     bereich=$(printf '%s' "$zeile" | sed -n 's/.*"bereich":"\([^"]*\)".*/\1/p')
     [ -n "$bereich" ] || continue
     case "$zeile" in
       *'"ereignis":"dispatch"'*)
-        d=$((d + 1)); dispatcht="${dispatcht}${bereich} " ;;
+        case " $dispatcht " in
+          *" $bereich "*) ;;                      # Wiederholung, kein neuer Bereich
+          *) d=$((d + 1)); dispatcht="${dispatcht}${bereich} " ;;
+        esac ;;
       *'"ereignis":"ergebnis"'*)
-        e=$((e + 1)); mit_ergebnis="${mit_ergebnis}${bereich} "
-        b=$(printf '%s' "$zeile" | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')
-        [ "${b:-0}" -eq 0 ] 2>/dev/null && { leer=$((leer + 1)); leere="${leere}${bereich} "; } ;;
+        e=$((e + 1))
+        case " $mit_ergebnis " in
+          *" $bereich "*) ;;
+          *) mit_ergebnis="${mit_ergebnis}${bereich} " ;;
+        esac ;;
     esac
   done < "$q"
+
+  # ⛔ v5.21.2 (B2): je Bereich zaehlt der LETZTE Ergebniseintrag, nicht jeder.
+  #    Gemessen 26.08.2026: ein zweiter, engerer Dispatch lieferte ein Ergebnis,
+  #    die Bilanz blieb bei LEER=1 — der Bereich war geprueft, das Instrument
+  #    konnte es nicht sagen.
+  #    ⚠ Der Verlauf bleibt SICHTBAR (Zeile "WIEDERHOLT"): ein gestorbener Agent
+  #      darf nicht spurlos verschwinden, das ist der Zweck der ganzen Quittung.
+  #    ⚠ Alle Faelle in tests/test_quittung.sh haben genau EIN Ergebnis je
+  #      Bereich — dort ist "letzter" mit "jeder" identisch, die Kopfzeile bleibt.
+  for bereich in $mit_ergebnis; do
+    local _alle _letzte _erste
+    _alle=$(grep '"ereignis":"ergebnis"' "$q" 2>/dev/null | grep "\"bereich\":\"$bereich\"")
+    _letzte=$(printf '%s\n' "$_alle" | tail -1 | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')
+    _erste=$(printf '%s\n' "$_alle" | head -1 | sed -n 's/.*"bytes":\([0-9]*\).*/\1/p')
+    if [ "${_letzte:-0}" -eq 0 ] 2>/dev/null; then
+      leer=$((leer + 1))
+      liste="${liste}  UNGEPRUEFT: ${bereich} (leere Rueckgabe — 0 Byte ist kein Befund)"$'\n'
+    elif [ "${_erste:-0}" -eq 0 ] 2>/dev/null; then
+      wdh=$((wdh + 1))
+      nachtrag="${nachtrag}  WIEDERHOLT: ${bereich} (erst 0 Byte, dann ${_letzte} — geprueft, aber ein Agent ist gestorben)"$'\n'
+    fi
+  done
 
   # Stumm = dispatcht, aber nie zurueckgemeldet.
   for bereich in $dispatcht; do
@@ -1312,17 +1403,27 @@ mind_agent_bilanz() {
       *) stumm=$((stumm + 1)); liste="${liste}  UNGEPRUEFT: ${bereich} (dispatcht, nie zurueck)"$'\n' ;;
     esac
   done
-  for bereich in $leere; do
-    liste="${liste}  UNGEPRUEFT: ${bereich} (leere Rueckgabe — 0 Byte ist kein Befund)"$'\n'
-  done
 
   echo "DISPATCH=$d ERGEBNIS=$e LEER=$leer STUMM=$stumm"
+  [ -n "$erwartet" ] && echo "  ERWARTET=$erwartet"
   [ -n "$liste" ] && printf '%s' "$liste"
+  [ -n "$nachtrag" ] && printf '%s' "$nachtrag"
 
   [ "$d" -eq 0 ] && {
     echo "  UNGEPRUEFT: kein einziger Agent dispatcht — der Fan-out hat nicht stattgefunden"
+    # ⛔ v5.21.2 (B1): mit Erwartungszahl ist diese Aussage EHRLICHER zu machen.
+    #    Ein Modell, das die Agenten fuhr und nur nicht quittierte, sieht hier
+    #    genauso aus wie einer, der sie nie startete. Gemessen 26.08.2026 in
+    #    `Pc Forschung`: DISPATCH=0 bei vier gelaufenen Agenten.
+    [ -n "$erwartet" ] && [ "$erwartet" -gt 0 ] 2>/dev/null && \
+      echo "  ⛔ $erwartet waren geplant. 0 quittiert heisst ENTWEDER nie gestartet ODER gestartet und nicht quittiert — das ist von hier aus NICHT unterscheidbar."
     return 2
   }
+  # Weniger quittiert als geplant: derselbe Zweifel, kleinere Dosis.
+  if [ -n "$erwartet" ] && [ "$d" -lt "$erwartet" ] 2>/dev/null; then
+    echo "  ⛔ nur $d von $erwartet Bereichen quittiert — die uebrigen sind ungeprueft ODER unquittiert"
+    return 1
+  fi
   [ $((leer + stumm)) -gt 0 ] && return 1
   return 0
 }

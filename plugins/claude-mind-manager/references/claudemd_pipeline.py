@@ -104,6 +104,39 @@ def _ohne_zeilennummer(p):
     return m.group(1) if m else p
 
 
+# ⛔ v5.21.2 (N1) — ein Pfad, der ABSICHTLICH tot ist und das selbst sagt.
+#
+#    Gemessen 26.08.2026 an `.claude/rules/hooks.md:243`:
+#      Belegt mit 8 Pruefungen (`tests/test_notfall.sh` — **mit v5.9.3 geloescht**)
+#    Der Pfad ist tot, die Zeile sagt es, und die Doku ist RICHTIG so: die
+#    Pruefsammlung hat existiert und belegt die Aussage historisch. Wer das
+#    meldet, verlangt, korrekte Dokumentation zu zerstoeren.
+#
+# ⚠ ENG, in drei Richtungen — sonst wird daraus ein Rauschfilter, der sich auf
+#   Stille optimiert:
+#     1. kurze, ausdrueckliche Wortliste. NICHT "entfernt": das steht in jeder
+#        zweiten Zeile ("damit der Aufraeumer keine Version entfernt").
+#     2. das Wort steht auf DERSELBEN Zeile wie der Pfad.
+#     3. steht der Pfad auf MEHREREN Zeilen, muss JEDE gekennzeichnet sein —
+#        sonst verdeckt eine historische Nennung einen echten toten Pfad
+#        woanders in derselben Datei.
+_TOT_ERKLAERT = re.compile(
+    r"gel(oe|\u00f6)scht"
+    r"|entfallen"
+    r"|ersatzlos"
+    r"|gibt es nicht mehr"
+    r"|existiert nicht mehr"
+    r"|nicht mehr vorhanden", re.IGNORECASE)
+
+
+def absichtlich_tot(text, span):
+    """Nennen ALLE Zeilen mit diesem Span ihn ausdruecklich als entfallen?"""
+    treffer = [z for z in text.split(chr(10)) if span in z]
+    if not treffer:
+        return False
+    return all(_TOT_ERKLAERT.search(z) for z in treffer)
+
+
 def classify_path(p):
     """SKIP | UNSURE | CHECK — Wortlaut und Reihenfolge wie in mind-update Step 3b."""
     # 0) NORMALISIEREN: Zitat mit Zeilennummer (NEU 26.08.2026).
@@ -443,6 +476,14 @@ def pruefe(pfad, projekt):
             extern.append(s)
             continue
         dead.append(s)
+    # v5.21.2 (N1): absichtlich tote Pfade fallen hier heraus, nicht schon beim
+    # Sammeln — so bleibt die DEAD-Liste vollstaendig fuer alles, was sie sonst
+    # noch nutzt, und die Ausnahme steht an genau EINER Stelle.
+    _erklaert = [d for d in dead if absichtlich_tot(text, d)]
+    dead = [d for d in dead if d not in _erklaert]
+    skip += len(_erklaert)
+    for d in _erklaert:
+        hinweis(13, 0, "absichtlich tot, die Zeile sagt es selbst: %s" % d)
     for d in dead:
         befund(13, 0, "toter Pfad: %s" % d)
     for e in extern:

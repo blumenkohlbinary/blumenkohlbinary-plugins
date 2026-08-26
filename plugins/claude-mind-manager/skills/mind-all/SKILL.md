@@ -210,9 +210,38 @@ Feld als geprueft ein.
 
 **Pflicht bei leerer Rueckgabe:**
 1. Den Bereich als **UNGEPRUEFT** in den Bericht schreiben, nicht als „keine Befunde".
-2. **Sofort auf den grep-Weg zurueckfallen** statt den Agenten neu zu starten. Am 21.08. hat
-   das unter einer Minute gedauert und genau den Befund geliefert, den der Agent finden sollte.
+2. **Sofort auf den grep-Weg zurueckfallen.** Am 21.08. hat das unter einer Minute gedauert
+   und genau den Befund geliefert, den der Agent finden sollte.
 3. Den Ausfall als Klasse `agent-gestorben` in die Befundzeilen aufnehmen (Step 2.95).
+
+### ⛔ Wiederholen: HOECHSTENS EINMAL, und nur mit engerem AUFTRAG (NEU v5.21.2)
+
+Ein zweiter Agentenlauf ist ein **eigener Versuch**, der auch scheitern kann — und er
+kostet. In `Pc Forschung` am 26.08.2026: **660 000 Tokens fuer zwei Wiederholungen ohne
+ein einziges Byte Ertrag.**
+
+| erlaubt | verboten |
+|---|---|
+| **einmal** neu, mit **engerem AUFTRAG** | dieselbe Aufgabe mit kleinerer EINGABE |
+| ein Auftrag statt zwei, 4–5 benannte Dateien | „nochmal, vielleicht klappt es" |
+
+⛔ **Die Eingabe zu verkleinern hilft NICHT — gemessen, nicht vermutet:**
+
+```
+Lauf 1, Rettungsdatei 1049 KB   claude-md  186 674 Tok / 20 Aufrufe -> 0 Byte
+                                memory     180 284 Tok / 26 Aufrufe -> 0 Byte
+Lauf 2, Auszug         339 KB   rules      335 159 Tok / 20 Aufrufe -> 0 Byte
+                                memory     325 160 Tok / 24 Aufrufe -> 0 Byte
+```
+
+**3,1x kleinere Eingabe, MEHR Tokens, vier von vier gleichfoermig tot.**
+
+Nach dem zweiten leeren Agenten ist Schluss: der Bereich gilt als ungeprueft, der
+grep-Rueckfall ist der Weg, und beides steht im Bericht.
+
+⚠ Eine gelungene Wiederholung wird **quittiert** (`mind_agent_ergebnis` erneut) —
+`mind_agent_bilanz` wertet seit v5.21.2 den **letzten** Eintrag je Bereich und meldet den
+Verlauf als `WIEDERHOLT`. Der gestorbene Agent verschwindet damit nicht spurlos.
 
 
 **Ersparnis ist KEIN Skip-Grund** (M4-Fix): Wenn der Modus nicht uebereinstimmt, wird

@@ -340,13 +340,36 @@ fi
 Slash oder Backslash enthalten. Bare-Filenames wie `model.py`, `ui.py` werden
 NICHT als Pfade behandelt (sind referentielle Code-Erwaehnungen).
 
-**Extraktion (Python-Pattern):**
+**Extraktion — ⛔ NICHT hier nachbauen, das Werkzeug fahren:**
+
+```bash
+python "$CLAUDE_PLUGIN_ROOT/references/claudemd_pipeline.py" <datei.md> --projekt "$PROJ"
+```
+
+⛔ **Genau diese Stelle ist der meistnachgebaute Fall des Plugins.** Die Klasse
+`instrument-nachgebaut` steht mit **7 Vorkommen** im Debug-Ordner; die Bilanz der
+Nachbauten lautet **~250 · 11 · 9 · 7 Fehltreffer** — *kein einziger war besser als
+das Original*. `claudemd_pipeline.py` traegt dieselbe Klassifikation samt aller
+Sonderfaelle (Slash-Commands, Formeln, Escape-Sequenzen, Interpreter-Aufrufe, Zitate
+mit Zeilennummer) und hat einen Selbsttest, der in zwei Sekunden zeigt, ob er misst.
+
+<details><summary>Das Muster — nur zum Nachlesen, nicht zum Abtippen</summary>
+
 ```python
 import re
-# Backtick-wrapped Strings, die mindestens ein / oder \ enthalten:
-pattern = r'`([^`]*[/\\][^`]+)`'
-paths = set(re.findall(pattern, claude_md_content))
+# Backtick-Spans mit mindestens einem / oder \ — und [^`\n], NICHT [^`]:
+pattern = r'`([^`\n]*[/\\][^`\n]+)`'
 ```
+
+⛔ **Das `\n` in beiden Zeichenklassen ist der Punkt.** Ohne es greift das Muster ueber
+Zeilengrenzen und erfindet Pfade aus zwei benachbarten Saetzen. Gemessen 26.08.2026 in
+`Pc Forschung`: **2 der 58** gemeldeten toten Pfade entstanden genau so.
+
+⚠ Die Prosa-Fassung hier war falsch, waehrend `claudemd_pipeline.py:273,303` es richtig
+hatte — **ein Modell schreibt aber ab, was im Skill steht.** Dritter Fall desselben
+Musters an einem Tag: eine Vorschrift als Prosa im Skill statt als Code im Werkzeug.
+
+</details>
 
 ✅ **Inkludieren** (echte Pfade mit Separator):
 - `src/zustellplan/model.py`
@@ -670,7 +693,34 @@ gleichzeitig reichten). Das gilt **auch unter Ultracode**. **`sequenziell` heiß
 
 Dispatch die 4 `context-analyzer` Agents **nacheinander** (oder in 2 Wellen à 2 —
 Welle 1: claude-md + memory, Welle 2: rules + custom-context; jede Welle ihr eigener
-Tool-Call). Ergebnisse aller 4 einsammeln, dann konsolidieren. Jeder bekommt:
+Tool-Call). Ergebnisse aller 4 einsammeln, dann konsolidieren.
+
+### ⭐ EIN AUFTRAG JE AGENT — der Zuschnitt traegt, nicht die Datenmenge (NEU v5.21.2)
+
+**Am 26.08.2026 in zwei Projekten gemessen. Keines konnte es allein belegen:**
+
+| | Aufgabe **gross** | Aufgabe **klein** |
+|---|---|---|
+| Eingabe **gross** | stirbt — 186k/180k Tok, 0 Byte | **laeuft — 4 Aufrufe, 50 s** |
+| Eingabe **klein** | stirbt — 335k/325k Tok, 0 Byte | laeuft — 8 s |
+
+⛔ **Nicht die Eingabe verkleinern.** Die untere Zeile ist der Beleg: 3,1x kleinere
+Datei, **mehr** Tokens, gleicher Tod. Ein Groessen-Guard wuerde die falsche Ursache
+festschreiben.
+
+**Also, verbindlich je Agent:**
+
+- **EIN Auftrag.** Nicht zwei. Der `custom-context`-Agent trug bis v5.21.1 den
+  Session-Abgleich **und** den Context-gegen-Context-Vergleich — und starb daran
+  (117 000 Tokens, 32 Werkzeugaufrufe, 0 Byte). Der zweite Auftrag geht besser an
+  `cleaner_duplikate.py --widersprueche`, das ihn **mechanisch** beantwortet.
+- **Hoechstens 4–5 BENANNTE Zieldateien.** Kein offenes Verzeichnis, kein
+  „alles unter `knowledge/`“.
+- **Der Rettungspfad kommt mit Stichwortliste**, nie als „lies, was du brauchst“.
+- **Keine Nachmessungen im Agenten.** Kanonische Zahlen werden ihm gegeben und
+  woertlich zurueckverlangt — er soll vergleichen, nicht zaehlen.
+
+Jeder bekommt:
 - Scope: `claude-md` / `memory` / `rules` / `custom-context`
 - Mode: `knowledge-sync`
 - ⛔ **DRITTER AGENT-AUFTRAG: Context gegen Context (NEU v5.7.1).** Die bisherigen Agents
