@@ -1507,3 +1507,126 @@ mind_commits_seit() {
   case "$n" in ''|*[!0-9]*) return 1 ;; esac
   printf '%s\n' "$n"
 }
+
+
+# --- mind_kontext_bilanz: wie gross ist der IMMER geladene Kontext? -----------
+#
+# ⛔ WOZU. Gemessen 27.08.2026 wuchs der Dauerkontext dieses Projekts an EINEM Tag
+#    um +19 460 B (+21 %), auf 2 570 Zeilen und 137 Anweisungen. Bemerkt hat es
+#    niemand — weil ihn niemand misst. `references/budget-thresholds.md` nennt
+#    >400 Zeilen als die Schwelle, ab der die Befolgung auf 71 % faellt, und
+#    ~100-150 als die Zahl der Anweisungen, die ein Modell verlaesslich haelt.
+#    Beides war um ein Vielfaches ueberschritten, ohne dass irgendwo eine Zahl stand.
+#
+# ⭐ Bei ausgeschoepftem Budget ist Anhaengen kein Zuwachs mehr, sondern ein
+#    TAUSCH: jede neue Anweisung verdraengt eine alte. Diese Funktion macht den
+#    Tausch sichtbar. Sie entscheidet ihn NICHT — wie die Agent-Quittung erzwingt
+#    sie keine Arbeit, sie macht deren Fehlen messbar. Das hat dort gereicht.
+#
+# ⚠ TOPIC-DATEIEN ZAEHLEN NICHT MIT. Sie laden hoechstens 5 pro Anfrage, ueber
+#   einen Auswaehler, der nur Name und `description` sieht (am Binaerprogramm
+#   2.1.237 nachgelesen). Ihr Wuchs kostet AUFFINDBARKEIT, kaum Tokens — eine
+#   voellig andere Groesse. Beides in eine Zahl zu legen macht beide unbrauchbar.
+#   `MEMORY.md` selbst zaehlt sehr wohl mit: die laedt jede Sitzung vollstaendig.
+#
+# ⚠ Die Anweisungszahl ist eine HEURISTIK: Zeilen, die `MUST`, `NEVER`, `ALWAYS`
+#   oder ⛔ enthalten. Gezaehlt werden ZEILEN, nicht Vorkommen. Die echte Zahl
+#   liegt eher hoeher — Anweisungen ohne Marke gibt es reichlich. Als Trend ist
+#   sie brauchbar, als Absolutwert nicht. Steht so auch in der Ausgabe.
+#
+# Aufruf:  mind_kontext_bilanz <projekt> [--merken|--vergleichen]
+# Ausgabe: Zeile 1 maschinell:  ZEILEN=n ANWEISUNGEN=n DATEIEN=n BYTES=n
+#          mit --vergleichen und vorhandenem Vorstand zusaetzlich die Berichtszeile
+# Rueckgabe: 0 = gemessen  ·  1 = nichts messbar (keine einzige Datei gefunden)
+mind_kontext_bilanz() {
+  local projekt="${1:-}" modus="${2:-}"
+  local liste zeilen=0 anw=0 bytes=0 dateien=0 f n a b
+  local stand="$projekt/.claude-mind/kontext-bilanz"
+
+  [ -n "$projekt" ] || { echo "ZEILEN=0 ANWEISUNGEN=0 DATEIEN=0 BYTES=0"; return 1; }
+
+  liste="${TMPDIR:-/tmp}/.mind_bilanz_$$"
+  : > "$liste" || { echo "ZEILEN=0 ANWEISUNGEN=0 DATEIEN=0 BYTES=0"; return 1; }
+
+  # ── Der immer geladene Satz ────────────────────────────────────────────────
+  # ⛔ KEINE Pipe in die Sammelschleife und KEIN `for f in $(ls …)`. Beides
+  #    zerlegt an Leerzeichen, und dieses Projekt heisst
+  #    "Plugin - Entwicklung/Claude Mind Manager". Genau daran ist die Rotation
+  #    in v5.2.1 still gescheitert (9 Kopien bei KEEP=3) und die Luecken-Meldung
+  #    in v5.21.3 beim ersten Anlauf ("79 Dateien" statt 15). Der Glob laeuft.
+  for f in "$projekt/CLAUDE.md" "$projekt/.claude/CLAUDE.md" \
+           "$HOME/.claude/CLAUDE.md"; do
+    [ -f "$f" ] && printf '%s\n' "$f" >> "$liste"
+  done
+  for f in "$projekt"/.claude/rules/*.md "$HOME"/.claude/rules/*.md; do
+    [ -f "$f" ] && printf '%s\n' "$f" >> "$liste"
+  done
+  # MEMORY.md ja, Topic-Dateien nein — siehe Kopf.
+  local mem
+  mem=$(get_memory_dir "$projekt" 2>/dev/null)
+  [ -n "$mem" ] && [ -f "$mem/MEMORY.md" ] && printf '%s\n' "$mem/MEMORY.md" >> "$liste"
+
+  # ── Zaehlen ────────────────────────────────────────────────────────────────
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    # ⛔ `wc -l` zaehlt NEWLINES, nicht Zeilen: eine Datei ohne abschliessenden
+    #    Umbruch faellt um eins zu niedrig aus. awk zaehlt Datensaetze und nimmt
+    #    die letzte unvollstaendige Zeile mit. Bei CRLF stimmt beides, weil das
+    #    \r vor dem \n steht und der Trenner das \n bleibt.
+    n=$(awk 'END{print NR}' "$f" 2>/dev/null); case "$n" in ''|*[!0-9]*) n=0 ;; esac
+    # ⛔ Kein `grep -F` auf UTF-8: das ist auf Git-Bash/MSYS schon einmal mit
+    #    einem core dump ausgestiegen und hat 24 Scheinbefunde erzeugt (v4.1.0).
+    a=$(grep -cE '(MUST|NEVER|ALWAYS|⛔)' "$f" 2>/dev/null); case "$a" in ''|*[!0-9]*) a=0 ;; esac
+    b=$(wc -c < "$f" 2>/dev/null); case "$b" in ''|*[!0-9]*) b=0 ;; esac
+    zeilen=$((zeilen + n)); anw=$((anw + a)); bytes=$((bytes + b))
+    dateien=$((dateien + 1))
+  done < "$liste"
+  rm -f "$liste"
+
+  echo "ZEILEN=$zeilen ANWEISUNGEN=$anw DATEIEN=$dateien BYTES=$bytes"
+  [ "$dateien" -eq 0 ] && return 1
+
+  # ── Vergleich gegen den gemerkten Vorstand ─────────────────────────────────
+  if [ "$modus" = "--vergleichen" ] && [ -f "$stand" ]; then
+    local vz va vb dz da db pz
+    vz=$(grep -m1 '^ZEILEN=' "$stand" 2>/dev/null | cut -d= -f2)
+    va=$(grep -m1 '^ANWEISUNGEN=' "$stand" 2>/dev/null | cut -d= -f2)
+    vb=$(grep -m1 '^BYTES=' "$stand" 2>/dev/null | cut -d= -f2)
+    case "$vz" in ''|*[!0-9]*) vz="" ;; esac
+    case "$va" in ''|*[!0-9]*) va="" ;; esac
+    case "$vb" in ''|*[!0-9]*) vb="" ;; esac
+    if [ -n "$vz" ] && [ -n "$va" ]; then
+      dz=$((zeilen - vz)); da=$((anw - va))
+      [ "$dz" -ge 0 ] && dz="+$dz"
+      [ "$da" -ge 0 ] && da="+$da"
+      printf 'Dauerkontext: %s -> %s Zeilen (%s) · Anweisungen %s -> %s (%s)\n' \
+        "$vz" "$zeilen" "$dz" "$va" "$anw" "$da"
+      if [ -n "$vb" ]; then
+        db=$((bytes - vb)); [ "$db" -ge 0 ] && db="+$db"
+        printf '              %s B (%s B seit dem letzten Lauf)\n' "$bytes" "$db"
+      fi
+    else
+      # ⛔ Ein unparsbarer Vorstand wird als FEHLEND behandelt, nie als "0".
+      #    Sonst meldete der naechste Lauf einen Zuwachs von 2570 Zeilen und
+      #    jemand suchte eine Ursache, die es nicht gibt.
+      printf 'Dauerkontext: %s Zeilen · %s Anweisungen (Vorstand unlesbar — kein Vergleich)\n' \
+        "$zeilen" "$anw"
+    fi
+  elif [ "$modus" = "--vergleichen" ]; then
+    printf 'Dauerkontext: %s Zeilen · %s Anweisungen (erster Lauf, kein Vorstand)\n' \
+      "$zeilen" "$anw"
+  fi
+
+  # ── Merken ─────────────────────────────────────────────────────────────────
+  if [ "$modus" = "--merken" ] || [ "$modus" = "--vergleichen" ]; then
+    mkdir -p "$(dirname "$stand")" 2>/dev/null
+    {
+      echo "ZEILEN=$zeilen"
+      echo "ANWEISUNGEN=$anw"
+      echo "DATEIEN=$dateien"
+      echo "BYTES=$bytes"
+      echo "TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } > "$stand" 2>/dev/null
+  fi
+  return 0
+}

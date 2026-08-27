@@ -51,6 +51,7 @@ python "$CLAUDE_PLUGIN_ROOT/references/slug_regression.py" --live
 | **`test_quittung.sh`** | 20 | **NEU v5.14.0** — Agent-Quittung: leer gegen STUMM |
 | **`test_negativfall.sh`** | 12 | **NEU v5.14.0** — kann die Sperre selbst rot werden? |
 | **`test_lib_ungedeckt.sh`** | 20 | **NEU v5.14.0** — die drei Funktionen ohne Prueffall |
+| **`test_kontext_bilanz.sh`** | 23 | **NEU v5.22.0** — `mind_kontext_bilanz`: Negativkontrolle +1000 B, Topic-Dateien zaehlen NICHT mit, CRLF, fehlender Umbruch |
 | `test_precompact.py` | — | Hook gegen ein echtes Transkript |
 
 ⚠ **`test_precompact.py` wählt sein Transkript als `kandidaten[1]`** — das zweitkleinste
