@@ -394,3 +394,66 @@ Hinweis ausgegeben, nie als Grund fuer eine Aenderung.
 **Das Experiment, das beides entscheiden wuerde:** je eine Testregel mit `paths:` und mit
 `globs:` anlegen, den `InstructionsLoaded`-Hook registrieren und nachsehen, welche geladen
 wird. Bis dahin: **`migrate` nicht blind laufen lassen.**
+
+---
+
+## Step 9: ⛔ Der Bestands-Pass — PFLICHT, auch bei leerem Befund (NEU v5.22.0)
+
+**Nutzer-Auftrag 27.08.2026:** *„die anderen skills sollen von vorne rein sauber arbeiten,
+ähnlich wie der mind cleaner — nicht immer mehr und mehr. Auch gucken: braucht man das,
+kann das weg, steht das schon woanders."*
+
+Gemessen: der **immer geladene** Kontext wuchs an EINEM Tag um **+21 %** auf 2 601 Zeilen
+und 138 Anweisungen — bei einer Schwelle von ~400 Zeilen und ~100–150 Anweisungen.
+`/mind-all` trägt nach, **niemand sieht zurück**. Dieser Schritt sieht zurück.
+
+⛔ **Er MELDET. Er schneidet nicht, verschiebt nicht, löscht nicht.** Handeln bleibt
+`/mind-cleaner`, dessen Nicht-Autonomie (Nutzer-Entscheidung 24.08.2026) unberührt bleibt.
+
+**Die vollständige Vorschrift steht in
+[references/bestands-pass.md](../../references/bestands-pass.md)** — Bilanz, Stichprobe, die
+drei Fragen, Urteilsbuch, Quittung, Fehlerszenarien, Risiko. **Lies sie**, bevor du diesen
+Schritt ausführst. Hier steht nur, was für **diesen** Skill gilt:
+
+| | |
+|---|---|
+| **Bereich** | `$PROJ/.claude/rules/` **und** `~/.claude/rules/` |
+| **`--skill`** | `mind-rules` |
+| **schon verdrahtet** | `cleaner_duplikate` |
+| **neu in diesem Schritt** | `cleaner_belege` · `cleaner_aussagen --code` · `cleaner_einordnung` |
+
+```bash
+[ -n "$CLAUDE_PLUGIN_ROOT" ] || { echo "ERROR: $CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
+source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
+
+# 1) Pflichtzeile im Bericht — Zeilen UND Anweisungen, gegen den letzten Lauf
+mind_kontext_bilanz "$PROJ" --vergleichen
+
+# 2) Stichprobe: 3 Einträge, die am längsten ungeprüft sind (max. 15 je Kettenlauf)
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_stichprobe.py" "$PROJ" \
+       --skill mind-rules --verzeichnis "$PROJ/.claude/rules"
+
+# 3) je Eintrag die drei Fragen — siehe Referenz, EINE Berichtszeile je Eintrag
+
+# 4) Quittung — ohne sie gilt der Lauf als Teilsync
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_stichprobe.py" "$PROJ" \
+       --quittung --skill mind-rules --geprueft <n> --stichprobe <n>
+```
+
+⭐ **Hier ist der Hebel am größten.** Regeldateien mit `globs: ["**/*"]` laden
+**vollständig, bei jeder Anfrage, ohne Obergrenze** — anders als Memory-Topics, die
+ein Auswähler auf 5 begrenzt. Gemessen trugen drei Dateien dieses Projekts zusammen
+**79 KB**, davon 79–88 % Versions-Historie statt Anweisung.
+
+⚠ `cleaner_einordnung` beantwortet dazu die Frage, die nur hier auftritt:
+**gehört das überhaupt in eine Regel** — oder ist es ein Hook, ein Skill, oder
+Wissen, das nach `knowledge/` gehört?
+
+⛔ **Ein FEHLENDER Block macht den Lauf zum Teilsync.** `(nichts)` ist eine gültige
+Antwort — leerer Bestand, neues Projekt, Laufbudget erschöpft. **Schweigen ist es nicht.**
+Ein Skill, der schweigt weil sein Bestand sauber ist, und einer, der schweigt weil der Pass
+ausfiel, sehen von außen identisch aus. Dieselbe Lehre wie v5.3.1 und die Agent-Quittung.
+
+⚠ **Fail-open:** fehlt ein Werkzeug oder stürzt es ab, wird `UNGEPRUEFT: <werkzeug>`
+gemeldet und der Skill **läuft weiter**. Ein Bestands-Pass darf nie einen Sync töten.
+
