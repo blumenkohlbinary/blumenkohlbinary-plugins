@@ -456,7 +456,31 @@ elif [ "$_BRC" = 0 ] && [ "$_DIS" -ge "$_AGENT_SOLL" ] 2>/dev/null \
 else
   SYNC_LIEF="teil"
 fi
-UMFANG="$_SKILL_IST/$_SKILL_SOLL skills $_DIS/$_AGENT_SOLL agents"
+# v5.22.0: der Bestands-Pass zaehlt mit. Jeder der fuenf Skills quittiert
+# `bestand=<skill>:<geprueft>/<stichprobe>` in `analyzed-scopes`; fehlt eine
+# Quittung, hat der Skill seinen Bestand nicht angesehen.
+#
+# ⭐ Es braucht KEIN neues Feld und KEINE Aenderung an mind_sync_voll: die
+#    zerlegt `umfang=` schon in a/b-Paare und macht aus jedem a<b einen
+#    Teilsync. Ein angehaengtes `<n>/5 bestand` wirkt damit sofort.
+#
+# ⛔ Gezaehlt wird in `.done`, falls Step 2.9 die Marke schon umbenannt hat —
+#    sonst zaehlt dieser Block je nach Reihenfolge mal 5 und mal 0, und das
+#    saehe wie ein Befund ueber die Skills aus statt wie ein Lesefehler.
+_SC="$PROJ/.claude-mind/analyzed-scopes"
+[ -f "$_SC" ] || _SC="$PROJ/.claude-mind/analyzed-scopes.done"
+_BEST=$(grep -c '^bestand=' "$_SC" 2>/dev/null); _BEST=${_BEST:-0}
+case "$_BEST" in ''|*[!0-9]*) _BEST=0 ;; esac
+
+UMFANG="$_SKILL_IST/$_SKILL_SOLL skills $_DIS/$_AGENT_SOLL agents $_BEST/5 bestand"
+
+# ⚠ Ein Skill OHNE Quittung ist ungeprueft — und das muss im Merker stehen,
+#   nicht nur in der Zahl. Sonst weiss der naechste Lauf, DASS etwas fehlte,
+#   aber nicht WAS: derselbe blinde Fleck, den v5.19.0 bei den Agents behoben hat.
+for _s in mind-claudemd mind-memory mind-rules mind-files mind-update; do
+  grep -q "^bestand=$_s:" "$_SC" 2>/dev/null || UNGEPRUEFT_BESTAND="${UNGEPRUEFT_BESTAND:-}bestand-$_s,"
+done
+UNGEPRUEFT_BESTAND="${UNGEPRUEFT_BESTAND%,}"
 
 # Welche Bereiche gelten als ungeprueft? Zwei Quellen, weil sie VERSCHIEDENE
 # Ausfaelle sehen: die Bilanz kennt leere und stumme Rueckgaben, aber einen nie
@@ -469,6 +493,12 @@ for _b in claude-md memory rules custom-context; do
   fi
 done
 UNGEPRUEFT="${UNGEPRUEFT%,}"
+# v5.22.0: fehlende Bestands-Quittungen kommen dazu. `ungepruef=` ist seit
+# v5.21.1 selbst ein Teilsync-Grund — ein ausgefuelltes Feld macht das Tor
+# strenger, ein leeres aendert nichts. Fail-safe-Richtung bleibt also gleich.
+if [ -n "${UNGEPRUEFT_BESTAND:-}" ]; then
+  UNGEPRUEFT="${UNGEPRUEFT:+$UNGEPRUEFT,}$UNGEPRUEFT_BESTAND"
+fi
 ```
 
 ⚠ **`nein` und `teil` sind verschiedene Dinge.** `nein` heisst: kein einziger Skill lief
