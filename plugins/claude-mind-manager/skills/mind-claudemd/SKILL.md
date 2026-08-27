@@ -302,6 +302,11 @@ Agent-Ergebnisse + eigene Inline-Checks zusammenführen. Anzeigen als:
   Pfade: <D> DEAD, <E> EXTERN (Hinweis), <S> SKIP  ·  Versionen: <ok/mismatch>, <T> Tags in Ueberschriften
   Git-Check: <Z> unreflektierte Commits
   Beleg: Bash-Tool-Call #<N>
+[Step 5c Bestands-Pass v5.22.0] PFLICHT, auch bei leerem Befund
+  Dauerkontext: <A> -> <B> Zeilen (<+/-D>) · Anweisungen <A> -> <B> (<+/-D>)
+  Bestand: <g>/<s> geprueft · <d> Duplikat · <c> Code-Kandidat · <b> ohne Beleg · <u> UNGEPRUEFT
+  ⛔ `(nichts)` ist erlaubt, FEHLEN nicht — ein fehlender Block macht den Lauf zum Teilsync
+  Beleg: Bash-Tool-Call #<N>
 ```
 
 Fehlt der Self-Check-Block oder enthaelt `(SKIPPED)`: User darf zurueckweisen.
@@ -552,7 +557,8 @@ Schritt ausführst. Hier steht nur, was für **diesen** Skill gilt:
 [ -n "$CLAUDE_PLUGIN_ROOT" ] || { echo "ERROR: $CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
 source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
 
-# 1) Pflichtzeile im Bericht — Zeilen UND Anweisungen, gegen den letzten Lauf
+# 1) PFLICHTZEILE — sie MUSS woertlich in den Self-Check-Block des Berichts.
+#    ⛔ Nicht nur erwaehnen: die Zeile selbst, mit beiden Zahlenpaaren.
 mind_kontext_bilanz "$PROJ" --vergleichen
 
 # 2) Stichprobe: 3 Einträge, die am längsten ungeprüft sind (max. 15 je Kettenlauf)

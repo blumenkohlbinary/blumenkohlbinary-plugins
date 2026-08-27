@@ -42,6 +42,24 @@ done
 janein "die Referenz existiert" "ja" \
   "$([ -f "$CLAUDE_PLUGIN_ROOT/references/bestands-pass.md" ] && echo ja || echo nein)"
 
+# ⛔ DIE BERICHTS-VORLAGE, NICHT NUR DER AUFRUF. Der Plan verlangt "jeder der fuenf
+#    Berichte traegt die Dauerkontext-Zeile". Gebaut war sie zuerst NUR als
+#    bash-Kommentar im Codeblock — und ein Kommentar ist keine Berichtspflicht:
+#    die Zeile erscheint dann nur, wenn das Modell zufaellig daran denkt.
+#    Woertlich die Klasse, an der dieses Projekt am haeufigsten scheitert
+#    (Memory-Gates als blosse Tabelle, Agent-Quittung vor v5.19.0): Prosa im Skill
+#    faellt genau dann aus, wenn sie gebraucht wird. Deshalb greppt dieser Fall die
+#    VORLAGE im Bericht, nicht den Aufruf im Codeblock.
+#    ⚠ mind-rules hat als EINZIGER keinen Self-Check-Block; dort steht die Vorlage
+#      im Bestands-Pass-Block selbst. Geprueft wird beides gleich.
+for s in mind-claudemd mind-memory mind-rules mind-files mind-update; do
+  F="$CLAUDE_PLUGIN_ROOT/skills/$s/SKILL.md"
+  janein "$s hat die Dauerkontext-VORLAGE im Bericht" "1" \
+    "$(grep -c 'Dauerkontext: <A>' "$F")"
+  janein "$s hat die Bestand-VORLAGE im Bericht" "1" \
+    "$(grep -c 'Bestand: <g>/<s>' "$F")"
+done
+
 echo "== 2/6  Stichprobe: die am laengsten ungeprueften zuerst =="
 D=$(mktemp -d); P="$D/proj"; mkdir -p "$P/.claude/rules" "$P/.claude-mind"
 for n in alpha beta gamma delta; do
@@ -99,6 +117,24 @@ janein "--zeige enthaelt die Losung NICHT" "nein" \
   "$(echo "$E" | grep -q "$LOSUNG" && echo ja || echo nein)"
 janein "der Rotationszustand enthaelt die Losung NICHT" "nein" \
   "$(grep -q "$LOSUNG" "$P/.claude-mind/bestand-rotation.jsonl" && echo ja || echo nein)"
+
+# ⛔ NEGATIVKONTROLLE AUS DEM PLAN: ein Ort mit `zielform`-Urteil wird NICHT
+#    erneut vorgelegt. `zielform` heisst "ein Mensch hat entschieden, das bleibt
+#    so" — legt die Stichprobe ihn trotzdem wieder vor, steht eine menschliche
+#    Entscheidung bei JEDEM Lauf erneut zur Debatte und kippt irgendwann.
+#    Bis 27.08.2026 stand das nur als PROSA in references/bestands-pass.md
+#    Abschnitt 4. Dieselbe Klasse wie die Dauerkontext-Pflichtzeile: Prosa im
+#    Skill faellt genau dann aus, wenn sie gebraucht wird.
+#    Der Selbsttest deckt 8b (sperrt), 8c (`duplikat` sperrt NICHT) und
+#    8d (kein Buch -> keine Sperre) ab; hier haengt die Sammlung sich daran.
+janein "Selbsttest inkl. zielform-Sperre gruen" "0" \
+  "$(python "$STW" --selbsttest >/dev/null 2>&1; echo $?)"
+janein "die Sperre ist ueberhaupt eingebaut" "ja" \
+  "$(grep -q 'def gesperrte_orte' "$ST" && echo ja || echo nein)"
+janein "sie greift NUR bei zielform/zeiger" "ja" \
+  "$(grep -q '(\"zielform\", \"zeiger\")' "$ST" && echo ja || echo nein)"
+janein "gesperrte Orte werden GENANNT, nicht verschwiegen" "ja" \
+  "$(grep -q 'gesperrt (Mensch hat entschieden)' "$ST" && echo ja || echo nein)"
 
 echo "== 5/6  Laufbudget: 15 im Kettenlauf, dann (nichts) mit Begruendung =="
 D2=$(mktemp -d); P2="$D2/proj"; mkdir -p "$P2/.claude/rules" "$P2/.claude-mind"

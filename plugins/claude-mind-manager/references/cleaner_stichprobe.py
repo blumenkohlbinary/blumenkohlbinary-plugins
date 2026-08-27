@@ -130,10 +130,51 @@ def lauf_beginn(projekt):
 
 # ── Auswahl ──────────────────────────────────────────────────────────────────
 
+
+def gesperrte_orte(projekt):
+    """Orte mit einem gueltigen zielform/zeiger-Urteil -> nicht erneut vorlegen.
+
+    ⛔ `zielform` und `zeiger` heissen: ein Mensch hat entschieden, das bleibt so.
+       Legt die Stichprobe so einen Ort trotzdem wieder vor, steht eine
+       menschliche Entscheidung bei JEDEM Lauf erneut zur Debatte — und kippt
+       irgendwann versehentlich. Genau davor schuetzt das Urteilsbuch seit v5.16.0.
+
+    ⚠ Das Buch fuehrt PAARE von Orten. Die Sperre ist deshalb bewusst grob: ein
+      Ort, der in irgendeinem gueltigen Eintrag vorkommt, faellt raus. Das sperrt
+      im Zweifel einen zu viel — die andere Richtung waere schlimmer.
+
+    ⛔ FAIL-OPEN. Fehlt das Buch, ist es unlesbar oder scheitert der Import, wird
+       NICHTS gesperrt. "unbekannt" ist die sichere Antwort, "schon entschieden"
+       die gefaehrliche. Ein kaputtes Urteilsbuch darf den Bestands-Pass nicht
+       blind machen, sondern nur ungeschuetzt.
+    """
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from cleaner_urteile import lesen as _urteile_lesen
+    except Exception:
+        return set()
+    try:
+        eintraege = _urteile_lesen(projekt)
+    except Exception:
+        return set()
+
+    gesperrt = set()
+    for e in eintraege:
+        if not isinstance(e, dict) or e.get("__kaputt__"):
+            continue
+        if e.get("urteil") not in ("zielform", "zeiger"):
+            continue
+        for o in e.get("orte") or []:
+            if isinstance(o, str):
+                gesperrt.add(o)
+    return gesperrt
+
+
 def waehle(projekt, orte, n, maximal):
-    """-> (gewaehlt, uebersprungen_im_lauf, rest_im_lauf)"""
+    """-> (gewaehlt, uebersprungen_im_lauf, rest_im_lauf, gesperrt)"""
     letzte, alle = lesen(projekt)
     beginn = lauf_beginn(projekt)
+    gesperrt = gesperrte_orte(projekt)
 
     # Was ist in DIESEM Lauf schon jemandem vorgelegt worden?
     im_lauf = set()
@@ -147,13 +188,15 @@ def waehle(projekt, orte, n, maximal):
     if rest < 0:
         rest = 0
 
-    frei = [o for o in orte if o not in im_lauf]
+    # ⛔ Zuerst die menschlichen Urteile, dann erst die Rotation.
+    frei = [o for o in orte if o not in im_lauf and o not in gesperrt]
     # Am laengsten ungeprueft zuerst; nie vorgelegt == 0 und damit ganz vorn.
     # Bei Gleichstand der Pfad, damit die Reihenfolge reproduzierbar ist.
     frei.sort(key=lambda o: (letzte.get(o, 0), o))
 
     grenze = min(n, rest)
-    return frei[:grenze], sorted(im_lauf & set(orte)), rest
+    return (frei[:grenze], sorted(im_lauf & set(orte)), rest,
+            sorted(gesperrt & set(orte)))
 
 
 def sammle_verzeichnis(pfad):
@@ -239,7 +282,7 @@ def selbsttest():
     orte = ["/a/eins.md", "/a/zwei.md", "/a/drei.md", "/a/vier.md", "/a/fuenf.md"]
 
     # 1 — frischer Bestand: die ersten drei alphabetisch (alle ts=0)
-    g, u, r = waehle(proj, orte, 3, 15)
+    g, u, r, sp = waehle(proj, orte, 3, 15)
     janein("1 frischer Bestand liefert 3", 3, len(g))
     janein("1 Reihenfolge bei Gleichstand ist der Pfad",
            ["/a/drei.md", "/a/eins.md", "/a/fuenf.md"], g)
@@ -247,7 +290,7 @@ def selbsttest():
     # 2 — was vorgelegt wurde, kommt beim naechsten Mal NICHT zuerst
     jetzt = int(time.time())
     anhaengen(proj, [{"ts": jetzt, "skill": "t", "ort": o} for o in g])
-    g2, _, _ = waehle(proj, orte, 3, 15)
+    g2, _, _, _ = waehle(proj, orte, 3, 15)
     janein("2 die drei frischen Orte kommen zuerst",
            ["/a/vier.md", "/a/zwei.md"], g2[:2])
     janein("2 ein schon vorgelegter Ort rutscht ans Ende", "/a/drei.md", g2[2])
@@ -256,7 +299,7 @@ def selbsttest():
     with open(os.path.join(proj, ".claude-mind", "analyzed-scopes"), "w",
               encoding="utf-8", newline="\n") as fh:
         fh.write("run_started=%d\n" % (jetzt - 10))
-    g3, im_lauf, rest = waehle(proj, orte, 3, 15)
+    g3, im_lauf, rest, _ = waehle(proj, orte, 3, 15)
     janein("3 drei Orte gelten als in diesem Lauf erledigt", 3, len(im_lauf))
     janein("3 Restbudget 15-3", 12, rest)
     janein("3 kein Ort wird doppelt vorgelegt", True,
@@ -265,7 +308,7 @@ def selbsttest():
     # 4 — NEGATIVKONTROLLE: Budget erschoepft -> LEERE Stichprobe, kein Absturz
     viele = [{"ts": jetzt, "skill": "t", "ort": "/b/%d.md" % i} for i in range(15)]
     anhaengen(proj, viele)
-    g4, _, rest4 = waehle(proj, orte, 3, 15)
+    g4, _, rest4, _ = waehle(proj, orte, 3, 15)
     janein("4 Budget erschoepft -> Restbudget 0", 0, rest4)
     janein("4 Budget erschoepft -> leere Stichprobe", [], g4)
 
@@ -280,16 +323,46 @@ def selbsttest():
     # 6 — ohne analyzed-scopes gilt keine Laufgrenze
     proj2 = os.path.join(d, "proj2")
     os.makedirs(proj2)
-    _, _, rest6 = waehle(proj2, orte, 3, 15)
+    _, _, rest6, _ = waehle(proj2, orte, 3, 15)
     janein("6 Einzellauf: volles Budget", 15, rest6)
 
     # 7 — Stichprobe groesser als Bestand -> min(n, Bestand)
-    g7, _, _ = waehle(proj2, ["/c/nur-einer.md"], 3, 15)
+    g7, _, _, _ = waehle(proj2, ["/c/nur-einer.md"], 3, 15)
     janein("7 Stichprobe > Bestand -> nur was da ist", 1, len(g7))
 
     # 8 — leerer Bestand -> leere Stichprobe, kein Fehler
-    g8, _, _ = waehle(proj2, [], 3, 15)
+    g8, _, _, _ = waehle(proj2, [], 3, 15)
     janein("8 leerer Bestand -> leere Stichprobe", [], g8)
+
+    # 8b — zielform-Urteil sperrt den Ort  ⛔ NEGATIVKONTROLLE aus dem Plan
+    import subprocess
+    ub = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cleaner_urteile.py")
+    proj3 = os.path.join(d, "proj3")
+    os.makedirs(os.path.join(proj3, ".claude-mind"))
+    orte3 = ["/z/a.md", "/z/b.md", "/z/c.md", "/z/d.md"]
+    subprocess.run([sys.executable, ub, "--schreiben", proj3, "--orte", "/z/a.md",
+                    "/z/b.md", "--urteil", "zielform", "--werkzeug", "test",
+                    "--von", "mensch", "--grund", "bewusst so gelassen"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    g9, _, _, sp9 = waehle(proj3, orte3, 3, 15)
+    janein("8b zielform sperrt BEIDE Orte des Paares",
+           ["/z/a.md", "/z/b.md"], sp9)
+    janein("8b gesperrte Orte kommen NICHT in die Stichprobe",
+           ["/z/c.md", "/z/d.md"], g9)
+
+    # 8c — NEGATIVKONTROLLE zur Negativkontrolle: `duplikat` sperrt NICHT.
+    #      Ohne diesen Fall wuerde eine Sperre, die ALLES sperrt, gruen bleiben.
+    proj4 = os.path.join(d, "proj4")
+    os.makedirs(os.path.join(proj4, ".claude-mind"))
+    subprocess.run([sys.executable, ub, "--schreiben", proj4, "--orte", "/z/a.md",
+                    "/z/b.md", "--urteil", "duplikat", "--werkzeug", "test",
+                    "--von", "autonom", "--grund", "gleiche Aussage"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _, _, _, sp10 = waehle(proj4, orte3, 3, 15)
+    janein("8c `duplikat` sperrt NICHT (nur zielform/zeiger)", [], sp10)
+
+    # 8d — FAIL-OPEN: ohne Urteilsbuch wird nichts gesperrt
+    janein("8d kein Urteilsbuch -> keine Sperre", set(), gesperrte_orte(proj2))
 
     # 9 — Quittung landet in analyzed-scopes
     quittung(proj, "mind-rules", 2, 3)
@@ -364,13 +437,20 @@ def main():
         print("--n und --max brauchen Zahlen")
         return 2
 
-    gewaehlt, im_lauf, rest = waehle(projekt, orte, int(n), int(maximal))
+    gewaehlt, im_lauf, rest, gesperrt = waehle(projekt, orte, int(n), int(maximal))
 
     print("  Bestand: %d Eintrag/Eintraege · Stichprobe: %d · Restbudget im Lauf: %d"
           % (len(orte), len(gewaehlt), rest))
     if im_lauf:
         print("  %d in diesem Lauf schon von einem anderen Skill vorgelegt"
               % len(im_lauf))
+    if gesperrt:
+        # ⛔ NENNEN, nicht verschweigen. Ein stillschweigend uebersprungener Ort
+        #    ist von einem gar nicht vorhandenen nicht zu unterscheiden — und
+        #    genau diese Ununterscheidbarkeit ist die Fehlerklasse, gegen die
+        #    dieser ganze Pass gebaut ist.
+        print("  %d durch ein zielform/zeiger-Urteil gesperrt (Mensch hat entschieden)"
+              % len(gesperrt))
     if not gewaehlt:
         print("  (nichts) — %s" % ("Laufbudget erschoepft" if rest <= 0
                                    else "kein ungepruefter Eintrag uebrig"))

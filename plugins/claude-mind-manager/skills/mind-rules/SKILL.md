@@ -426,7 +426,8 @@ Schritt ausführst. Hier steht nur, was für **diesen** Skill gilt:
 [ -n "$CLAUDE_PLUGIN_ROOT" ] || { echo "ERROR: $CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
 source "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh"
 
-# 1) Pflichtzeile im Bericht — Zeilen UND Anweisungen, gegen den letzten Lauf
+# 1) PFLICHTZEILE — sie MUSS woertlich in den Self-Check-Block des Berichts.
+#    ⛔ Nicht nur erwaehnen: die Zeile selbst, mit beiden Zahlenpaaren.
 mind_kontext_bilanz "$PROJ" --vergleichen
 
 # 2) Stichprobe: 3 Einträge, die am längsten ungeprüft sind (max. 15 je Kettenlauf)
@@ -448,6 +449,16 @@ ein Auswähler auf 5 begrenzt. Gemessen trugen drei Dateien dieses Projekts zusa
 ⚠ `cleaner_einordnung` beantwortet dazu die Frage, die nur hier auftritt:
 **gehört das überhaupt in eine Regel** — oder ist es ein Hook, ein Skill, oder
 Wissen, das nach `knowledge/` gehört?
+
+**PFLICHT im Bericht — dieser Skill hat als einziger keinen Self-Check-Block, also steht die Vorlage hier:**
+
+```
+[Step 9 Bestands-Pass v5.22.0] PFLICHT, auch bei leerem Befund
+  Dauerkontext: <A> -> <B> Zeilen (<+/-D>) · Anweisungen <A> -> <B> (<+/-D>)
+  Bestand: <g>/<s> geprueft · <d> Duplikat · <c> Code-Kandidat · <b> ohne Beleg · <u> UNGEPRUEFT
+  ⛔ `(nichts)` ist erlaubt, FEHLEN nicht — ein fehlender Block macht den Lauf zum Teilsync
+  Beleg: Bash-Tool-Call #<N>
+```
 
 ⛔ **Ein FEHLENDER Block macht den Lauf zum Teilsync.** `(nichts)` ist eine gültige
 Antwort — leerer Bestand, neues Projekt, Laufbudget erschöpft. **Schweigen ist es nicht.**
