@@ -76,20 +76,28 @@ if echo "$ARGS" | grep -qE '(^|[[:space:]])global([[:space:]]|$)'; then
   BEREICH="global"
   ZIEL_MD="$HOME/.claude/CLAUDE.md"
   ZIEL_RULES="$HOME/.claude/rules"
+  ZIEL_WURZEL="$HOME"          # ⛔ NICHT $HOME/.claude — siehe Step 4c
   ZEIGER="~/.claude/rules"
 else
   BEREICH="projekt"
   ZIEL_MD="$PROJ/CLAUDE.md"
   [ -f "$ZIEL_MD" ] || ZIEL_MD="$PROJ/.claude/CLAUDE.md"
   ZIEL_RULES="$PROJ/.claude/rules"
+  ZIEL_WURZEL="$PROJ"
   ZEIGER=".claude/rules"
 fi
-echo "Bereich: $BEREICH  ·  Ziel: $ZIEL_MD  ·  Rules: $ZIEL_RULES"
+echo "Bereich: $BEREICH  ·  Ziel: $ZIEL_MD  ·  Rules: $ZIEL_RULES  ·  Wurzel: $ZIEL_WURZEL"
 ```
 
-⛔ **Die drei Variablen sind ab hier VERBINDLICH.** Jeder Schritt, der die Zieldatei
-anfasst — Backup (5a), Edits (5b), Modularize (4e) — benutzt `$ZIEL_MD` und `$ZIEL_RULES`.
-**Nie wieder ein blankes `CLAUDE.md`.**
+⛔ **Die vier Variablen sind ab hier VERBINDLICH.** Jeder Schritt, der die Zieldatei
+anfasst — Pipeline (4c), Modularize (4e), Backup (5a), Edits (5b) — benutzt
+`$ZIEL_MD`, `$ZIEL_RULES` und `$ZIEL_WURZEL`. **Nie wieder ein blankes `CLAUDE.md`
+und nie wieder `$CLAUDE_PROJECT_DIR` als Wurzel.**
+
+⛔ **`$ZIEL_WURZEL` ist bei `global` `$HOME`, NICHT `$HOME/.claude`.** Der Unterschied
+ist gemessen und kostete eine falsche Null: Check 18 sucht `<wurzel>/.claude/rules`.
+Mit `$HOME/.claude` als Wurzel waere das `~/.claude/.claude/rules` — Ergebnis
+**0 rules statt 15**, auf einem Kriterium, das in Rubrik 1 mit 15 Punkten zaehlt.
 
 ### ⛔ Ein `global`-Lauf DARF aufraeumen — und was ihn wirklich begrenzt
 
@@ -200,7 +208,12 @@ dieselbe Groesse im selben Bericht.
 
 ```bash
 PIPE="$CLAUDE_PLUGIN_ROOT/references/claudemd_pipeline.py"
-python "$PIPE" "<ziel.md>" --projekt "${CLAUDE_PROJECT_DIR:-$(pwd)}"
+python "$PIPE" "$ZIEL_MD" --projekt "$ZIEL_WURZEL"
+# ⛔ v5.23.1: BEIDE aus Step 1. Bis v5.23.0 stand hier `"<ziel.md>"` und
+#    `--projekt "${CLAUDE_PROJECT_DIR:-$(pwd)}"` — bei einem `global`-Lauf also die
+#    Projekt-Wurzel, waehrend die Zieldatei ~/.claude/CLAUDE.md war. Check 18 sucht
+#    `<wurzel>/.claude/rules` und fand nichts: GEMESSEN 0 rules statt 15.
+#    Eine falsche Null sieht aus wie ein Befund und ist eine Nichtmessung.
 # Rueckgabe: 0 = keine Befunde · 1 = Befunde · 2 = Aufruffehler
 #            3 = MESSUNG UNGUELTIG (Instrumentenkontrolle durchgefallen) -> Zahlen verwerfen
 python "$PIPE" --selbsttest      # 22 Pruefungen, vor jedem Zweifelsfall

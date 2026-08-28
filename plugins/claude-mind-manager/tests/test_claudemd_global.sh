@@ -68,6 +68,27 @@ janein "Gate 3 haengt am Bereich, nicht fest an .claude/rules" "1" \
 janein "Modularize schreibt nach \$ZIEL_RULES" "1" \
   "$(grep -c 'Rule-Datei nach \*\*`\$ZIEL_RULES/`\*\*' "$SK")"
 
+# ⛔ v5.23.1 — STEP 4c STAND GESTERN NICHT AUF DIESER LISTE, und genau dort war der
+#    Modus noch kaputt. Die Sammlung prueft seit v5.23.0 Step 1, Step 5a, Gate 3 und
+#    die Fix-Tabelle — Step 4c uebergab der Pipeline weiter `$CLAUDE_PROJECT_DIR`.
+#    Gemessen im ersten echten global-Lauf: Modularity 0 rules statt 15, weil
+#    Check 18 `<wurzel>/.claude/rules` sucht und `~/.claude/.claude/rules` nicht gibt.
+#    ⭐ Was nicht geprueft wird, bleibt kaputt — auch bei 40 gruenen Sammlungen.
+janein "Step 1 setzt ZIEL_WURZEL" "1" "$(grep -c 'ZIEL_WURZEL="\$HOME"' "$SK")"
+janein "ZIEL_WURZEL ist \$HOME, NICHT \$HOME/.claude" "0" \
+  "$(grep -c 'ZIEL_WURZEL="\$HOME/.claude"' "$SK")"
+janein "Step 4c uebergibt --projekt \$ZIEL_WURZEL" "1" \
+  "$(grep -c -- '--projekt "\$ZIEL_WURZEL"' "$SK")"
+janein "Step 4c uebergibt \$ZIEL_MD als Zieldatei" "1" \
+  "$(grep -c '"\$PIPE" "\$ZIEL_MD"' "$SK")"
+# ⛔ NUR AUSFUEHRBARE ZEILEN, keine Kommentare. Die erste Fassung zaehlte den
+#    Kommentar mit, der das ALTE Verhalten erklaert — sie traf die Widerlegung
+#    statt den Gegenstand. Das ist heute schon der zweite Selbsttreffer dieser Art
+#    (der erste suchte im Paket nach dem Wortlaut der erfundenen Regel und fand
+#    sein eigenes grep-Muster). Klasse `instrument-misst-nichts`.
+janein "kein \$CLAUDE_PROJECT_DIR mehr im PIPELINE-AUFRUF" "0" \
+  "$(grep -v '^[[:space:]]*#' "$SK" | grep -c -- '--projekt "\${CLAUDE_PROJECT_DIR')"
+
 echo "== 2/4  ⛔ AUSFUEHRBAR: sichert ein global-Lauf die RICHTIGE Datei? =="
 D=$(mktemp -d); H="$D/heim"; P="$D/proj"
 mkdir -p "$H/.claude" "$P/.claude-mind"
