@@ -184,11 +184,48 @@ Bestätigung** angewendet.
 
 ## Step 4: Die Leitplanke herausschneiden — der schwierigste Teil
 
-**Hier gibt es kein Werkzeug.** Was bleibt, muss allein tragen; was geht, muss vollständig sein.
+**Was bleibt, muss allein tragen; was geht, muss vollständig sein.**
 
 **Was in der Kurz-Rule bleibt:** das Verbot · die Entscheidung in einem Satz · die Zahl, die
-man vor dem Anfangen wissen muss · **der Pfad zum Volltext**.
+man vor dem Anfangen wissen muss · **der Pfad zum Volltext** · **der Command-Aufruf**.
 **Was in den Skill geht:** Herleitung · Belege · Messreihen · Fallen · Beispiele.
+
+⭐ **Die Trennlinie in einem Satz — Bremse gegen Anleitung:**
+
+> Eine **Bremse** hält dich vom Falschen ab, **bevor** du merkst, dass du nachschlagen
+> solltest — sie muss in der Rule stehen, sonst kommt sie zu spät. Eine **Anleitung**
+> brauchst du erst, **während** du arbeitest; dann hast du den Command ohnehin geladen.
+
+*„suspend nur auf ausdrückliche Ansage"* ist eine Bremse — wer aufräumen will, lädt keinen
+Skill dafür. *„834–941 MB/s, wer weniger misst, hat seinen Aufbau gemessen"* ist Anleitung.
+
+### Werkzeug (NEU v5.24.0) — es legt Kandidaten vor, es schneidet nicht
+
+⛔ **Hier stand bis v5.23.1 „Hier gibt es kein Werkzeug."** Das stimmte, und es war der Grund,
+warum `workstation-fernzugriff` nach dem Umzug mit **63 Zeilen** liegenblieb, während die
+vier Geschwister bei 19–33 lagen — mit MAC-Adressen, Durchsatztabellen und
+`sudoers`-Dateinamen darin. Kein Gate hat je danach gefragt.
+
+```bash
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_leitplanke.py" \
+       --verzeichnis "$ZIEL_RULES" --skills "$HOME/.claude/skills"
+```
+
+Es meldet drei Formklassen als **Kandidaten**: `adresse` (IP/MAC) · `syspfad` (`/etc`, `/usr`,
+`/var`) · `befehl` (Codezeile mit konkreten Argumenten, ohne `<platzhalter>`/`$VARIABLE`).
+Dazu Zeilenzahl gegen die **im Lauf gemessene** Korpus-Spanne, den Bremsanteil und ob der
+Zeiger Pfad **und** Command nennt.
+
+⛔ **Zahlen sind ausdrücklich KEINE Klasse.** Im echten Bestand trägt die Bremse ihre Messung
+mit („834–941 MB/s" steht *in* der Fehlmessungs-Warnung). Ein Filter, der Zahlen meldet,
+schneidet die Bremse weg.
+
+⛔ **Eine Zeile mit ⛔/⚠/NIE/NUR wird nie Kandidat** — auch dann nicht, wenn eine Adresse
+darin steht. `10.10.10.1 ZUERST, sonst ist das ein BEFUND` **ist** die Bremse.
+
+⚠ **Kandidat ist kein Urteil.** Ob ein Satz Bremse oder Anleitung ist, ist eine
+Bedeutungsfrage; mechanisch entscheidbar sind nur Formmerkmale. Die Liste sieht ein Mensch
+durch — genau wie beim SKILL-Vorschlag aus Step 3.
 
 ## Step 5: Umziehen — vier Gates, alle müssen halten
 
@@ -203,6 +240,23 @@ python "$CLAUDE_PLUGIN_ROOT/references/cleaner_umzug.py" \
 | **ERREICHBARKEIT** | die Kurz-Rule trägt **kein** `paths:`/`globs:` — eine Leitplanke mit Ladebedingung ist keine |
 | ⭐ **PFAD** | die Kurz-Rule nennt den **Zielpfad wörtlich** |
 | **BESCHREIBUNG** | ≥ 40 Zeichen, und Name+description unter der Kappung bei **1 536** `[DOKU]` |
+| ⭐ **INHALT** (NEU v5.24.0) | jede **Marke** der alten Regel ist in Kurz **oder** Skill wiederzufinden |
+| ~ *Hinweis* `COMMAND` | die Kurz-Rule nennt `/<name>`. **Kein Bruch** — der Pfad trägt |
+
+### ⭐ Warum Gate 5 nötig war — gemessen am eigenen Lauf, 28.08.2026
+
+`ERHALTUNG` zählt **Zeilen**. Beim Kürzen von `workstation-fernzugriff` (63 → 36) war der
+Skill 705 Zeilen lang: `36 + 705 ≥ 63` hält mühelos — und der Punkt *„das `-i` ist meist
+nötig, `gnome-session` hält einen block-Inhibitor"* wäre trotzdem verschwunden. Er stand
+**nur** in der alten Rule. Gefunden hat ihn erst ein von Hand danebengelegtes
+`coverage_gate.py`. Gate 5 macht diese Handarbeit zum Gate.
+
+⚠ **Es schließt AUSLASSUNG aus, nicht VERTAUSCHUNG.** Eine Marke, die vom richtigen an den
+falschen Ort wandert, sehen beide Gates nicht. Die menschliche Bestätigung bleibt Pflicht.
+
+⛔ **Der Command ersetzt den Pfad NICHT.** Er ist ein Hinweis, kein Gate — die Messung unten
+sagt Pfad **4/4** gegen Skill-Auswahl **20–84 %**. Wer den Pfad später entfernt, „weil der
+Command ja dasteht", macht den Umzug wieder unzuverlässig.
 
 ### ⭐ Warum das PFAD-Gate das wichtigste ist — gemessen 24.08.2026
 

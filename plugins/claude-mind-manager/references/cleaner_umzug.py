@@ -169,6 +169,81 @@ def beschreibung(t):
     return None
 
 
+
+# ⛔ Marker, die eine UEBERSETZUNG und eine Umformulierung ueberleben — portiert
+#    aus tools/coverage_gate.py. Fliesstext-Substantive sind bewusst NICHT dabei:
+#    genau die verschwinden beim Umschreiben, und dann meldet das Gate einen
+#    Verlust, den es nicht gibt. Belegt: die erste Fassung jenes Werkzeugs zog
+#    Stichwoerter aus dem Quelltext und war blind, sobald Quelle und Ziel
+#    verschiedene Sprachen hatten.
+_FENCE = re.compile(r"```.*?```", re.S)
+
+_MARKER = [
+    re.compile(r"\b(\d[\d.,]*\s?(?:%|MB/s|Gbit|GB|KB|ms|s|Zeilen|Byte|B))\b"),
+    re.compile(r"\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b"),        # CamelCase
+    re.compile(r"\b([A-Z]{3,}(?:-[A-Z0-9]+)?)\b"),          # ALLCAPS, CWE-79
+]
+
+
+def marken(text):
+    """-> Menge normalisierter Marken.
+
+    ⛔ Inline-Code wird per SPLIT geholt, nicht per Regex-Paarung. Die alte
+       Fassung (`` `([^`\n]{3,60})` ``) paarte gierig ueber Spans hinweg: aus
+       **Das `-i` ist meist nötig**: `gnome-session` wurde die Marke
+       `ist meist nötig**:` — das schliessende Backtick des einen Spans mit dem
+       oeffnenden des naechsten. Gefangene Prosa, keine Marke.
+    ⭐ Aufgefallen ist das NICHT an der Positivkontrolle (die war gruen), sondern
+       daran, dass die NEGATIVKONTROLLE ebenfalls rot blieb. Ein Instrument, das
+       aus dem falschen Grund recht hat, sieht wie ein richtiges aus.
+    ⚠ Codebloecke vorher raus: ``` zaehlt sonst als drei Backticks und verschiebt
+      die Paarung aller folgenden Spans um eins.
+    """
+    aus = set()
+    ohne_fence = _FENCE.sub(" ", text)
+    stuecke = ohne_fence.split("`")
+    for i in range(1, len(stuecke), 2):          # nur die INNEREN Stuecke
+        w = stuecke[i].strip().lower()
+        if 3 <= len(w) <= 60 and "\n" not in w:
+            aus.add(w)
+    for rx in _MARKER:
+        for m in rx.finditer(text):
+            w = m.group(1).strip().lower()
+            if len(w) >= 3:
+                aus.add(w)
+    return aus
+
+
+def unbelegt(alt, kurz, skill, eigenname=""):
+    """Marken der ALTEN Regel, die weder in Kurz noch im Skill vorkommen.
+
+    ⚠ Gemessen wird ERWAEHNUNG, nicht Bedeutungstreue — dieselbe Grenze wie bei
+      coverage_gate.py. Das Gate schliesst AUSLASSUNG aus, nicht VERFAELSCHUNG.
+
+    ⛔ TEILWORT-TREFFER ZAEHLEN. Gemessen am echten Fall vom 28.08.2026: von drei
+       gemeldeten Marken war EINE echt. `passwortfrei` galt als verloren, obwohl
+       im Skill `passwortfreien` steht — deutsche Beugung, kein Verlust. Ein Gate,
+       dessen Meldungen zu zwei Dritteln Rauschen sind, wird nicht gelesen.
+
+    ⚠ Der Preis ist bekannt und gewollt: ein Teilwort-Treffer kann einen echten
+      Verlust verdecken. Die Richtung ist Absicht — ein uebersehener Verlust
+      kostet eine Zeile, ein Dauer-Fehlalarm kostet das ganze Gate. Die
+      Gegenkontrolle dazu steht im Selbsttest (Fall "Gate 5").
+
+    ⛔ Der EIGENNAME wird ausgenommen. Die alte Rule nennt sich selbst, der Skill
+       tut das nicht — das ist kein Inhalt, der verlorenging.
+    """
+    heu = (kurz + "\n" + skill).lower()
+    en = (eigenname or "").lower()
+    aus = []
+    for m in marken(alt):
+        if en and (m in en or en in m):
+            continue
+        if m not in heu:
+            aus.append(m)
+    return sorted(aus)
+
+
 def pruefe(alt_p, kurz_p, skill_p):
     alt, kurz, skill = _lies(alt_p), _lies(kurz_p), _lies(skill_p)
     fehlt = [n for n, t in (("alt", alt), ("kurz", kurz), ("skill", skill)) if t is None]
@@ -234,6 +309,38 @@ def pruefe(alt_p, kurz_p, skill_p):
                   else "Kurz-Rule nennt den ZIELPFAD NICHT — faellt auf die "
                        "Skill-Auswahl zurueck (20-84 %)"))
 
+    # ⭐ v5.24.0: der COMMAND zusaetzlich — als HINWEIS, nie als Ersatz.
+    #    Skills sind als Slash-Command aufrufbar, und das ist der bequeme Weg.
+    #    ⛔ Er ersetzt den Pfad NICHT: die Messung im Kopf dieser Datei sagt
+    #       Pfad 4 von 4 gegen Skill-Auswahl 20-84 %. Wer den Pfad spaeter
+    #       "weil der Command ja dasteht" entfernt, macht den Umzug wieder
+    #       unzuverlaessig — deshalb bleibt PFAD ein Gate und COMMAND ein Hinweis.
+    _cmd = "/" + name
+    gates.append(("HINWEIS COMMAND", _cmd in kurz,
+                  "Kurz-Rule nennt `%s`" % _cmd if _cmd in kurz
+                  else "Kurz-Rule nennt den Command `%s` nicht — nur den Pfad. "
+                       "Kein Bruch: der Pfad traegt (4/4)." % _cmd))
+
+    # --- 5 INHALT (NEU v5.24.0) -------------------------------------------
+    # ⛔ Gate 1 zaehlt ZEILEN und haelt deshalb auch dann, wenn eine Aussage
+    #    ersatzlos verschwindet: beim Kuerzen von workstation-fernzugriff
+    #    (63 -> 36 Zeilen) war der Skill 705 Zeilen lang, 36 + 705 >= 63 ging
+    #    muehelos durch — und der Punkt "das `-i` ist meist noetig" stand NUR in
+    #    der alten Rule. Gefunden hat ihn erst ein von Hand danebengelegtes
+    #    coverage_gate.py. Gate 5 macht diese Handarbeit zum Gate.
+    #
+    # ⚠ Es schliesst AUSLASSUNG aus, nicht VERTAUSCHUNG. Eine Marke, die vom
+    #   richtigen an den falschen Ort wandert, ist fuer beide Gates unsichtbar —
+    #   deshalb bleibt die menschliche Bestaetigung Pflicht.
+    fehlend = unbelegt(alt, kurz, skill, name)
+    if fehlend:
+        gates.append(("INHALT", False,
+                      "%d Marke(n) der alten Regel weder in Kurz noch im Command: %s"
+                      % (len(fehlend), ", ".join(fehlend[:6]))))
+    else:
+        gates.append(("INHALT", True,
+                      "jede Marke der alten Regel ist in Kurz oder Command wiederzufinden"))
+
     # --- 4 BESCHREIBUNG ---------------------------------------------------
     if desc is None:
         gates.append(("BESCHREIBUNG", False, "Skill hat KEINE description"))
@@ -264,9 +371,20 @@ def _bericht(gates):
     print("=" * 78)
     print("  Umzugs-Gates")
     print("=" * 78)
+    # ⛔ Hinweise stehen GETRENNT von Befunden. Ein Punktabzug auf Verdacht ist
+    #    derselbe Fehler wie ein autonom geloeschter "toter" Pfad — die Regel
+    #    steht so schon in mind-claudemd Step 4c ("Befunde und Hinweise nie in
+    #    einer Liste mischen").
     for n, ok, txt in gates:
-        print("  %-4s %-16s %s" % ("OK" if ok else "BRUCH", n, txt))
-    gebrochen = [n for n, ok, _ in gates if not ok]
+        if n.startswith("HINWEIS"):
+            continue
+        print("  %-5s %-16s %s" % ("OK" if ok else "BRUCH", n, txt))
+    _hin = [(n, ok, t) for n, ok, t in gates if n.startswith("HINWEIS") and not ok]
+    if _hin:
+        print()
+        for n, _, txt in _hin:
+            print("  %-5s %-16s %s" % ("~", n.replace("HINWEIS ", ""), txt))
+    gebrochen = [n for n, ok, _ in gates if not ok and not n.startswith("HINWEIS")]
     print()
     if gebrochen:
         print("  ⛔ NICHT UMZIEHEN. Gebrochen: %s" % ", ".join(gebrochen))
