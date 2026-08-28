@@ -60,11 +60,54 @@ fi
 **DESIGN-Befunde werden NIE automatisch angewendet** (Stellen, die eine Regel als
 "niemals anfassen" markiert) — nur gelistet.
 
-## Step 1: Scope bestimmen
+## Step 1: Scope bestimmen — PFLICHT als VARIABLEN, nicht als Prosa (v5.23.0)
 
-Check `$ARGUMENTS`:
-- `global` → Bearbeite `~/.claude/CLAUDE.md` (globale Datei)
-- Kein Argument → Bearbeite Projekt-CLAUDE.md (`./CLAUDE.md` oder `./.claude/CLAUDE.md`)
+⛔ **Hier standen bis v5.22.1 zwei Zeilen Fliesstext.** Sie erzeugten nichts, was ein
+spaeterer Schritt benutzen konnte — und deshalb fiel der Fix-Teil bei `global` lautlos
+auf das Projekt zurueck: Step 5a sicherte `$PROJECT_DIR/CLAUDE.md` und meldete
+`Backup OK`, waehrend das Ziel `~/.claude/CLAUDE.md` war. **Ein falscher Beleg ist
+schlimmer als gar keiner.** Gemeldet vom Nutzer am 28.08.2026.
+
+```bash
+ARGS="${ARGUMENTS:-}"
+PROJ="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+
+if echo "$ARGS" | grep -qE '(^|[[:space:]])global([[:space:]]|$)'; then
+  BEREICH="global"
+  ZIEL_MD="$HOME/.claude/CLAUDE.md"
+  ZIEL_RULES="$HOME/.claude/rules"
+  ZEIGER="~/.claude/rules"
+else
+  BEREICH="projekt"
+  ZIEL_MD="$PROJ/CLAUDE.md"
+  [ -f "$ZIEL_MD" ] || ZIEL_MD="$PROJ/.claude/CLAUDE.md"
+  ZIEL_RULES="$PROJ/.claude/rules"
+  ZEIGER=".claude/rules"
+fi
+echo "Bereich: $BEREICH  ·  Ziel: $ZIEL_MD  ·  Rules: $ZIEL_RULES"
+```
+
+⛔ **Die drei Variablen sind ab hier VERBINDLICH.** Jeder Schritt, der die Zieldatei
+anfasst — Backup (5a), Edits (5b), Modularize (4e) — benutzt `$ZIEL_MD` und `$ZIEL_RULES`.
+**Nie wieder ein blankes `CLAUDE.md`.**
+
+### ⛔ Ein `global`-Lauf DARF aufraeumen — und was ihn wirklich begrenzt
+
+Am 28.08.2026 hat ein Lauf die Auslagerung mit einer **erfundenen** Projektregel
+abgelehnt (*„NEVER die globalen Regeln aus diesem Ordner heraus aendern"*). Die gibt es
+nicht; sie war eine Paraphrase von **`NEVER in einem FREMDEN Projektordner editieren`** —
+und `~/.claude/` ist **kein fremder Projektordner**, sondern das Ziel dieses Aufrufs.
+Deshalb hier ausdruecklich, was gilt:
+
+| | |
+|---|---|
+| **erlaubt** | `~/.claude/CLAUDE.md` bearbeiten · neue Rules unter `~/.claude/rules/` anlegen · Zeiger dorthin setzen |
+| **begrenzt durch** | die vier Modularize-Gates (Step 4e) und **nur** durch die |
+| ⛔ **verboten bleibt** | ein **fremder Projektordner** — das ist etwas anderes als `~/.claude/` |
+
+⚠ **Das Netz steht:** `mind_snapshot` nimmt bei Label `pre-claudemd` die globalen Dateien
+mit (`hooks/lib.sh` — nur `pre-memory`/`pre-files` lassen sie weg). Ein `global`-Lauf ist
+also gesichert. **Wer trotzdem zoegert, nennt einen PRUEFBAREN Grund oder handelt.**
 
 ## Step 2: CLAUDE.md suchen
 
@@ -421,7 +464,7 @@ bleibt als Befund stehen.
 |---|---|---|
 | **1 · Erhaltung** | Inhaltszeilen(CLAUDE.md neu) + Inhaltszeilen(neue Rule-Dateien, ohne Frontmatter) **>=** Inhaltszeilen(CLAUDE.md alt) | Modularize **verschiebt**, es kuerzt nicht. Verschwindet auch nur eine Zeile, ist es kein Modularize mehr, sondern ein Loeschen — und das hat einen eigenen Fix-Typ mit eigenem Bericht |
 | **2 · Erreichbarkeit** | die neue Rule bekommt **kein `globs:`**, ausser der Inhalt ist echt dateibezogen | ⛔ CLAUDE.md laedt **immer**. Eine glob-gesteuerte Rule ist im schlechtesten Fall situativ — dann waere Auslagern ein stilles Unsichtbarmachen genau des Wissens, das oben stand |
-| **3 · Zeiger** | in CLAUDE.md bleibt eine Zeile `Details: .claude/rules/<name>.md` zurueck | Ohne Zeiger weiss niemand, dass es die Datei gibt. Dieselbe Kern-Invariante wie "kein Tool ohne Companion-Rule" |
+| **3 · Zeiger** | in `$ZIEL_MD` bleibt eine Zeile `Details: $ZEIGER/<name>.md` zurueck — **bei `global` also `~/.claude/rules/`**, nicht `.claude/rules/` | Ohne Zeiger weiss niemand, dass es die Datei gibt. Dieselbe Kern-Invariante wie "kein Tool ohne Companion-Rule" |
 | **4 · Menge** | hoechstens **3 Sektionen je Lauf** | Ein Lauf, der eine 426-Zeilen-Datei auf einmal in acht Teile zerlegt, ist im Bericht nicht mehr nachpruefbar. Drei sind es, und der naechste Lauf macht weiter |
 
 ⚠ **Ehrlich zur Wirkung: Modularize spart KEINEN Kontext.** Gemessen an CC 2.1.237
@@ -446,11 +489,21 @@ die Messung spaeter als versionsabhaengig erweist.
 # Sonst landet relativer Pfad im aktuellen CWD (z.B. Mind-Manager-Workspace
 # statt Ziel-Projekt — Bug aus Session 2026-05-29 Log 1 Tool 15).
 # N2-Fix: $CLAUDE_PROJECT_DIR (Claude Code env var) bevorzugt, Fallback $(pwd)
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-cd "$PROJECT_DIR" && \
-  mkdir -p .claude-mind/backups && \
-  cp CLAUDE.md ".claude-mind/backups/CLAUDE.md.$(date +%Y%m%d_%H%M%S).bak" && \
-  echo "Backup OK: $(ls -t .claude-mind/backups/CLAUDE.md.*.bak | head -1)"
+# ⛔ v5.23.0: gesichert wird $ZIEL_MD aus Step 1 — NICHT ein blankes CLAUDE.md.
+#    Bis v5.22.1 stand hier `cd "$PROJECT_DIR" && cp CLAUDE.md ...`. Bei einem
+#    `global`-Lauf sicherte das die PROJEKT-Datei und meldete trotzdem "Backup OK",
+#    waehrend gleich darauf `~/.claude/CLAUDE.md` editiert worden waere.
+#    Ein falscher Beleg ist schlimmer als gar keiner.
+# ⛔ Die Quittung NENNT die gesicherte Datei. Ohne den Namen ist ein Backup der
+#    falschen Datei von einem richtigen nicht zu unterscheiden — genau der Fehler,
+#    der v5.2.2 bei mind_check_tools_have_rules aufgefallen ist.
+[ -n "$ZIEL_MD" ] || { echo "ABBRUCH: Step 1 nicht gelaufen, \$ZIEL_MD leer" >&2; exit 1; }
+[ -f "$ZIEL_MD" ] || { echo "ABBRUCH: Zieldatei fehlt: $ZIEL_MD" >&2; exit 1; }
+BDIR="$PROJ/.claude-mind/backups"
+mkdir -p "$BDIR" && \
+  cp "$ZIEL_MD" "$BDIR/CLAUDE.md.$BEREICH.$(date +%Y%m%d_%H%M%S).bak" && \
+  echo "Backup OK: $(ls -t "$BDIR"/CLAUDE.md.$BEREICH.*.bak | head -1)" && \
+  echo "  gesichert wurde: $ZIEL_MD  (Bereich $BEREICH)"
 ```
 
 **Pre-Edit Read (praezisiert v3.2.2):**
@@ -520,7 +573,7 @@ Für jeden bestätigten Fix:
 | Fix-Typ | Tool | Aktion |
 |---|---|---|
 | Version updaten | Edit | `old_string: "2.3.0"` → `new_string: "2.6.0"` |
-| Modularize | Write + Edit | Write neue Rule-Datei (**ohne `globs:`**), Edit CLAUDE.md: Sektion durch **Zeiger** ersetzen. ⛔ **Die vier Gates aus Step 4e sind Pflicht** — ohne sie nicht anwenden, sondern listen |
+| Modularize | Write + Edit | Write neue Rule-Datei nach **`$ZIEL_RULES/`** (**ohne `globs:`**), Edit **`$ZIEL_MD`**: Sektion durch **Zeiger** ersetzen. ⛔ Beide Variablen kommen aus Step 1 — bei `global` ist das `~/.claude/rules/` bzw. `~/.claude/CLAUDE.md`. ⛔ **Die vier Gates aus Step 4e sind Pflicht** — ohne sie nicht anwenden, sondern listen |
 | Shorten | Edit | `old_string: verbose Zeile` → `new_string: kompakte Zeile` |
 | Deduplicate | Edit | Duplikat-Zeile aus CLAUDE.md entfernen. ⛔ **Erst das Urteilsbuch fragen** — Step 4f |
 | Dead path (`DEAD`) | Edit | Pfad-Zeile entfernen oder aktualisieren. ⛔ **>5 auf einmal bleibt gesperrt** (Massenlösch-Sicherung) |
