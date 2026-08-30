@@ -27,7 +27,9 @@ cleaner_grenzen
 cleaner_leitplanke
 cleaner_ratsche
 cleaner_rebuild
+cleaner_tor
 cleaner_umzug
+cleaner_wirkung
 ladeprotokoll_auswertung
 mind_debug_write
 mind_snapshot
@@ -381,6 +383,45 @@ nicht versteckt. Rückgabe **2 heißt NICHT MESSBAR** — kein bestandenes Gate.
 
 ⛔ **Schritt 3 kann der Befehl NICHT selbst** — er braucht eine frische Sitzung. Bis das
 Protokoll es belegt, heißt der Lauf **„verschoben, Wirkung unbestätigt"**.
+
+### ⭐ Step 7a: Das Wirkungs-Gate — hat die Korrektur die Kennzahl bewegt?
+
+**Nutzer-Befund 30.08.2026, wörtlich:** *„`cleaner_duplikate.py` hat mir 447
+Duplikate gemeldet … Ich habe die Zahl gelesen und trotzdem nur umgeräumt. **Ein
+Duplikat, das umzieht, ist immer noch ein Duplikat** — jetzt nur in zwei
+Dateien, die beide immer laden."*
+
+⛔ **Modularize ist NICHT Deduplizieren.** Modularize **verschiebt** — die Summe
+bleibt gleich, und der Skill sagt das selbst (*„Modularize spart KEINEN
+Kontext"*). Deduplizieren macht eine Stelle zum **Zeiger**; erst dann fällt die
+Summe. Beides sieht im Bericht gleich erfolgreich aus.
+
+```bash
+W="$CLAUDE_PLUGIN_ROOT/references/cleaner_wirkung.py"
+python "$W" --vorher  "$PROJ"                       # VOR dem Anwenden
+# … anwenden …
+python "$W" --nachher "$PROJ" --erwartet duplikate,zeilen
+```
+
+⭐ **Der Fingerabdruck eines verschobenen statt behobenen Duplikats:**
+`wurzelzeilen` fällt, **`zeilen` bleibt stehen**. Genau diese Schere meldet das
+Gate mit Rückgabe 1.
+
+⛔ **PFLICHT nach jedem `--umzug` und jedem `--rebuild --anwenden`.** Ein
+Werkzeug ohne Aufrufer ist ein totes Werkzeug — dieselbe Kern-Invariante wie
+„kein Tool ohne Companion-Rule", eine Ebene höher.
+
+⚠ **Es misst die KENNZAHL, nicht die GÜTE.** Ein Umbau, der die Zahl senkt und
+den Inhalt verstümmelt, kommt hier grün durch. Dafür sind die Gates aus Step 5.
+
+### ⛔ Step 7c: Das Kontext-Tor rückwärts — über den GANZEN Bestand
+
+`--audit` fährt es seit v5.26.0 als **Gruppe 6** mit; die Vorschrift steht in
+[references/kontext-tor.md](../../references/kontext-tor.md). Die fünf
+Context-Commands fragen **vor** dem `ADD`, `--audit` fragt über den **Bestand**.
+
+⛔ **Nur vorwärts ließe den Altbestand stehen; nur rückwärts ist der Zustand von
+heute, der nachweislich wächst.** Beide Richtungen oder keine.
 
 ### ⭐ Step 7b: Die Ratsche — damit aufgeräumt auch aufgeräumt BLEIBT (NEU v5.17.0)
 

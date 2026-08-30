@@ -45,7 +45,8 @@ import cleaner_einordnung as ein                                 # noqa: E402
 import cleaner_belege as bel                                     # noqa: E402
 import cleaner_aussagen as aus                                   # noqa: E402
 import cleaner_grenzen as gre                                    # noqa: E402
-import cleaner_urteile as urt                                    # noqa: E402
+import cleaner_urteile as urt                                 # noqa: E402
+import cleaner_tor as tor
 # L6 (v5.21.0): die Referenz-Existenzpruefung. ⛔ NICHT nachbauen — diese Kette
 # traegt die Narben von DREI gescheiterten Nachbauten (20.08.2026: 11
 # Slash-Commands als tote Pfade · 21.08.: 9 gemeldet, echte 0 · ein dritter
@@ -83,7 +84,8 @@ def lauf(projekt, nur="alles"):
         return 2
 
     idx = bel.debug_pfad(projekt)
-    gruppen = {"5a": [], "5b": [], "1": [], "2": [], "3": [], "4": []}
+    gruppen = {"5a": [], "5b": [], "1": [], "2": [], "3": [], "4": [],
+               "6": []}
     grenzfaelle, blind = [], []
 
     for p in ds:
@@ -103,6 +105,20 @@ def lauf(projekt, nur="alles"):
                                      "vorhandenen Instrumentarium NICHT loggbar"))
         else:
             gruppen["5a"].append((p, grund))
+
+        # ⛔ KONTEXT-TOR (v5.26.0) — die RUECKWAERTS-Richtung.
+        #    Die fuenf Commands fragen VOR dem ADD; hier wird der ganze
+        #    Bestand gefragt. Nur vorwaerts liesse den Altbestand stehen.
+        try:
+            _txt = open(p, encoding="utf-8", errors="replace").read()
+            _tr = tor.pruefe_text(_txt)
+        except OSError:
+            _tr = {}
+        for _k in ("A1", "A2", "A3", "C1"):
+            if _tr.get(_k):
+                gruppen["6"].append(
+                    (p, "%s x%d — %s" % (_k, len(_tr[_k]),
+                                         _tr[_k][0][1][:40])))
 
         # Falsch platziert?
         if vorschlag in ("HOOK-KANDIDAT", "SKILL") and e:
@@ -188,11 +204,18 @@ def lauf(projekt, nur="alles"):
     for nr, titel in (("1", "BELEGT NOETIG — bleibt, wo es ist"),
                       ("2", "FALSCH PLATZIERT — Ort A nach Ort B"),
                       ("3", "DOPPELT — eine Stelle wird Zeiger"),
-                      ("4", "BELEGT VERALTET — ins Archiv, mit Beleg")):
+                      ("4", "BELEGT VERALTET — ins Archiv, mit Beleg"),
+                      ("6", "KONTEXT-TOR — kostet Kontext ohne Gegenwert")):
         print()
         print("  %s · %s (%d)" % (nr, titel, len(gruppen[nr])))
         for a, b in gruppen[nr][:12]:
             print("       %-32s %s" % (os.path.basename(str(a))[:32], str(b)[:48]))
+
+    if gruppen["6"]:
+        print()
+        print("       ⚠ A1 (weiss das Modell es?) und C2 (befolgbar?) sind")
+        print("         URTEILE, keine Messungen — Kandidaten, kein Befund.")
+        print("         Vorschrift: references/kontext-tor.md")
 
     if grenzfaelle:
         print()

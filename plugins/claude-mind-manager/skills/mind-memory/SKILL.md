@@ -23,6 +23,7 @@ allowed-tools: Read Glob Grep Edit Write Bash Agent
 ```
 PFLICHTSCHRITTE
 cleaner_stichprobe
+cleaner_tor
 mind_debug_write
 mind_kontext_bilanz
 mind_scan_poisoning
@@ -613,6 +614,83 @@ For each confirmed fix:
 | **Topic-Datei aufteilen** (NEU v5.10.0) | Read + Write + Edit | Nur ab 200 Zeilen / 20 KB **und** nur bei zwei unterscheidbaren Themen. Gates aus 4.0c + Abschnitt 9 |
 | Compress verbose | Edit | Replace multi-sentence with concise bullet |
 | **Frontmatter ergaenzen** (NEU v5.11.0) | Read + Edit | Datei ganz ohne Frontmatter bekommt einen Kopf: `name` aus dem Dateinamen (ohne `.md`), `description` aus dem INHALT, `metadata.type` nach der Tabelle unten. **Der Rumpf bleibt byte-gleich** — es wird nur vorangestellt |
+
+## Step 6d: ⛔ Das Kontext-Tor — PFLICHT vor jedem `ADD` (NEU v5.26.0)
+
+**Nutzer-Auftrag 30.08.2026:** *„überall es wird immer mehr, es darf nicht sein
+— führe was ein wo der Context durch läuft: ist es irgendwo schon, ist es
+selbsterklärend, ist es im Code schon erklärt. … in den Context-Dateien soll
+kein unwichtiger Müll stehen, er ist begrenzt, wertvoll und kostet Geld."*
+
+Bis v5.25.0 arbeitete dieser Command nur **rückwärts** — er prüfte, was schon da
+ist. **Es gab kein Tor beim Hineinschreiben.** Deshalb wächst alles.
+
+**Die vollständige Vorschrift steht in
+[references/kontext-tor.md](../../references/kontext-tor.md)** — die neun
+Fragen, beide Richtungen, die Quittung, die Grenzen. **Lies sie**, bevor du
+diesen Schritt ausführst. Hier steht nur, was für **diesen** Command gilt:
+
+| | |
+|---|---|
+| **Bereich** | "$MEM_DIR/MEMORY.md" |
+| **vorwärts** | vor JEDEM `ADD`/`NEW_FILE` dieses Laufs |
+| **rückwärts** | über die Zieldatei, einmal je Lauf |
+
+```bash
+[ -n "$CLAUDE_PLUGIN_ROOT" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
+TOR="$CLAUDE_PLUGIN_ROOT/references/cleaner_tor.py"
+
+# 1) VORWAERTS — vor jeder einzelnen Ergaenzung
+python "$TOR" --text "<die geplante Zeile>"
+
+# 2) RUECKWAERTS — ueber die Zieldatei dieses Laufs
+python "$TOR" --datei "$MEM_DIR/MEMORY.md"
+```
+
+⛔ **Die Quittung MUSS in den Self-Check-Block des Berichts**, eine Zeile je
+`ADD`. Fehlt sie, ist der Lauf ein **Teilsync** — dieselbe Kopplung wie
+Bestands-Pass (v5.22.0) und Schritt-Quittung (v5.25.0).
+
+```
+tor=<datei>:A1/A2/A3:B1/B2/B3:C1/C2
+```
+
+⛔ **B1/B2/B3 beantwortet `cleaner_tor` NICHT — es nennt sie.** Dafür gibt es
+`cleaner_duplikate`, `cleaner_aussagen --code` und `cleaner_grenzen`. Die Klasse
+`instrument-nachgebaut` steht mit 7 Vorkommen im Debug-Ordner, und **kein
+einziger Nachbau war besser als das Original** (`werkzeuge-zuerst.md`).
+
+⚠ **A1 und C2 bleiben Urteile.** Das Tor erzwingt eine **Antwort**, nicht die
+richtige — wie die Agent-Quittung (v5.19.0), die keinen Agenten zur Arbeit
+zwingt, sondern sein Fehlen sichtbar macht.
+
+
+### ⛔ Der Memory-Deckel — „keine Ausnahmen"
+
+**Nutzer-Auftrag 30.08.2026:** *„keine Memory-Dateien so viele, dass diese nicht
+mehr geladen werden, keine Ausnahmen."*
+
+```bash
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_tor.py" --memory "$MEM_DIR"
+```
+
+⛔ **„Wird nicht mehr geladen" ist NICHT messbar — gemessen 30.08.2026.**
+139 Topic-Dateien über 14 Projekte, **0** auffindbare Abrufe — aber die
+**Positivkontrolle fällt durch** (`claudeMd`, `auto-memory` ebenfalls 0). Der
+eingespielte Kontext steht gar nicht im Transkript. Ein Deckel auf beobachteten
+Ladungen wäre ein Instrument, das nichts misst.
+
+Er stützt sich auf die **belegte** Grenze (wörtlich in `claude.exe` 2.1.237):
+*„… (up to 5) … based on their name and description."*
+**bis 15 grün · 16–25 gelb · über 25 ROT** — ⛔ dann ein `ADD` nur noch gegen
+Zusammenführung. ⛔ **Die Zahlen sind GESETZT, nicht gemessen**, deshalb Regler.
+
+⭐ **Der wirksamere Hebel ist die `description`, nicht die Zahl** — sie ist der
+einzige Zugang des Auswählers, er sieht nie den Inhalt.
+
+⛔ **Vor einer Zusammenführung sichern**, danach `Learnings/memory_gates.py` —
+Zusammenführen **löscht eine Datei**.
+
 
 ## Step 6c: ⛔ Der Bestands-Pass — PFLICHT, auch bei leerem Befund (NEU v5.22.0)
 

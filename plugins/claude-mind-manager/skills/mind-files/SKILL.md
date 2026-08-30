@@ -22,6 +22,7 @@ allowed-tools: Read Glob Grep Write Bash Agent
 ```
 PFLICHTSCHRITTE
 cleaner_stichprobe
+cleaner_tor
 mind_check_tools_have_rules
 mind_hook_health
 mind_kontext_bilanz
@@ -705,6 +706,56 @@ python tools/zaehl_gate.py .claude/rules/<datei-mit-der-tabelle>.md
 ⚠ **Findet das Gate keine Zeilen, meldet es Rueckgabewert 2 — kein Ergebnis, statt eines
 zu erfinden.** Das ist der Normalfall bei einem Projekt, das die Tabelle erst noch anlegen
 muss; dann gehoert in den Bericht, **welche** Zahlen dafuer in Frage kaemen.
+
+## Step 5d: ⛔ Das Kontext-Tor — PFLICHT vor jedem `ADD` (NEU v5.26.0)
+
+**Nutzer-Auftrag 30.08.2026:** *„überall es wird immer mehr, es darf nicht sein
+— führe was ein wo der Context durch läuft: ist es irgendwo schon, ist es
+selbsterklärend, ist es im Code schon erklärt. … in den Context-Dateien soll
+kein unwichtiger Müll stehen, er ist begrenzt, wertvoll und kostet Geld."*
+
+Bis v5.25.0 arbeitete dieser Command nur **rückwärts** — er prüfte, was schon da
+ist. **Es gab kein Tor beim Hineinschreiben.** Deshalb wächst alles.
+
+**Die vollständige Vorschrift steht in
+[references/kontext-tor.md](../../references/kontext-tor.md)** — die neun
+Fragen, beide Richtungen, die Quittung, die Grenzen. **Lies sie**, bevor du
+diesen Schritt ausführst. Hier steht nur, was für **diesen** Command gilt:
+
+| | |
+|---|---|
+| **Bereich** | "$PROJ/CLAUDE.md" |
+| **vorwärts** | vor JEDEM `ADD`/`NEW_FILE` dieses Laufs |
+| **rückwärts** | über die Zieldatei, einmal je Lauf |
+
+```bash
+[ -n "$CLAUDE_PLUGIN_ROOT" ] || { echo "ERROR: CLAUDE_PLUGIN_ROOT fehlt" >&2; exit 1; }
+TOR="$CLAUDE_PLUGIN_ROOT/references/cleaner_tor.py"
+
+# 1) VORWAERTS — vor jeder einzelnen Ergaenzung
+python "$TOR" --text "<die geplante Zeile>"
+
+# 2) RUECKWAERTS — ueber die Zieldatei dieses Laufs
+python "$TOR" --datei "$PROJ/CLAUDE.md"
+```
+
+⛔ **Die Quittung MUSS in den Self-Check-Block des Berichts**, eine Zeile je
+`ADD`. Fehlt sie, ist der Lauf ein **Teilsync** — dieselbe Kopplung wie
+Bestands-Pass (v5.22.0) und Schritt-Quittung (v5.25.0).
+
+```
+tor=<datei>:A1/A2/A3:B1/B2/B3:C1/C2
+```
+
+⛔ **B1/B2/B3 beantwortet `cleaner_tor` NICHT — es nennt sie.** Dafür gibt es
+`cleaner_duplikate`, `cleaner_aussagen --code` und `cleaner_grenzen`. Die Klasse
+`instrument-nachgebaut` steht mit 7 Vorkommen im Debug-Ordner, und **kein
+einziger Nachbau war besser als das Original** (`werkzeuge-zuerst.md`).
+
+⚠ **A1 und C2 bleiben Urteile.** Das Tor erzwingt eine **Antwort**, nicht die
+richtige — wie die Agent-Quittung (v5.19.0), die keinen Agenten zur Arbeit
+zwingt, sondern sein Fehlen sichtbar macht.
+
 
 ## Step 5f: ⛔ Der Bestands-Pass — PFLICHT, auch bei leerem Befund (NEU v5.22.0)
 

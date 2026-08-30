@@ -44,7 +44,16 @@ import shutil
 import sys
 import tempfile
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+# ⛔ IDEMPOTENT — nicht bedingungslos. Huellt ein aufrufendes
+#    Skript stdout schon ein und importiert dann dieses Modul, haengen
+#    sonst ZWEI Wrapper am selben Puffer; wird einer eingesammelt,
+#    schliesst er den Puffer des anderen und jedes weitere print()
+#    bricht mit "I/O operation on closed file" — und zwar NACH der
+#    letzten erfolgreichen Ausgabe, also an der falschen Stelle.
+#    Zweimal gemessen am 30.08.2026 beim Bau von cleaner_tor.py.
+_ENC = (getattr(sys.stdout, "encoding", "") or "").lower().replace("-", "")
+if _ENC != "utf8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 # ── Die drei Formklassen ─────────────────────────────────────────────────────
 # ⛔ Bewusst ENG. Ein breiter Filter faengt die Bremsen mit, und dann wird die
