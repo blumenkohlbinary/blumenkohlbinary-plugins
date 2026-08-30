@@ -36,7 +36,17 @@ w() { if [ "$W" = cygpath ]; then cygpath -w "$1"; else echo "$1"; fi; }
 
 echo "== 1/5  cleaner_leitplanke: Selbsttest + Verdrahtung =="
 janein "Selbsttest gruen" "0" "$(python "$(w "$LP")" --selbsttest >/dev/null 2>&1; echo $?)"
-janein "mind-cleaner ruft cleaner_leitplanke" "1" "$(grep -c 'cleaner_leitplanke.py' "$SK")"
+# ⛔ DIE AUFRUFFORM, nicht die ERWAEHNUNG. Bis v5.24.0 zaehlte dieser Fall
+#    Vorkommen von `cleaner_leitplanke.py` und erwartete genau 1. Mit v5.25.0 nennt
+#    der PFLICHTSCHRITTE-Block das Werkzeug ein zweites Mal — in PROSA, nicht als
+#    Aufruf — und der Fall wurde rot, ohne dass etwas kaputt war.
+#    ⚠ Die Zahl war nie die Aussage: gemeint ist "der Skill RUFT es auf".
+#    Genau diese Verwechslung hat v5.2.2 bei mind_check_tools_have_rules gekostet
+#    (eine blosse Aufzaehlung in architecture.md liess die Pruefung PASS melden).
+#    Seither gilt dort die Aufrufform — hier jetzt auch. Das macht den Fall
+#    STRENGER: eine Erwaehnung allein erfuellt ihn nicht mehr.
+janein "mind-cleaner RUFT cleaner_leitplanke auf" "1" \
+  "$(grep -c 'python "\$CLAUDE_PLUGIN_ROOT/references/cleaner_leitplanke.py"' "$SK")"
 # ⛔ ZEILEN, DIE DEN ALTSTAND ZITIEREN, ZAEHLEN NICHT MIT. Der neue Abschnitt
 #    benennt den alten Satz ausdruecklich ("Hier stand bis v5.23.1 …") — die erste
 #    Fassung dieses Falls fand genau diese Widerlegung und meldete ROT.

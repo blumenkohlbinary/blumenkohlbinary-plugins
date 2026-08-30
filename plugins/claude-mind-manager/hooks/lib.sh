@@ -1630,3 +1630,135 @@ mind_kontext_bilanz() {
   fi
   return 0
 }
+
+
+# --- Schritt-Quittung: fuehrt ein Lauf aus, was in seinem Skill steht? --------
+#
+# ⛔ WOZU. Gemessen 30.08.2026 am Paket v5.24.0: das Wort PFLICHT steht **67 mal**
+#    in den Skills und ist 67 mal Prosa. Eine Schritt-Quittung gab es in 2 von 10
+#    Skills; `mind-cleaner` mit 15 Pflichtaufrufen hatte keine einzige.
+#
+#    Der Anlass ist ein eigener `/mind-cleaner`-Lauf am selben Tag: vollstaendig
+#    aussehender Bericht, und dabei `cleaner_audit.py` nie aufgerufen,
+#    `cleaner_belege.py` gestartet und die Ausgabe weggegreppt,
+#    `cleaner_leitplanke.py` ueber 5 von 11 Dateien als Bereichspruefung berichtet.
+#    Der Bericht war nicht falsch — er war unvollstaendig, und das sah man ihm nicht an.
+#
+# ⭐ DAS VORBILD IST DIE AGENT-QUITTUNG (v5.19.0), die dasselbe Problem eine Ebene
+#    tiefer geloest hat. Von dort kommen die drei tragenden Entscheidungen:
+#
+#    1. Die ERWARTUNG wird VOR dem ersten Schritt gesetzt. Bis v5.18.0 lag die
+#       Agent-Quittung im Ausfallpfad: fiel der Schritt aus, fiel die Quittung mit
+#       aus — und **ihr Fehlen war von ihrem Schweigen nicht zu unterscheiden**.
+#       Wer am Ende zaehlt, zaehlt nur, was gelaufen ist.
+#    2. Erwartet wird eine LISTE VON NAMEN, keine Zahl. Nur so kann die Bilanz
+#       sagen, WELCHER Schritt fehlt — "3 von 5" schickt niemanden an die richtige
+#       Stelle.
+#    3. 0 Bytes ist ein ERGEBNIS, kein fehlender Eintrag. Der Unterschied zwischen
+#       "lief und lieferte nichts" und "lief nie" ist der ganze Zweck.
+#
+# ⛔ WAS SIE NICHT KANN. Sie erzwingt keinen Schritt — wie `decision:block` und die
+#    Agent-Quittung macht sie das FEHLEN sichtbar. Und sie misst nicht die GUETE:
+#    ein Werkzeug, das laeuft und Unsinn liefert, quittiert als `gelaufen`.
+#
+# Ablage: <projekt>/.claude-mind/schritt-quittung.jsonl
+
+_mind_schritt_pfad() {
+  local p="${1:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
+  echo "$p/.claude-mind/schritt-quittung.jsonl"
+}
+
+# VOR dem ersten Schritt. Namen der Pflichtschritte, durch Leerzeichen getrennt.
+# ⛔ Eine LEERE Liste ist gueltig und bedeutet ERWARTET=0 — nicht "keine Quittung".
+#    mind-compact und mind-session-log haben null Pflichtaufrufe; sie bekommen
+#    trotzdem einen Start-Eintrag. Ein Skill ohne Quittung waere von einem mit
+#    vergessener Quittung nicht zu unterscheiden.
+mind_schritt_start() {
+  local q; q=$(_mind_schritt_pfad "${1:-}")
+  local skill="${2:-unbekannt}"; shift 2 2>/dev/null || shift $#
+  mkdir -p "$(dirname "$q")" 2>/dev/null || return 1
+  : > "$q" || return 1
+  printf '{"ereignis":"start","skill":"%s","erwartet":"%s","ts":"%s"}\n' \
+    "$skill" "$*" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$q"
+}
+
+# NACH jedem Schritt. status = gelaufen | gelaufen:<a>/<b> | uebersprungen:<grund>
+#                              | fehler:<grund>
+# ⚠ `uebersprungen` ist ein GUELTIGER Status und braucht einen Grund. Ein Schritt,
+#   der legitim entfaellt (--dry-run, kein Git, kein Quellbaum), ist kein Fehler —
+#   aber sein Entfallen gehoert in den Bericht statt zu verschwinden.
+# ⭐ `gelaufen:5/11` ist die TEILABDECKUNG und der eigentliche Anlass dieses Baus:
+#   der Fehler war nicht ein fehlender Aufruf, sondern ein gelaufener, der weniger
+#   abdeckte als der Bericht behauptete.
+mind_schritt() {
+  local q; q=$(_mind_schritt_pfad "${4:-}")
+  local name="${1:-?}" status="${2:-gelaufen}" bytes="${3:-}"
+  case "$bytes" in ''|*[!0-9]*) bytes=-1 ;; esac
+  mkdir -p "$(dirname "$q")" 2>/dev/null
+  printf '{"ereignis":"schritt","name":"%s","status":"%s","bytes":%s,"ts":"%s"}\n' \
+    "$name" "$status" "$bytes" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$q"
+}
+
+# Bilanz fuer den Self-Check-Block.
+# Zeile 1 (maschinell): ERWARTET=n GELAUFEN=n UEBERSPRUNGEN=n FEHLER=n LEER=n
+# danach je Auffaelligkeit eine Zeile.
+#
+# Rueckgabe: 0 = jeder erwartete Schritt ist quittiert und keiner gescheitert
+#            1 = mindestens einer fehlt, scheiterte oder kam leer zurueck
+#            2 = GAR KEINE QUITTUNG — der Lauf hat nie begonnen zu quittieren
+mind_schritt_bilanz() {
+  local q; q=$(_mind_schritt_pfad "${1:-}")
+  local erwartet="" n_erw=0 gel=0 ueb=0 feh=0 leer=0
+  local zeile name status bytes fehlt="" teil="" ueberliste="" fehlliste="" leerliste=""
+
+  if [ ! -f "$q" ]; then
+    echo "ERWARTET=? GELAUFEN=0 UEBERSPRUNGEN=0 FEHLER=0 LEER=0"
+    echo "  ⛔ KEINE QUITTUNG — der Lauf hat nie begonnen zu quittieren."
+    echo "     Das ist NICHT 'nichts zu melden': mind_schritt_start fehlt."
+    return 2
+  fi
+
+  erwartet=$(grep -m1 '"ereignis":"start"' "$q" 2>/dev/null \
+             | sed 's/.*"erwartet":"\([^"]*\)".*/\1/')
+  # ⛔ Merkdatei statt Pipe: eine `while ... | read`-Schleife laeuft in einer
+  #    Subshell, und alle Zaehler waeren danach wieder 0. Derselbe Fehler steckt
+  #    schon zweimal in dieser Datei (mind_check_tools_have_rules, Step 0 von
+  #    mind-all) und ist beide Male teuer gewesen.
+  local mt="${TMPDIR:-/tmp}/.mind_schritt_$$"
+  grep '"ereignis":"schritt"' "$q" 2>/dev/null > "$mt"
+
+  while IFS= read -r zeile; do
+    [ -n "$zeile" ] || continue
+    name=$(echo "$zeile"   | sed 's/.*"name":"\([^"]*\)".*/\1/')
+    status=$(echo "$zeile" | sed 's/.*"status":"\([^"]*\)".*/\1/')
+    bytes=$(echo "$zeile"  | sed 's/.*"bytes":\(-\?[0-9]*\).*/\1/')
+    case "$status" in
+      uebersprungen*) ueb=$((ueb+1)); ueberliste="$ueberliste $name(${status#uebersprungen:})" ;;
+      fehler*)        feh=$((feh+1)); fehlliste="$fehlliste $name(${status#fehler:})" ;;
+      gelaufen:*)     gel=$((gel+1)); teil="$teil $name ${status#gelaufen:}" ;;
+      *)              gel=$((gel+1)) ;;
+    esac
+    # 0 Bytes ist ein ERGEBNIS. -1 heisst "nicht gemessen" und zaehlt nicht.
+    case "$status" in uebersprungen*) ;; *)
+      [ "$bytes" = "0" ] && { leer=$((leer+1)); leerliste="$leerliste $name"; } ;;
+    esac
+  done < "$mt"
+
+  # Welche erwarteten Namen wurden nie quittiert?
+  for name in $erwartet; do
+    n_erw=$((n_erw+1))
+    grep -q "\"name\":\"$name\"" "$mt" 2>/dev/null || fehlt="$fehlt $name"
+  done
+  rm -f "$mt"
+
+  echo "ERWARTET=$n_erw GELAUFEN=$gel UEBERSPRUNGEN=$ueb FEHLER=$feh LEER=$leer"
+  [ -n "$ueberliste" ] && echo "  UEBERSPRUNGEN:$ueberliste"
+  # ⭐ Teilabdeckung ist ein EIGENER Zustand, nicht "gelaufen". 5/11 ist eine
+  #    gueltige Antwort; sie als 11/11 zu berichten ist es nicht.
+  [ -n "$teil" ] && echo "  TEILABDECKUNG:$teil"
+  [ -n "$leerliste" ] && echo "  LEER (lief, gab nichts aus):$leerliste"
+  [ -n "$fehlliste" ] && echo "  FEHLER:$fehlliste"
+  [ -n "$fehlt" ] && echo "  ⛔ FEHLT:$fehlt"
+
+  [ -z "$fehlt" ] && [ "$feh" -eq 0 ] && [ "$leer" -eq 0 ]
+}

@@ -16,6 +16,62 @@ allowed-tools: Read Glob Grep Edit Write Bash
 
 # Rules Management
 
+## ⛔ PFLICHTSCHRITTE — dieser Skill fuehrt aus, was hier steht (NEU v5.25.0)
+
+```
+PFLICHTSCHRITTE
+bestandsaufnahme
+cleaner_duplikate
+cleaner_stichprobe
+ladeprotokoll_auswertung
+mind_kontext_bilanz
+mind_snapshot
+```
+
+**Vor dem ersten Schritt, ohne Ausnahme:**
+
+```bash
+mind_schritt_start "$PROJ" mind-rules bestandsaufnahme cleaner_duplikate cleaner_stichprobe ladeprotokoll_auswertung mind_kontext_bilanz mind_snapshot
+```
+
+**Nach JEDEM Schritt** — auch nach einem, der entfaellt:
+
+```bash
+mind_schritt <name> gelaufen              "$(wc -c < "$AUSGABE")" "$PROJ"
+mind_schritt <name> "gelaufen:5/11"       "$BYTES" "$PROJ"   # TEILABDECKUNG
+mind_schritt <name> "uebersprungen:<grund>" 0      "$PROJ"
+mind_schritt <name> "fehler:<grund>"      -1       "$PROJ"
+```
+
+⛔ **`uebersprungen` ist ein gueltiger Status und braucht einen GRUND.** Ein Schritt,
+der legitim entfaellt (`--dry-run`, kein Git, kein Quellbaum), ist kein Fehler — aber
+sein Entfallen gehoert in den Bericht statt zu verschwinden.
+
+⭐ **`gelaufen:5/11` ist die TEILABDECKUNG und der Anlass dieses Baus.** Am 30.08.2026
+lief `cleaner_leitplanke.py` ueber 5 von 11 Dateien und wurde als **Bereichspruefung**
+berichtet. Der Fehler war nicht ein fehlender Aufruf, sondern ein gelaufener, der
+weniger abdeckte als der Bericht behauptete. `5/11` ist eine gueltige Antwort;
+sie als `11/11` zu berichten ist es nicht.
+
+⛔ **Die Bytezahl ist Pflicht, wo ein Schritt etwas ausgeben MUSS.** Am selben Tag
+lief `cleaner_belege.py` und seine Ausgabe wurde weggegreppt — aus Sicht einer
+naiven Quittung waere das „gelaufen". `0` meldet die Bilanz als **LEER**; `-1`
+heisst „nicht gemessen" und zaehlt nicht.
+
+**Im Bericht, als erste Zeile des Self-Checks:**
+
+```bash
+mind_schritt_bilanz "$PROJ"
+```
+
+⛔ **Fehlt diese Zeile oder nennt sie `FEHLT`, ist der Bericht unvollstaendig** und
+darf zurueckgewiesen werden. Rueckgabe **2 heisst: gar keine Quittung** — der Lauf
+hat nie begonnen zu quittieren, und das ist NICHT „nichts zu melden".
+
+⚠ **Was die Quittung nicht kann:** sie erzwingt keinen Schritt, sie macht sein Fehlen
+sichtbar — wie `decision:block` und die Agent-Quittung. Und sie misst nicht die GUETE:
+ein Werkzeug, das laeuft und Unsinn liefert, quittiert als `gelaufen`.
+
 Manage, validate, create, and fix Claude Code rule files.
 
 ## Objective
