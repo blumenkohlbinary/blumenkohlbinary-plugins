@@ -91,7 +91,7 @@ pruefe "Ausgabe nennt autonom-arbeiten als Fehlurteil" \
        "$(printf '%s' "$AUS" | grep -c 'autonom-arbeiten')" "1"
 pruefe "Ausgabe nennt keine-annahmen als Fehlurteil" \
        "$(printf '%s' "$AUS" | grep -c 'keine-annahmen')" "1"
-pruefe "Ausgabe sagt: SKILL-Vorschlag nie ohne Bestaetigung" \
+pruefe "Ausgabe sagt: COMMAND-Vorschlag nie ohne Bestaetigung" \
        "$(printf '%s' "$AUS" | grep -c 'ohne menschliche Bestaetigung')" "1"
 # ⚠ grep MIT -i. Die Ausgabe schreibt "NICHT", die erste Fassung dieser Zeile
 #   suchte "nicht" -> 0 Treffer, obwohl der Satz dasteht. Dritter Fall derselben
@@ -110,8 +110,14 @@ printf -- '# N\n\nDer Ablauf hat drei Stufen.\n\nDie zweite liegt im Speicher.\n
 AUS=$(python "$EIN" --verzeichnis "$T/korpus" 2>&1)
 pruefe "erzwingend+konkret -> HOOK-KANDIDAT" \
        "$(printf '%s' "$AUS" | grep -c 'hart.md.*HOOK-KANDIDAT')" "1"
-pruefe "Nachschlagewerk -> SKILL" \
-       "$(printf '%s' "$AUS" | grep -c 'weich.md.*SKILL')" "1"
+# ⛔ v5.27.0: die Klasse heisst COMMAND, nicht mehr SKILL. Nutzer-Auftrag
+#    "ich will keine skill typen ... nur lokal global" — "Skill" und
+#    "Slash-Command" standen in der Einordnungstabelle als ZWEI Wege und sind
+#    dasselbe: etwas, das man mit /name tippt. Die Zusicherung bleibt gleich
+#    streng, nur der Name ist neu — dasselbe Vorgehen wie bei
+#    test_leitplanke.sh in v5.25.0.
+pruefe "Nachschlagewerk -> COMMAND" \
+       "$(printf '%s' "$AUS" | grep -c 'weich.md.*COMMAND')" "1"
 
 # Leeres Verzeichnis: KEIN Urteil, sondern eine Meldung.
 mkdir -p "$T/leer"

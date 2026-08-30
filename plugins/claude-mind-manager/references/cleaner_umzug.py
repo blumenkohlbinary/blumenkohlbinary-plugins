@@ -29,7 +29,7 @@ umziehen, listen.
     Volltext ueber den PFAD           4 von 4        eigene Sonden, je 1 Werkzeugaufruf
     Volltext ueber SKILL-AUSWAHL      20-84 %        Vercel-Evals, 200+ Tests Haiku 4.5
 
-Ein Zeiger auf einen Skill-NAMEN verlaesst sich auf die 20-%-Mechanik.
+Ein Zeiger auf einen Command-NAMEN verlaesst sich auf die 20-%-Mechanik.
 Ein Zeiger auf einen PFAD nicht. Der Unterschied ist der ganze Umzug.
 
 ⚠ Sonde D war die aussagekraeftige: sie nannte die Datei BEILAEUFIG
@@ -38,11 +38,11 @@ Ein Zeiger auf einen PFAD nicht. Der Unterschied ist der ganze Umzug.
 ## ⛔ WAS DIESE GATES NICHT KOENNEN
 
 Sie zaehlen Zeilen. Ob der richtige Satz in der Kurz-Rule geblieben ist und der
-richtige in den Skill gewandert, koennen sie NICHT sehen. Ein Umzug, der die
-Leitplanke in den Skill schiebt und die Erklaerung in der Rule laesst, besteht
+richtige in den Command gewandert, koennen sie NICHT sehen. Ein Umzug, der die
+Leitplanke in den Command schiebt und die Erklaerung in der Rule laesst, besteht
 alle vier Gates.
 
-**Das ist der Grund, warum ein SKILL-Vorschlag nie ohne menschliche Bestaetigung
+**Das ist der Grund, warum ein COMMAND-Vorschlag nie ohne menschliche Bestaetigung
 angewendet wird.** Die Gates schliessen VERLUST aus, nicht VERTAUSCHUNG.
 
 Aufruf:
@@ -230,7 +230,7 @@ def unbelegt(alt, kurz, skill, eigenname=""):
       kostet eine Zeile, ein Dauer-Fehlalarm kostet das ganze Gate. Die
       Gegenkontrolle dazu steht im Selbsttest (Fall "Gate 5").
 
-    ⛔ Der EIGENNAME wird ausgenommen. Die alte Rule nennt sich selbst, der Skill
+    ⛔ Der EIGENNAME wird ausgenommen. Die alte Rule nennt sich selbst, der Command
        tut das nicht — das ist kein Inhalt, der verlorenging.
     """
     heu = (kurz + "\n" + skill).lower()
@@ -307,12 +307,12 @@ def pruefe(alt_p, kurz_p, skill_p):
     gates.append(("PFAD", getroffen is not None,
                   "Kurz-Rule nennt %s" % getroffen if getroffen
                   else "Kurz-Rule nennt den ZIELPFAD NICHT — faellt auf die "
-                       "Skill-Auswahl zurueck (20-84 %)"))
+                       "Command-Auswahl zurueck (20-84 %)"))
 
     # ⭐ v5.24.0: der COMMAND zusaetzlich — als HINWEIS, nie als Ersatz.
     #    Skills sind als Slash-Command aufrufbar, und das ist der bequeme Weg.
     #    ⛔ Er ersetzt den Pfad NICHT: die Messung im Kopf dieser Datei sagt
-    #       Pfad 4 von 4 gegen Skill-Auswahl 20-84 %. Wer den Pfad spaeter
+    #       Pfad 4 von 4 gegen Command-Auswahl 20-84 %. Wer den Pfad spaeter
     #       "weil der Command ja dasteht" entfernt, macht den Umzug wieder
     #       unzuverlaessig — deshalb bleibt PFAD ein Gate und COMMAND ein Hinweis.
     _cmd = "/" + name
@@ -324,7 +324,7 @@ def pruefe(alt_p, kurz_p, skill_p):
     # --- 5 INHALT (NEU v5.24.0) -------------------------------------------
     # ⛔ Gate 1 zaehlt ZEILEN und haelt deshalb auch dann, wenn eine Aussage
     #    ersatzlos verschwindet: beim Kuerzen von workstation-fernzugriff
-    #    (63 -> 36 Zeilen) war der Skill 705 Zeilen lang, 36 + 705 >= 63 ging
+    #    (63 -> 36 Zeilen) war der Command 705 Zeilen lang, 36 + 705 >= 63 ging
     #    muehelos durch — und der Punkt "das `-i` ist meist noetig" stand NUR in
     #    der alten Rule. Gefunden hat ihn erst ein von Hand danebengelegtes
     #    coverage_gate.py. Gate 5 macht diese Handarbeit zum Gate.
@@ -354,7 +354,7 @@ def pruefe(alt_p, kurz_p, skill_p):
                           "nur Name+description" % laenge))
         elif len(name) + laenge > KAPPUNG:
             gates.append(("BESCHREIBUNG", False,
-                          "Name+description = %d > %d — wird in der Skill-Liste "
+                          "Name+description = %d > %d — wird in der Command-Liste "
                           "GEKAPPT [DOKU]" % (len(name) + laenge, KAPPUNG)))
         else:
             gates.append(("BESCHREIBUNG", True, "%d Zeichen" % laenge))
@@ -394,7 +394,7 @@ def _bericht(gates):
     print()
     print("  ⚠ Die Gates schliessen VERLUST aus, nicht VERTAUSCHUNG. Ob der richtige")
     print("    Satz in der Kurz-Rule geblieben ist, sehen sie NICHT. Deshalb wird ein")
-    print("    SKILL-Vorschlag nie ohne menschliche Bestaetigung angewendet.")
+    print("    COMMAND-Vorschlag nie ohne menschliche Bestaetigung angewendet.")
     return 1 if gebrochen else 0
 
 

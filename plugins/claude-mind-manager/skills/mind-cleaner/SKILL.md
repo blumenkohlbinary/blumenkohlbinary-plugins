@@ -225,24 +225,31 @@ Vier Wege, nach dem **Moment der Erkennbarkeit**:
 | woran erkennbar? | → |
 |---|---|
 | am **Werkzeugaufruf** (Pfad, Endung, Befehlswort) | **Hook** |
-| an der **Aufgabe** | **Skill** |
-| der Nutzer ruft es **beim Namen** | **Slash-Command** |
+| an der **Aufgabe**, oder der Nutzer ruft es **beim Namen** | **Command** (`/name`) |
 | **gar nicht**, gilt vor jedem Eingriff | **bleibt Rule** |
 
-⛔ **Die harte Kante: was ERZWUNGEN werden muss, wird NIE ein Skill.** Das ist keine
+⛔ **Hier standen bis v5.27.0 VIER Wege — „Skill" und „Slash-Command" getrennt.**
+Das sind nicht zwei Dinge: ein Command **ist** das, was du mit `/name` tippst, und
+`lokal`/`global` sagt nur, wo seine Datei liegt. Nutzer-Befund, wörtlich: *„ich will
+keine Skill-Typen, woher soll ich wissen dass es 2 gibt."*
+⚠ **Und die Prosa versprach mehr als der Code hatte:** `cleaner_einordnung.py` gab
+nie eine Klasse `SLASH-COMMAND` aus — nur `HOOK-KANDIDAT`, `COMMAND`, `UNKLAR`. Wer
+auf das vierte Urteil wartete, wartete auf eines, das es nicht gibt.
+
+⛔ **Die harte Kante: was ERZWUNGEN werden muss, wird NIE ein Command.** Das ist keine
 Vorsicht, sondern Herstelleraussage — die Skills-Doku sagt bei nachlassender Wirkung
 *„…or use hooks to enforce behavior deterministically"*.
 
 ⛔ **Das Werkzeug nennt seine eigenen Fehlurteile.** Zwei sind gemessen und stehen dauerhaft
 in seiner Ausgabe:
 
-- `autonom-arbeiten.md` → Vorschlag **SKILL**, Imperativdichte **0,00** — die Datei enthält
+- `autonom-arbeiten.md` → Vorschlag **COMMAND**, Imperativdichte **0,00** — die Datei enthält
   **null** Imperativ-Wörter und ist trotzdem eine der direktivsten des Bestands.
   **Deutsche Prosa befiehlt ohne Schlüsselwort.**
 - `keine-annahmen.md` → Vorschlag **HOOK-KANDIDAT**, weil sie **andere Regeldateien
   zitiert**. Eine Zitierung ist kein Aufruf-Anker.
 
-**Daraus folgt und ist nicht verhandelbar:** ein SKILL-Vorschlag wird **nie ohne menschliche
+**Daraus folgt und ist nicht verhandelbar:** ein COMMAND-Vorschlag wird **nie ohne menschliche
 Bestätigung** angewendet.
 
 ## Step 4: Die Leitplanke herausschneiden — der schwierigste Teil
@@ -251,7 +258,7 @@ Bestätigung** angewendet.
 
 **Was in der Kurz-Rule bleibt:** das Verbot · die Entscheidung in einem Satz · die Zahl, die
 man vor dem Anfangen wissen muss · **der Pfad zum Volltext** · **der Command-Aufruf**.
-**Was in den Skill geht:** Herleitung · Belege · Messreihen · Fallen · Beispiele.
+**Was in den Command geht:** Herleitung · Belege · Messreihen · Fallen · Beispiele.
 
 ⭐ **Die Trennlinie in einem Satz — Bremse gegen Anleitung:**
 
@@ -288,7 +295,7 @@ darin steht. `10.10.10.1 ZUERST, sonst ist das ein BEFUND` **ist** die Bremse.
 
 ⚠ **Kandidat ist kein Urteil.** Ob ein Satz Bremse oder Anleitung ist, ist eine
 Bedeutungsfrage; mechanisch entscheidbar sind nur Formmerkmale. Die Liste sieht ein Mensch
-durch — genau wie beim SKILL-Vorschlag aus Step 3.
+durch — genau wie beim COMMAND-Vorschlag aus Step 3.
 
 ## Step 5: Umziehen — vier Gates, alle müssen halten
 
@@ -318,7 +325,7 @@ nötig, `gnome-session` hält einen block-Inhibitor"* wäre trotzdem verschwunde
 falschen Ort wandert, sehen beide Gates nicht. Die menschliche Bestätigung bleibt Pflicht.
 
 ⛔ **Der Command ersetzt den Pfad NICHT.** Er ist ein Hinweis, kein Gate — die Messung unten
-sagt Pfad **4/4** gegen Skill-Auswahl **20–84 %**. Wer den Pfad später entfernt, „weil der
+sagt Pfad **4/4** gegen Command-Auswahl **20–84 %**. Wer den Pfad später entfernt, „weil der
 Command ja dasteht", macht den Umzug wieder unzuverlässig.
 
 ### ⭐ Warum das PFAD-Gate das wichtigste ist — gemessen 24.08.2026
@@ -327,14 +334,14 @@ Command ja dasteht", macht den Umzug wieder unzuverlässig.
 |---|---|
 | Kurz-Rule in `rules/` | **100 %** (Ladeprotokoll, 884× `session_start`) |
 | Volltext über den **Pfad** | **4 von 4** (eigene Sonden, je 1 Werkzeugaufruf) |
-| Volltext über **Skill-Auswahl** | **20–84 %** (Vercel-Evals, 200+ Tests) |
+| Volltext über **Command-Auswahl** | **20–84 %** (Vercel-Evals, 200+ Tests) |
 
-Ein Zeiger auf einen Skill-**Namen** verlässt sich auf die 20-%-Mechanik. Ein Zeiger auf
+Ein Zeiger auf einen Command-**Namen** verlässt sich auf die 20-%-Mechanik. Ein Zeiger auf
 einen **Pfad** nicht. ⚠ Die aussagekräftigste Sonde nannte die Datei **beiläufig**
 (*„Alles Weitere steht in …"*, ohne Verbotszeichen) — und wurde trotzdem gelesen.
 
 ⛔ **Die Gates schließen VERLUST aus, nicht VERTAUSCHUNG.** Ein Umzug, der die Leitplanke in
-den Skill schiebt und die Erklärung in der Rule lässt, besteht **alle vier**.
+den Command schiebt und die Erklärung in der Rule lässt, besteht **alle vier**.
 
 ## Step 6: Die `description` schreiben
 
@@ -392,7 +399,7 @@ Duplikat, das umzieht, ist immer noch ein Duplikat** — jetzt nur in zwei
 Dateien, die beide immer laden."*
 
 ⛔ **Modularize ist NICHT Deduplizieren.** Modularize **verschiebt** — die Summe
-bleibt gleich, und der Skill sagt das selbst (*„Modularize spart KEINEN
+bleibt gleich, und der Command sagt das selbst (*„Modularize spart KEINEN
 Kontext"*). Deduplizieren macht eine Stelle zum **Zeiger**; erst dann fällt die
 Summe. Beides sieht im Bericht gleich erfolgreich aus.
 

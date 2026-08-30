@@ -19,8 +19,8 @@ Deshalb legt dieses Werkzeug die Zahlen vor und laesst entscheiden.
 
 ## ⛔ DIE HARTE KANTE (NEU 24.08.2026, gemessen)
 
-**Was ERZWUNGEN werden muss, wird NIE ein Skill.** Das ist keine Vorsicht, sondern
-Herstelleraussage. `code.claude.com/docs/en/skills` sagt woertlich, wenn ein Skill
+**Was ERZWUNGEN werden muss, wird NIE ein Command.** Das ist keine Vorsicht, sondern
+Herstelleraussage. `code.claude.com/docs/en/skills` sagt woertlich, wenn ein Command
 aufhoert zu wirken: *"the model is choosing other tools or approaches … or use hooks
 to enforce behavior deterministically."*
 
@@ -34,12 +34,12 @@ Eine Leitplanke, die zu 20-84 % laedt, ist keine Leitplanke.
 
 ## ⭐ UND DER GRUND, WARUM UMZIEHEN TROTZDEM FUNKTIONIERT
 
-Nicht die Skill-Auswahl traegt den Umzug, sondern der **Pfad in der Kurz-Rule**.
+Nicht die Command-Auswahl traegt den Umzug, sondern der **Pfad in der Kurz-Rule**.
 Gemessen 24.08.2026: einem Zeiger auf eine DATEI wurde in **4 von 4** Sonden gefolgt,
 je ein Werkzeugaufruf — auch bei beilaeufiger Nennung ohne Verbotszeichen.
 
 Deshalb prueft `cleaner_umzug.py` als Gate, dass die Kurz-Rule den Zielpfad WOERTLICH
-nennt. Ein Zeiger auf einen Skill-NAMEN faellt auf die 20-%-Mechanik zurueck.
+nennt. Ein Zeiger auf einen Command-NAMEN faellt auf die 20-%-Mechanik zurueck.
 
 Aufruf:
   python cleaner_einordnung.py <datei.md> [<datei.md> ...]
@@ -152,17 +152,17 @@ def einordnen(pfad):
     # --- Der Vorschlag ----------------------------------------------------
     # ⛔ Reihenfolge ist Absicht: die harte Kante zuerst. Eine Datei mit hoher
     #    Imperativdichte ist eine Leitplanke — und Leitplanken werden nie Skills,
-    #    egal wie gut die uebrigen Zahlen zu einem Skill passen.
+    #    egal wie gut die uebrigen Zahlen zu einem Command passen.
     if imp >= 0.30 and kon >= 0.30:
         v, g = "HOOK-KANDIDAT", ("erzwingend UND an konkreten Aufrufen erkennbar — "
-                                 "Hook kann das durchsetzen, ein Skill nicht")
+                                 "Hook kann das durchsetzen, ein Command nicht")
     elif imp >= 0.30:
         v, g = "BLEIBT RULE", ("erzwingend, aber ohne konkreten Aufruf-Anker — "
                                "nichts, woran ein Hook haengen koennte")
     elif cod >= 0.25:
-        v, g = "SKILL", "hoher Codeanteil: Verfahrensbeschreibung, kein Gebot"
+        v, g = "COMMAND", "hoher Codeanteil: Verfahrensbeschreibung, kein Gebot"
     elif imp < 0.15:
-        v, g = "SKILL", "kaum Gebote: Nachschlagewerk"
+        v, g = "COMMAND", "kaum Gebote: Nachschlagewerk"
     else:
         v, g = "UNKLAR", "zwischen Gebot und Nachschlagewerk — hier entscheidet der Mensch"
 
@@ -382,7 +382,7 @@ def selbsttest():
     import tempfile
     fehler = 0
     faelle = [("erzwingend + konkret", _T_HOOK, "HOOK-KANDIDAT"),
-              ("Nachschlagewerk", _T_SKILL, "SKILL"),
+              ("Nachschlagewerk", _T_SKILL, "COMMAND"),
               ("dazwischen", _T_UNKLAR, "UNKLAR")]
     d = tempfile.mkdtemp()
     print("=" * 70)
@@ -492,7 +492,7 @@ def main():
     print("      kon fiel von 0.67 auf 0.33. Das Fehlurteil blieb trotzdem.)")
     print()
     print("  ⭐ Was daraus folgt und nicht verhandelbar ist:")
-    print("     Ein SKILL-Vorschlag wird NIE ohne menschliche Bestaetigung angewendet.")
+    print("     Ein COMMAND-Vorschlag wird NIE ohne menschliche Bestaetigung angewendet.")
     print("     Eine Leitplanke, die faelschlich Skill wird, laedt danach zu 20-84 %%")
     print("     statt zu 100 %% — und faellt erst auf, wenn sie gebraucht wird.")
     print()

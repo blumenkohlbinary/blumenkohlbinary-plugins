@@ -121,7 +121,7 @@ zweimal derselbe Satz.
   arbeiten, sie macht sein **Fehlen** sichtbar. Das hat gereicht.
 - **Es verhindert kein Wachstum.** Es macht jedes `ADD` begründungspflichtig.
 - **Es misst Form, nicht Bedeutung.** Jeder Treffer ist ein **Kandidat**; die
-  Liste sieht ein Mensch durch — wie beim SKILL-Vorschlag aus `mind-cleaner`
+  Liste sieht ein Mensch durch — wie beim COMMAND-Vorschlag aus `mind-cleaner`
   Step 3.
 - ⚠ **Ob weniger Kontext besser befolgt wird, ist für DIESEN Bestand nicht
   belegt.** Die Richtung ist es (SFEIR, 20 gestapelte Regeln: 96 % → 60,4 %),

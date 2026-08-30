@@ -63,22 +63,47 @@ NICHT_LOGGBAR = ("keine-annahmen", "plan-mode", "ursache-vor-reparatur",
                  "autonom-arbeiten", "fertig-heisst-fertig", "messung-vor-glauben")
 
 
-def dateien(projekt, nur="alles"):
+def dateien(projekt, nur="alles", doku=None):
+    """Alle Dateien, die DAUERKONTEXT kosten — nicht nur die rules/.
+
+    ⛔ v5.27.0: die CLAUDE.md kam DAZU, und ihr Fehlen war ein BEFUND.
+       Bis v5.26.0 sah diese Funktion ausschliesslich `rules/` an. Der
+       Nutzer hat sein Duplikat-Problem woertlich an der CLAUDE.md
+       festgemacht ("cleaner_duplikate hat mir 447 Duplikate gemeldet") —
+       und genau diese Datei hat `--audit` nie angesehen. Ein Audit, das
+       die wichtigste Context-Datei auslaesst, meldet "wenig gefunden"
+       und meint "wenig angesehen".
+
+    ⚠ `doku` ist optional und NICHT vorgegeben: Doku-Verzeichnisse heissen
+      in jedem Projekt anders (`knowledge/`, `docs/`, `Wissen/`). Ein fest
+      verdrahteter Name waere ein projektspezifisches Pflaster in einem
+      allgemeinen Werkzeug — derselbe Fehler wie der INDEX.md-Vorschlag
+      aus `Pc Forschung` (v5.21.3).
+    """
     H = os.path.expanduser("~")
     out = []
-    wurzeln = []
+    wurzeln, einzeln = [], []
     if nur in ("alles", "global"):
         wurzeln.append(os.path.join(H, ".claude", "rules"))
+        einzeln.append(os.path.join(H, ".claude", "CLAUDE.md"))
     if nur in ("alles", "projekt"):
         wurzeln.append(os.path.join(projekt, ".claude", "rules"))
+        einzeln.append(os.path.join(projekt, "CLAUDE.md"))
+        einzeln.append(os.path.join(projekt, ".claude", "CLAUDE.md"))
+    if doku:
+        wurzeln.append(doku)
     for w in wurzeln:
-        for wurzel, _, fs in os.walk(w):
+        for wurzel, unter, fs in os.walk(w):
+            unter[:] = [u for u in unter if u not in ("__pycache__", ".git")]
             out += [os.path.join(wurzel, f) for f in sorted(fs) if f.endswith(".md")]
+    for e in einzeln:
+        if os.path.isfile(e) and e not in out:
+            out.append(e)
     return out
 
 
-def lauf(projekt, nur="alles"):
-    ds = dateien(projekt, nur)
+def lauf(projekt, nur="alles", doku=None):
+    ds = dateien(projekt, nur, doku)
     if not ds:
         print("⛔ Keine Regeldatei gefunden. Eher ein falscher Pfad als ein leerer Bestand.")
         return 2
@@ -121,7 +146,7 @@ def lauf(projekt, nur="alles"):
                                          _tr[_k][0][1][:40])))
 
         # Falsch platziert?
-        if vorschlag in ("HOOK-KANDIDAT", "SKILL") and e:
+        if vorschlag in ("HOOK-KANDIDAT", "COMMAND") and e:
             gruppen["2"].append((p, "%s — %s" % (vorschlag,
                                                  e.get("grund_zusammen") or e.get("grund", ""))))
         # Lint Leakage
@@ -186,8 +211,18 @@ def lauf(projekt, nur="alles"):
     print("     Audit wirklich wusste. Eine nie gebrochene Regel kann ueberfluessig")
     print("     sein — oder GENAU DESHALB nie gebrochen worden sein, WEIL sie da ist.")
     print()
-    print("  5a · kein Verstoss vorliegend (%d) — vielleicht spaeter messbar"
+    # ⛔ v5.27.0 — BEWEISLAST UMGEKEHRT (Nutzer-Auftrag "richtig aggressiv").
+    #    Bis v5.26.0 hiess diese Gruppe "kein Verstoss vorliegend, vielleicht
+    #    spaeter messbar" — eine Regel blieb, bis belegt war, dass sie weg
+    #    kann. Jetzt umgekehrt: sie muss belegen, WARUM sie da ist.
+    #    ⚠ Der Ton ist schaerfer, die MECHANIK nicht: geloescht wird nichts,
+    #      der Nutzer sagt weiterhin ja (Dreistufigkeit, 24.08.2026).
+    print("  5a · ⛔ OHNE BELEG (%d) — STREICHEN, wenn du nicht widersprichst"
           % len(gruppen["5a"]))
+    print("       Kein nachweisbarer Verstoss, kein Beleg fuer ihre Notwendigkeit.")
+    print("       ⚠ Widerspruch ist ein gueltiger Grund — eine nie gebrochene")
+    print("         Regel kann GENAU DESHALB nie gebrochen worden sein, WEIL")
+    print("         sie da ist. Aber der Widerspruch muss jetzt KOMMEN.")
     for p, g in gruppen["5a"]:
         print("       %-32s %s" % (os.path.basename(p)[:32], g[:44]))
     print()
@@ -208,8 +243,15 @@ def lauf(projekt, nur="alles"):
                       ("6", "KONTEXT-TOR — kostet Kontext ohne Gegenwert")):
         print()
         print("  %s · %s (%d)" % (nr, titel, len(gruppen[nr])))
-        for a, b in gruppen[nr][:12]:
+        # ⛔ v5.27.0: keine STILLE Kappung mehr. Vorher wurden ab dem 13.
+        #    Eintrag welche weggelassen, ohne es zu sagen — und ein Bericht,
+        #    der still kappt, liest sich wie "das war alles".
+        for a, b in gruppen[nr][:40]:
             print("       %-32s %s" % (os.path.basename(str(a))[:32], str(b)[:48]))
+        if len(gruppen[nr]) > 40:
+            print("       … %d weitere NICHT gezeigt (Bericht sonst unlesbar) —"
+                  % (len(gruppen[nr]) - 40))
+            print("         sie sind NICHT erledigt, nur nicht abgedruckt.")
 
     if gruppen["6"]:
         print()
@@ -391,8 +433,10 @@ def main():
     if nur not in ("global", "projekt", "alles"):
         print("--nur braucht global|projekt|alles")
         return 2
-    return lauf(projekt, nur)
-
-
+    doku = None
+    if "--doku" in sys.argv:
+        _i = sys.argv.index("--doku")
+        doku = sys.argv[_i + 1] if _i + 1 < len(sys.argv) else None
+    return lauf(projekt, nur, doku)
 if __name__ == "__main__":
     sys.exit(main())
