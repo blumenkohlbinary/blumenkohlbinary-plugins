@@ -49,6 +49,24 @@ fi
 
 OPEN="$PROJ/.claude-mind/rescued/OPEN"
 
+# --- v5.28.0: PLAN-PAUSE (siehe stop.sh) ---
+# ⚠ Sie unterdrueckt die MAHNUNG, nicht die UEBERGABE: nach einer Kompaktierung
+#   muss der Arbeitsstand weiterhin herausgehen — gerade waehrend eines Plans.
+#   Deshalb steht sie hier NICHT ganz oben, sondern nur vor dem Schuld-Zweig.
+# ⛔ Als SUBPROZESS, nicht ueber `command -v` — prompt-submit.sh sourct lib.sh
+#    bewusst GAR NICHT (Startkosten je Tastendruck). Der Waechter war deshalb
+#    immer falsch und der Block wirkungslos.
+# ⚠ Kein Fork im Normalfall: plan-pause.sh steigt ohne Merker sofort aus,
+#   BEVOR es irgendetwas laedt.
+_PLAN_STILL="nein"
+_PP="${CLAUDE_PLUGIN_ROOT:-}/hooks/plan-pause.sh"
+if [ -f "$_PP" ]; then
+  if _PGRUND=$(bash "$_PP" "$PROJ" 2>/dev/null); then
+    _PLAN_STILL="ja"
+    _slog INFO "Mahnung unterdrueckt: $_PGRUND"
+  fi
+fi
+
 # ===== v5.7.0: Uebergabe nach der Kompaktierung =============================
 # Bis v5.6.0 hing JEDE Meldung an der Sync-SCHULD. Laeuft der Sync kuenftig VOR der
 # Kompaktierung, gibt es keine Schuld — und damit haette hier niemand mehr ein Wort gesagt,
@@ -150,7 +168,7 @@ _STAND="$PROJ/.claude-mind/rescued/sync-stand"
 # Sein einziger Verbraucher (pre-compact.sh) feuert seit autoCompactEnabled=false
 # nur noch bei handgetipptem /compact -- ein Merker konnte damit ewig liegen.
 # Geprueft wird jetzt der ZUWACHS seit dem Sync, s. mind_sync_frisch in lib.sh.
-if [ ! -f "$OPEN" ] && [ "$_SCHWELLE" -gt 0 ] 2>/dev/null; then
+if [ "$_PLAN_STILL" != "ja" ] && [ ! -f "$OPEN" ] && [ "$_SCHWELLE" -gt 0 ] 2>/dev/null; then
   _TP=""
   command -v jq >/dev/null 2>&1 && _TP=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
   if [ -n "$_TP" ] && [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
@@ -190,7 +208,7 @@ fi
 _CSCHWELLE="${MIND_SYNC_AT_COMMITS:-0}"
 _CSTAND="$PROJ/.claude-mind/rescued/sync-stand"
 [ -f "$_CSTAND" ] || _CSTAND="$PROJ/.claude-mind/rescued/commit-stand"
-if [ ! -f "$OPEN" ] && [ "$_CSCHWELLE" -gt 0 ] 2>/dev/null && [ -d "$PROJ/.git" ]; then
+if [ "$_PLAN_STILL" != "ja" ] && [ ! -f "$OPEN" ] && [ "$_CSCHWELLE" -gt 0 ] 2>/dev/null && [ -d "$PROJ/.git" ]; then
   if [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
     # shellcheck disable=SC1091
     . "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" 2>/dev/null

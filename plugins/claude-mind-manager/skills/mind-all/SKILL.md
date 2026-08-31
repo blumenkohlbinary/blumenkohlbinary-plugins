@@ -663,6 +663,20 @@ if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" = "ja" ]; then
     echo "Sync-Schuld beglichen: OPEN entfernt."
   fi
 fi
+
+# ⛔ v5.28.0: Die PLAN-PAUSE wird IMMER aufgehoben — ausserhalb des
+#    SYNC_LIEF-Blocks und auch, wenn gar keine Schuld bestand.
+#    Sonst liefe ein von Hand gestarteter Sync waehrend eines Plans zwar
+#    durch, der Merker bliebe aber liegen und legte die naechsten Stunden
+#    still. Ein Merker, der einen erledigten Zustand behauptet, ist genau
+#    der `PENDING`-Fehler aus v5.2.1 — eine Quittung fuers Reden statt einer
+#    fuer die Arbeit.
+#    ⚠ Auch im Probelauf: `--dry-run` aendert keine Context-Datei, aber der
+#      Merker ist Ablaufzustand, kein Inhalt.
+if command -v mind_plan_frei >/dev/null 2>&1 \
+   && [ -f "$PROJ/.claude-mind/PLAN-AKTIV" ]; then
+  mind_plan_frei "$PROJ" && echo "Plan-Pause aufgehoben (PLAN-AKTIV entfernt)."
+fi
 ```
 
 **Die Rettungsdateien `*_chat.md` bleiben liegen** — sie sind das Archiv. Entfernt wird nur

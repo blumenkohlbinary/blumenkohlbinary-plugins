@@ -158,6 +158,25 @@ fi
 
 OPEN="$PROJ/.claude-mind/rescued/OPEN"
 
+# --- v5.28.0: PLAN-PAUSE — laeuft ein freigegebener Plan, wird nicht gedraengt.
+#     Nutzer-Auftrag 31.08.2026: "wenn er einen plan abarbeitet soll er kein
+#     mind all machen bis der plan durch ist".
+#     ⛔ Die Schuld wird NICHT geloescht — nur der ZWANG pausiert. `OPEN` bleibt
+#        liegen und wird beim naechsten Turn nach Ablauf der Pause wieder scharf.
+#     ⛔ Sie steht VOR dem Schnellpfad, aber NACH dem Schleifenschutz: eine
+#        Pause darf `stop_hook_active` nie ueberstimmen.
+# ⛔ Als SUBPROZESS, nicht ueber `command -v`. stop.sh sourct lib.sh nur im
+#    Token-Zweig; der Funktionsname ist hier IMMER unbekannt, und ein
+#    `command -v`-Waechter haette den Ausfall still verschluckt. Gefunden hat
+#    das nur die Positivkontrolle "ohne Pause MUSS er blocken".
+_PP="${CLAUDE_PLUGIN_ROOT:-}/hooks/plan-pause.sh"
+if [ -f "$_PP" ]; then
+  if _PGRUND=$(bash "$_PP" "$PROJ" 2>/dev/null); then
+    _slog INFO "still: $_PGRUND"
+    exit 0
+  fi
+fi
+
 # --- SCHNELLPFAD: keine Schuld -> still, aber nachweisbar ---
 if [ ! -f "$OPEN" ]; then
   # v5.7.0: KEINE Schuld, aber die Token-Schwelle ist ueberschritten und in diesem Zyklus

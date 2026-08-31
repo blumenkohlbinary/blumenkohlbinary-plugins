@@ -1762,3 +1762,96 @@ mind_schritt_bilanz() {
 
   [ -z "$fehlt" ] && [ "$feh" -eq 0 ] && [ "$leer" -eq 0 ]
 }
+
+# ===== v5.28.0: Plan-Pause — /mind-all schweigt, solange ein Plan laeuft ======
+#
+# Nutzer-Auftrag 31.08.2026, woertlich: "wenn er einen plan abarbeitet soll er
+# kein mind all machen bis der plan durch ist — aber nur bei einem offiziellen
+# plan im planmodus, plan.md".
+#
+# ⛔ DIE SCHULD WIRD NICHT GELOESCHT. Nur der DRUCK pausiert. `OPEN` bleibt
+#    liegen, die Rettungsdatei bleibt liegen, `sync-stand` wird nicht gesetzt.
+#    Eine Pause, die die Schuld tilgt, waere genau der v5.2.1-Fehler
+#    ("PENDING verschwand beim Ankuendigen") in neuer Verkleidung.
+#
+# ⛔ DER AUSLOESER IST MECHANISCH, DAS ENDE NICHT. `ExitPlanMode` sagt "Plan
+#    freigegeben"; NICHTS sagt "Plan fertig". Deshalb sind die drei Ausstiege
+#    unten der echte Abbruch und kein Feinschliff — ohne sie fraesse die Pause
+#    die Rettung.
+#
+# ⚠ Warum die Dateizahl KEIN Kriterium ist: `plan.md` liegt in diesem Projekt
+#   dauerhaft herum (gemessen 31.08.2026: 10 Plan-Dateien, KEINE mit
+#   Checkboxen). "Datei existiert" haette den Sync fuer immer stillgelegt,
+#   "offene Checkbox" haette nie gefeuert. Beides waere ein Filter, der sich
+#   auf Stille kalibriert (werkzeuge-zuerst.md).
+
+MIND_PLAN_PAUSE_HOURS="${MIND_PLAN_PAUSE_HOURS:-8}"
+MIND_PLAN_MAX_COMPACTIONS="${MIND_PLAN_MAX_COMPACTIONS:-2}"
+
+mind_plan_merken() {
+  # $1 = Projekt, $2 = Planname (optional)
+  local proj="${1:-}" name="${2:-}" d
+  [ -n "$proj" ] || return 1
+  d="$proj/.claude-mind"
+  mkdir -p "$d" 2>/dev/null || return 1
+  printf 'ts=%s\nplan=%s\n' "$(date +%s)" "$name" > "$d/PLAN-AKTIV" || return 1
+  return 0
+}
+
+mind_plan_frei() {
+  # Hebt die Pause auf. /mind-all ruft das am Ende auf.
+  local proj="${1:-}"
+  [ -n "$proj" ] || return 1
+  rm -f "$proj/.claude-mind/PLAN-AKTIV" 2>/dev/null
+  return 0
+}
+
+mind_plan_pause() {
+  # -> 0 = PAUSE GILT (schweigen)   1 = keine Pause (normal weiter)
+  # Gibt bei aktiver Pause eine Begruendungszeile auf stdout aus.
+  #
+  # ⛔ FAIL-SAFE-RICHTUNG: alles Unklare heisst KEINE Pause. Ein fehlender,
+  #    unlesbarer, unparsbarer oder abgelaufener Merker faellt auf das heutige
+  #    Verhalten zurueck. Eine faelschlich ausbleibende Pause kostet eine
+  #    Mahnung; eine faelschlich geltende kostet die Rettungsdatei.
+  local proj="${1:-}" f ts alter h grenze n plan
+  [ -n "$proj" ] || return 1
+  f="$proj/.claude-mind/PLAN-AKTIV"
+  [ -f "$f" ] || return 1
+
+  ts=$(grep -m1 '^ts=' "$f" 2>/dev/null | cut -d= -f2-)
+  case "$ts" in ''|*[!0-9]*) return 1 ;; esac      # unparsbar -> keine Pause
+  plan=$(grep -m1 '^plan=' "$f" 2>/dev/null | cut -d= -f2-)
+
+  # --- Ausstieg 1: zu alt ---------------------------------------------------
+  alter=$(( $(date +%s) - ts ))
+  h="$MIND_PLAN_PAUSE_HOURS"
+  case "$h" in ''|*[!0-9]*) h=8 ;; esac
+  grenze=$(( h * 3600 ))
+  if [ "$alter" -ge "$grenze" ] 2>/dev/null; then
+    rm -f "$f" 2>/dev/null
+    return 1
+  fi
+
+  # --- Ausstieg 2: Kompaktierungen seit Pausenbeginn -------------------------
+  # ⛔ Das ist der wichtigere der beiden Ausstiege. Jede Kompaktierung waehrend
+  #    der Pause erzeugt eine NEUE Rettungsdatei; ab der zweiten liegen zwei
+  #    ungesyncte Staende herum, und die aeltere ist als naechste dran,
+  #    wegrotiert zu werden (MIND_RESCUE_KEEP_COUNT). Dann ist die Pause
+  #    teurer als der Plan.
+  n=0
+  for r in "$proj/.claude-mind/rescued"/*_chat.md; do
+    [ -f "$r" ] || continue
+    [ "$r" -nt "$f" ] && n=$((n+1))
+  done
+  grenze="$MIND_PLAN_MAX_COMPACTIONS"
+  case "$grenze" in ''|*[!0-9]*) grenze=2 ;; esac
+  if [ "$n" -ge "$grenze" ] 2>/dev/null; then
+    rm -f "$f" 2>/dev/null
+    return 1
+  fi
+
+  printf 'Plan-Pause aktiv seit %d min%s — %d Kompaktierung(en) seit Beginn (Grenze %d), Ablauf in %d min\n' \
+    "$(( alter / 60 ))" "${plan:+ ($plan)}" "$n" "$grenze" "$(( (h * 3600 - alter) / 60 ))"
+  return 0
+}
