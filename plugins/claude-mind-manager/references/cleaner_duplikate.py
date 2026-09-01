@@ -509,7 +509,21 @@ def einordnen(marke, a_pfad, a_text, b_pfad, b_text):
     # ⛔ NUR wenn eine Seite etwas fuer TOT erklaert und die andere es als
     #    lebend oder mit konkretem Wert fuehrt. Alles Weichere erzeugt
     #    Fehlalarme, die den einen echten Treffer begraben.
-    if (a_tot and (b_lebt or b_w)) or (b_tot and (a_lebt or a_w)):
+    # ⛔ v5.31.0: WENN BEIDE TOT SAGEN, IST ES KEIN DRIFT.
+    #    Der Fehler verriet sich in der eigenen Ausgabe: der einzige
+    #    zahlendrift-Treffer dieses Projekts lautete woertlich
+    #    'tot gegen tot' — ein Widerspruch, der keiner sein kann.
+    #    Gemessen 01.09.2026 an `MIND_NOTFALL_TOKENS`: beide Stellen
+    #    fuehren es als entfallen, beide lebt=False. Gezogen hat allein
+    #    `or b_w`, weil env-vars.md die Zahl 940000 NENNT — in dem Satz,
+    #    der sie fuer tot erklaert ('940000 — seit v5.9.3 von keinem Hook
+    #    gelesen'). Eine tote Stelle darf ihren eigenen Altwert nennen.
+    #    ⚠ Das SCHAERFT die Bedingung, es lockert sie nicht: ein echter
+    #      Drift (tot gegen 'ist aktiv') hat b_tot=False und laeuft
+    #      unveraendert durch. Pruefsammlung 3) belegt genau das, 3c) den
+    #      neuen Fall.
+    if not (a_tot and b_tot) and \
+       ((a_tot and (b_lebt or b_w)) or (b_tot and (a_lebt or a_w))):
         links = "tot" if a_tot else (sorted(a_w)[:2] or "lebend")
         rechts = "tot" if b_tot else (sorted(b_w)[:2] or "lebend")
         return "zahlendrift", ("eine Stelle fuehrt es als entfallen, die andere "
@@ -793,6 +807,34 @@ def selbsttest():
     z2 = schreib("z2.md", "# B\n\n`MIND_NOTFALL_TOKENS` steht auf 940000 und ist aktiv.\n")
     k, grund = einordnen("MIND_NOTFALL_TOKENS", z1, _inhalt(z1), z2, _inhalt(z2))
     pruef("gleicher Name, anderer Status -> zahlendrift", k, "zahlendrift")
+
+    # 3c) ⭐ POSITIVKONTROLLE MIT ECHTEM WORTLAUT (01.09.2026) — der Fall, an
+    #     dem drei Fassungen dieses Werkzeugs vorbeigelaufen sind.
+    #     Beide Stellen erklaeren die Marke fuer entfallen; EINE nennt dabei
+    #     ihren alten Wert. Das ist KEIN Drift, sondern die normale Form eines
+    #     Nachrufs. Der Wortlaut ist woertlich aus `env-vars.md` und
+    #     `kontext-und-umgebung.md` uebernommen, nicht konstruiert —
+    #     `werkzeuge-zuerst.md`: ein Detektor braucht ECHTES Material.
+    t3a = schreib("t3a.md", "# A\n\n`MIND_NOTFALL_TOKENS` ist mit v5.9.3 "
+                            "**entfallen** — im Hook-Code nirgends mehr "
+                            "gelesen.\n")
+    # ⛔ BEIDE Zeilen aus env-vars.md, nicht nur eine. Die erste traegt das
+    #    Totsagen (`entfallen`), die zweite den Altwert (940000). Ein erster
+    #    Versuch nahm nur die zweite — `wirkungslos` steht nicht in `_TOT`,
+    #    damit war es ein ECHTER Drift und der Fall blieb zu Recht rot.
+    #    Ein gekuerzter Wortlaut kann das Merkmal verlieren, um das es geht.
+    t3b = schreib("t3b.md", "# B\n\n"
+                            "| ~~MIND_NOTFALL_TOKENS~~ | **entfallen v5.9.3** | "
+                            "Wird nicht mehr gelesen |\n"
+                            "| ~~`MIND_NOTFALL_TOKENS`~~ | ja, **wirkungslos** | "
+                            "940000 — seit v5.9.3 von keinem Hook gelesen |\n")
+    k3, g3 = einordnen("MIND_NOTFALL_TOKENS", t3a, _inhalt(t3a),
+                       t3b, _inhalt(t3b))
+    pruef("⭐ beide tot, eine nennt den Altwert -> KEIN zahlendrift",
+          k3 == "zahlendrift", False)
+    # ⛔ Und die Gegenprobe zur Gegenprobe: der Befund darf nicht einfach
+    #    verschwinden, er soll als gewoehnliches Duplikat weiterlaufen.
+    pruef("   ... sondern duplikat", k3, "duplikat")
 
     # 3b) ⛔ NEGATIVKONTROLLE mit ECHTEM Wortlaut (25.08.2026).
     #     Der einzige zahlendrift-Befund des ersten Laufs ueber acht Ablagen
