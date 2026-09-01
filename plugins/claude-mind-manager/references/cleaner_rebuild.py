@@ -357,6 +357,37 @@ def rebuild(projekt, pfad, auto=False, anwenden=False):
     """0 = angewendet oder Vorschlag · 1 = nichts zu tun · 2 = Gate gebrochen."""
     kurz, archiv, ziel, grund = baue(pfad, projekt, auto)
     if grund:
+        # ⛔ v5.29.0: DER VORSCHLAGSMODUS WAR TOT.
+        #    `einteilen()` setzt `darf = auto and ...` — ohne `--auto` ist
+        #    `wandert` immer leer, und dieser Zweig meldete "nichts zu
+        #    verschieben". Der Skill verspricht aber: "Ohne --auto ist der
+        #    Lauf ein Vorschlag, und die Auswahl der Saetze gehoert dir."
+        #    Diese Auswahl gab es nie.
+        #    ⭐ Gefunden, weil `cleaner_aussagen` fuer dieselbe Datei 37 Belege
+        #      meldete und woertlich "genau der Fall, fuer den es den Umzug
+        #      gibt" — zwei Werkzeuge derselben Sammlung im Widerspruch.
+        #    ⛔ Das ist reine ANZEIGE. Was `--anwenden` schreibt, ist
+        #      unveraendert; `baue()` wurde nicht angefasst.
+        if grund == "nichts zu verschieben" and not auto:
+            _b, _w, _g = einteilen(pfad, auto=True)
+            if _w:
+                print("  " + "=" * 84)
+                print("  VORSCHLAG  %s   (nichts geschrieben)"
+                      % os.path.basename(pfad))
+                print("  " + "=" * 84)
+                print("     %d Satz/Saetze bleiben · %d waeren mit --auto "
+                      "verschiebbar" % (len(_b), len(_w)))
+                print()
+                for i, (s, k) in enumerate(_w, 1):
+                    print("  %3d [%-8s] %s" % (i, k, " ".join(s.split())[:96]))
+                print()
+                print("  ⚠ KANDIDATEN, kein Urteil. `--auto` bewegt ALLE davon")
+                print("    auf einmal — auch tragende Saetze, die nur wie ein")
+                print("    Beleg AUSSEHEN. Das ist VERTAUSCHUNG, nicht Verlust:")
+                print("    alle vier Gates halten, und die Datei ist schlechter.")
+                print("  ⛔ Die Auswahl gehoert dir. Sieh die Liste durch, bevor")
+                print("    du `--auto --anwenden` faehrst.")
+                return 0
         print("  --  %s: %s" % (os.path.basename(pfad), grund))
         return 1
 
