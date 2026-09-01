@@ -68,6 +68,44 @@ mind_debug_write "/x/a" "test" "$T/bericht.md" "$T/d1.jsonl"
 CR=$(tr -cd "$(printf '\r')" < "$MIND_DEBUG_DIR/index.jsonl" | wc -c | tr -d ' ')
 pruef "CRLF-index.jsonl bleibt CRLF (2 CR)" "$CR" "2"
 
+# --- 4 · known-issues #10: EIN Projekt, DREI Schreibweisen -------------------
+# ⛔ DER ECHTE FEHLSTAND, nicht konstruiert: `BEFUNDE.md` meldete am 02.09.2026
+#    "Projekte | 16", gemessen waren es SECHS. Vier Projekte zerfielen in
+#    mehrere Schreibweisen, weil jeder Lauf eintraegt, welche Form er gerade
+#    hatte. Der Befund stand seit dem 27.08. dokumentiert und war nie behoben.
+# ⚠ Die drei Formen unten kommen so im echten Index vor (43 / 47 / 2 Zeilen).
+rm -rf "$T/d2"; export MIND_DEBUG_DIR="$T/d2"; mkdir -p "$MIND_DEBUG_DIR"
+{
+  printf '{"ts":"2026-09-01 10:00","projekt":"Claude Mind Manager","klasse":"doku-veraltet","kurz":"a"}\n'
+  printf '{"ts":"2026-09-01 11:00","projekt":"C:/CD/K/Plugin - Entwicklung/Claude Mind Manager","klasse":"doku-veraltet","kurz":"b"}\n'
+  printf '{"ts":"2026-09-01 12:00","projekt":"/c/CD/K/Plugin - Entwicklung/Claude Mind Manager","klasse":"doku-veraltet","kurz":"c"}\n'
+} > "$MIND_DEBUG_DIR/index.jsonl"
+python "$CLAUDE_PLUGIN_ROOT/references/debug_auswertung.py" "$MIND_DEBUG_DIR" >/dev/null 2>&1
+
+pruef "⭐ drei Schreibweisen zaehlen als EIN Projekt" \
+      "$(grep -oE '\| Projekte \| [0-9]+ \|' "$MIND_DEBUG_DIR/BEFUNDE.md" | grep -oE '[0-9]+')" "1"
+# ⛔ GEGENPROBE: das Gate muss NEIN sagen koennen. Zwei WIRKLICH verschiedene
+#    Projekte duerfen NICHT zusammenfallen — sonst waere die Normalisierung
+#    ein Filter, der alles auf 1 drueckt und jeden Positivfall besteht.
+{
+  printf '{"ts":"2026-09-01 10:00","projekt":"C:/CD/K/Creator","klasse":"doku-veraltet","kurz":"a"}\n'
+  printf '{"ts":"2026-09-01 11:00","projekt":"C:/CD/K/Pc Forschung","klasse":"doku-veraltet","kurz":"b"}\n'
+} > "$MIND_DEBUG_DIR/index.jsonl"
+python "$CLAUDE_PLUGIN_ROOT/references/debug_auswertung.py" "$MIND_DEBUG_DIR" >/dev/null 2>&1
+pruef "⛔ zwei ECHTE Projekte bleiben zwei" \
+      "$(grep -oE '\| Projekte \| [0-9]+ \|' "$MIND_DEBUG_DIR/BEFUNDE.md" | grep -oE '[0-9]+')" "2"
+
+# ⚠ Und die Projektliste JE KLASSE darf denselben Namen nicht mehrfach fuehren —
+#   das war die zweite Haelfte von #10 (Zeile 126 normalisierte, 98 nicht).
+{
+  printf '{"ts":"2026-09-01 10:00","projekt":"Creator","klasse":"windows-pfad","kurz":"a"}\n'
+  printf '{"ts":"2026-09-01 11:00","projekt":"C:/CD/K/Creator","klasse":"windows-pfad","kurz":"b"}\n'
+} > "$MIND_DEBUG_DIR/index.jsonl"
+python "$CLAUDE_PLUGIN_ROOT/references/debug_auswertung.py" "$MIND_DEBUG_DIR" >/dev/null 2>&1
+pruef "Projektliste nennt Creator genau einmal" \
+      "$(grep -c 'Creator, Creator' "$MIND_DEBUG_DIR/BEFUNDE.md")" "0"
+
+
 rm -rf "$T"
 echo
 echo "=================================="

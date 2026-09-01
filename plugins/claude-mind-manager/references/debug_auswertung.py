@@ -80,6 +80,24 @@ def lies(pfad):
     return eintraege, kaputt
 
 
+def projekt_name(eintrag):
+    """Der Projektname EINES Eintrags — die einzige Stelle, die das entscheidet.
+
+    ⛔ known-issues #10: `BEFUNDE.md` meldete "Projekte | 16", es waren SECHS.
+       Vier Aufrufstellen entschieden das vorher jede fuer sich, zwei mit
+       `basename` und zwei ohne — ein Widerspruch INNERHALB einer Datei.
+
+    ⚠ Die Backslashes werden ZUERST ersetzt. `os.path` ist auf Windows `ntpath`
+      und nimmt beide Trenner; auf Posix waere es `posixpath`, und dort gaebe
+      `basename("C:\\CD\\...\\Projekt")` die GANZE Zeichenkette zurueck.
+      Ohne diese Zeile waere der Fehler dort zurueck, nur unsichtbarer.
+
+    ⚠ Zwei Projekte mit demselben Ordnernamen fallen zusammen. Bewusst: der
+      Bericht gruppiert nach dem, was ein Mensch als Projekt liest.
+    """
+    p = (eintrag.get("projekt") or "?").replace("\\", "/").rstrip("/")
+    return os.path.basename(p) or p
+
 def main():
     if len(sys.argv) < 2:
         print("Aufruf: debug_auswertung.py <debug-verzeichnis>", file=sys.stderr)
@@ -95,7 +113,7 @@ def main():
     for e in eintraege:
         nach_klasse[e["klasse"]].append(e)
 
-    projekte = {e.get("projekt", "?") for e in eintraege}
+    projekte = {projekt_name(e) for e in eintraege}   # #10: normalisiert
     laeufe = {e.get("lauf", "?") for e in eintraege}
 
     z = []
@@ -123,7 +141,7 @@ def main():
         z.append("|---|---|---|---|---|")
         for k, v in sorted(wiederholt, key=lambda x: -len(x[1])):
             ts = sorted(e.get("ts", "") for e in v)
-            pj = sorted({os.path.basename(e.get("projekt", "?")) for e in v})
+            pj = sorted({projekt_name(e) for e in v})
             z.append("| **%s** | **%d×** | %s | %s | %s |"
                      % (k, len(v), ts[0][:10] or "?", ts[-1][:10] or "?",
                         ", ".join(pj)[:60]))
@@ -161,7 +179,7 @@ def main():
         z.append("")
         for e in sorted(v, key=lambda x: x.get("ts", ""), reverse=True)[:8]:
             z.append("- `%s` %s · %s"
-                     % (e.get("ts", "?")[:16], os.path.basename(e.get("projekt", "?")),
+                     % (e.get("ts", "?")[:16], projekt_name(e),
                         e.get("kurz", "").replace("\n", " ")[:150]))
         if len(v) > 8:
             z.append("- … %d weitere" % (len(v) - 8))
