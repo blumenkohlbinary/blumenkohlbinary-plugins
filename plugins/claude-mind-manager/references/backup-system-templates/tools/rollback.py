@@ -112,6 +112,18 @@ def ziel_fuer(rel: str):
         return HOME / ".claude" / "CLAUDE.md", ""
     if r.startswith("global/rules/"):
         return HOME / ".claude" / "rules" / r[len("global/rules/"):], ""
+    # ⛔ v5.32.0: JEDER weitere globale Unterbaum, nicht nur die zwei oben.
+    #    `mind_snapshot` sichert seit v5.32.0 auch `global/skills/` (die fuenf
+    #    Commands, deren Volltext seit dem 23.08.2026 dort liegt und der in
+    #    KEINEM Repo steht). Ohne diese Zeile fiele er auf `PROJECT_ROOT / r`
+    #    durch und landete beim Restore in `<projekt>/global/skills/...`.
+    #    ⭐ Das ist WOERTLICH der Fehler, den backup-usage.md fuer `rules/`
+    #      beschreibt — eine Ebene weiter. Deshalb die ALLGEMEINE Regel, die
+    #      lib.sh im Kopf von mind_restore ohnehin schon nennt:
+    #          global/<pfad>  ->  $HOME/.claude/<pfad>
+    #      Damit ist auch jeder kuenftige Unterbaum gedeckt.
+    if r.startswith("global/"):
+        return HOME / ".claude" / r[len("global/"):], ""
     if r.startswith("rules/"):
         return PROJECT_ROOT / ".claude" / "rules" / r[len("rules/"):], ""
     if r.startswith("project/"):

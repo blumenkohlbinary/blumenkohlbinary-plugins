@@ -47,6 +47,12 @@ bau() {                       # -> Pfad des Projekts (echo)
   printf 'ALT-globalregel\n'       > "$S/global/rules/plan-mode.md"
   printf 'ALT-projekt-claudemd\n'  > "$S/CLAUDE.md"
   printf 'ALT-global-claudemd\n'   > "$S/global/CLAUDE.md"
+  # ⛔ v5.32.0: seit mind_snapshot auch `global/skills/` sichert, MUSS der
+  #    Rueckweg ihn kennen. Vorher fiel er auf `PROJECT_ROOT / r` durch und
+  #    haette die Commands nach <projekt>/global/skills/... geschrieben —
+  #    woertlich der Fehler, den backup-usage.md fuer `rules/` beschreibt.
+  mkdir -p "$S/global/skills/z-mount-rclone"
+  printf 'ALT-command-volltext\n'  > "$S/global/skills/z-mount-rclone/SKILL.md"
   printf 'ALT-memory\n'            > "$S/memory/thema.md"
   printf 'ALT-extra\n'             > "$S/project/knowledge/x.md"
   # Der lebende Stand, den der Restore ueberschreiben soll
@@ -97,6 +103,16 @@ janein "global/rules/ -> ~/.claude/rules/" ja "$A"
 # global/CLAUDE.md gehoert nach ~/.claude/CLAUDE.md
 grep -q "ALT-global-claudemd" "$D/heim/.claude/CLAUDE.md" 2>/dev/null && A=ja || A=nein
 janein "global/CLAUDE.md -> ~/.claude/CLAUDE.md" ja "$A"
+
+# ⭐ v5.32.0: global/skills/ gehoert nach ~/.claude/skills/ — der Volltext der
+#    fuenf Commands liegt seit dem 23.08.2026 dort und in KEINEM Repo.
+grep -q "ALT-command-volltext" "$D/heim/.claude/skills/z-mount-rclone/SKILL.md" 2>/dev/null && A=ja || A=nein
+janein "⭐ global/skills/ -> ~/.claude/skills/" ja "$A"
+
+# ⛔ GEGENPROBE: er darf NICHT im Projekt landen. Ohne sie waere die Zusicherung
+#    darueber auch dann gruen, wenn zusaetzlich eine Kopie am falschen Ort liegt.
+[ -e "$D/projekt/global" ] && A=ja || A=nein
+janein "⛔ NICHTS unter <projekt>/global/ gelandet" nein "$A"
 
 # GEGENKONTROLLE: die blanke CLAUDE.md war schon immer richtig
 grep -q "ALT-projekt-claudemd" "$D/proj/CLAUDE.md" 2>/dev/null && A=ja || A=nein

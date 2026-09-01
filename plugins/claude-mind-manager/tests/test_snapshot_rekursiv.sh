@@ -41,6 +41,16 @@ printf 'g-wurzel\n'       > "$D/heim/.claude/rules/plan-mode.md"
 printf 'g-unterordner\n'  > "$D/heim/.claude/rules/archiv-global/alt.md"
 printf '# P\n'            > "$D/proj/CLAUDE.md"
 printf '# G\n'            > "$D/heim/.claude/CLAUDE.md"
+# ⛔ v5.32.0 (known-issues #8): der Volltext der fuenf Commands liegt seit dem
+#    23.08.2026 unter ~/.claude/skills/ — und wurde bis v5.31.2 NICHT gesichert.
+#    Der Snapshot sicherte damit den ZEIGER in rules/ und nicht den INHALT.
+#    ~/.claude/ liegt in KEINEM Repo, der Sicherungs-Hook deckt skills/ nicht ab.
+# ⭐ Die .sh ist Absicht: der rules-Zweig filtert auf '*.md', der skills-Zweig
+#    darf das NICHT — ein Command darf ein Skript mitbringen, und genau das
+#    muesste gesichert werden.
+mkdir -p "$D/heim/.claude/skills/z-mount-rclone"
+printf 'command-volltext\n'  > "$D/heim/.claude/skills/z-mount-rclone/SKILL.md"
+printf 'echo hilfsskript\n'  > "$D/heim/.claude/skills/z-mount-rclone/hilfe.sh"
 
 S=$(lauf "$D")
 [ -n "$S" ] && [ -d "$S" ] && A=ja || A=nein
@@ -83,6 +93,21 @@ else
   A="kein-manifest"
 fi
 janein "MANIFEST enthaelt die Unterordner-Datei" ja "$A"
+
+# --- v5.32.0 · global/skills/ MUSS im Snapshot liegen -----------------------
+grep -q "command-volltext" "$S/global/skills/z-mount-rclone/SKILL.md" 2>/dev/null && A=ja || A=nein
+janein "⭐ global/skills/ ist im Snapshot" ja "$A"
+
+# ⭐ KEIN '*.md'-Filter: das Hilfsskript MUSS mit. Ohne diese Zusicherung waere
+#    ein Zweig, der nur Markdown sichert, im Positivfall gruen — und ein Command
+#    mit Skript verlore genau den Teil, der ihn ausfuehrbar macht.
+grep -q "hilfsskript" "$S/global/skills/z-mount-rclone/hilfe.sh" 2>/dev/null && A=ja || A=nein
+janein "⭐ auch NICHT-md wird gesichert (.sh)" ja "$A"
+
+# ⛔ GEGENPROBE: der Zweig darf nicht alles einsammeln. Was NICHT unter
+#    ~/.claude/skills liegt, hat dort nichts verloren.
+[ -e "$S/global/skills/plan-mode.md" ] && A=ja || A=nein
+janein "⛔ rules-Dateien landen NICHT unter global/skills/" nein "$A"
 
 rm -rf "$D"
 echo

@@ -731,6 +731,30 @@ EOF
 $(find "$HOME/.claude/rules" -name '*.md' -type f 2>/dev/null)
 EOF_GRULES
     fi
+    # ⛔ v5.32.0 (known-issues #8): SKILLS MITSICHERN.
+    #    Bis hierhin sicherte der Zweig den ZEIGER und nicht den INHALT. Seit
+    #    dem 23.08.2026 steht in `~/.claude/rules/` nur die Leitplanke; der
+    #    Volltext von `workstation-fernzugriff`, `virtuelle-bildschirme`,
+    #    `gui-pruefung-in-vm`, `workflow-agent-rate-limit` und `z-mount-rclone`
+    #    liegt unter `~/.claude/skills/`. Der Regelbestand fiel dabei von
+    #    135 227 auf 28 103 Byte — rund 107 KB Substanz wanderten aus dem Netz.
+    #    ⚠ `~/.claude/` liegt in KEINEM Repo, und der Sicherungs-Hook deckt
+    #      `skills/` nicht ab. Fuer diese Dateien gab es GAR KEINEN Rueckweg.
+    #    Gemessen vor dem Bau: 96 KB / 5 Dateien gegen 572 KB Snapshot = +17 %.
+    #    ⭐ KEIN `-name '*.md'`-Filter wie beim rules-Zweig darueber: heute sind
+    #      alle fuenf Markdown, aber ein Command darf Skripte mitbringen — und
+    #      genau die muessten gesichert werden. Fail-safe wie ueberall hier.
+    if [ -d "$HOME/.claude/skills" ]; then
+      mkdir -p "$snap/global/skills"
+      while IFS= read -r f; do
+        [ -n "$f" ] && [ -f "$f" ] || continue
+        _rel="${f#$HOME/.claude/skills/}"
+        mkdir -p "$snap/global/skills/$(dirname "$_rel")" 2>/dev/null
+        cp "$f" "$snap/global/skills/$_rel" 2>/dev/null && count=$((count+1))
+      done <<EOF_GSKILLS
+$(find "$HOME/.claude/skills" -type f 2>/dev/null)
+EOF_GSKILLS
+    fi
   else
     mind_log INFO "mind_snapshot: global ausgelassen (label=$label kann ~/.claude nicht schreiben)"
   fi
