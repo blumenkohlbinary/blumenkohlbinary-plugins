@@ -177,6 +177,22 @@ if [ -f "$_PP" ]; then
   fi
 fi
 
+# ⛔ v5.33.0: KONTEXT-WACHE — messen am Turn-Ende, MELDEN tut prompt-submit.sh.
+#    Gemessen 02.09.2026 ueber die Git-Historie dieses Projekts: 76 % des
+#    Zuwachses an CLAUDE.md und .claude/rules/ kommt aus HANDARBEIT und sah nie
+#    das Kontext-Tor (1991 Zeilen gegen 620 aus den Commands).
+#    ⛔ HIER WIRD NICHTS AUSGEGEBEN. stop.sh gibt JSON aus; ein `echo` daneben
+#       ergaebe zwei Ausgaben in einem stdout — der v5.7.6-Fehler.
+#    ⚠ Fail-open in jeder Richtung: schlaegt die Wache fehl, passiert nichts.
+#      stop.sh ist der einzige Hook mit Zwangswirkung und darf an einem
+#      Melder nicht haengenbleiben.
+_KW="${CLAUDE_PLUGIN_ROOT:-}/hooks/kontext-wache.sh"
+if [ -f "$_KW" ]; then
+  if bash "$_KW" "$PROJ" >/dev/null 2>&1; then
+    _slog INFO "Kontext gewachsen — Merker gesetzt, Meldung folgt beim naechsten Prompt"
+  fi
+fi
+
 # --- SCHNELLPFAD: keine Schuld -> still, aber nachweisbar ---
 if [ ! -f "$OPEN" ]; then
   # v5.7.0: KEINE Schuld, aber die Token-Schwelle ist ueberschritten und in diesem Zyklus

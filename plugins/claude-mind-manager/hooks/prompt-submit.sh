@@ -244,6 +244,52 @@ Ein /mind-all traegt diese Arbeit in die Context-Dateien. Danach ist der Zaehler
 fi
 
 
+# ===== v5.33.0: der Kontext ist gewachsen — auch OHNE Command ===============
+# ⛔ Gemessen 02.09.2026 an der Git-Historie: 76 % des Zuwachses an CLAUDE.md
+#    und .claude/rules/ entsteht durch HANDARBEIT und sieht nie das Kontext-Tor
+#    (1991 hinzugefuegte Zeilen gegen 620 aus den fuenf Commands, 117 Commits
+#    gegen 43). Das Tor greift nur bei ADD/NEW_FILE INNERHALB der Commands.
+# ⛔ ES SPERRT NICHT. Handarbeit an Context-Dateien ist legitim; eine Sperre
+#    wuerde richtige Arbeit blockieren. Der Zweck ist, sie sichtbar zu machen.
+# ⚠ Diese Meldung steht ABSICHTLICH ganz unten, nach Uebergabe, Token-Zwang und
+#   Sync-Schuld und direkt vor dem stillen Ausstieg. Sie ist die unwichtigste
+#   der vier; ein Kontext-Hinweis, der eine Rettungsdatei verdeckt, waere ein
+#   Schaden.
+_KWM="$PROJ/.claude-mind/KONTEXT-GEWACHSEN"
+if [ -f "$_KWM" ] && [ "$_PLAN_STILL" != "ja" ]; then
+  _KV=$(grep -m1 '^vorher=' "$_KWM" 2>/dev/null | cut -d= -f2)
+  _KJ=$(grep -m1 '^jetzt='  "$_KWM" 2>/dev/null | cut -d= -f2)
+  _KD=$(grep -m1 '^delta='  "$_KWM" 2>/dev/null | cut -d= -f2)
+  # ⛔ VERBRAUCHEN, bevor ausgegeben wird. Bleibt der Merker liegen, meldet es
+  #    bei JEDEM Prompt dieselbe Zahl — und ein Melder, der sich wiederholt,
+  #    wird abgeschaltet.
+  rm -f "$_KWM" 2>/dev/null
+  case "${_KD:-}" in ''|*[!0-9]*) _KD="" ;; esac
+  if [ -n "$_KD" ]; then
+    _MSGW="[Mind Manager] Der IMMER geladene Kontext ist um $_KD Zeilen gewachsen ($_KV -> $_KJ).
+
+Das ist KEIN Fehler und blockt nichts — Handarbeit an Context-Dateien ist normal.
+Es ist eine Erinnerung: dieser Zuwachs ist an den fuenf Context-Commands vorbei
+entstanden und hat deshalb das Kontext-Tor nie gesehen.
+
+Die acht Fragen, kurz:
+  A1 selbsterklaerend?   A2 noch wahr?      A3 Regel oder Historie?
+  B1 steht es schon woanders?   B2 im Code?   B3 wirkt es an DIESEM Ort?
+  C1 hart formuliert?    C2 befolgbar?
+
+Wenn ja: nichts tun. Wenn nein: `/mind-cleaner` raeumt auf.
+Bestand messen: mind_kontext_bilanz \"\$PROJ\" --vergleichen"
+    _slog INFO "Kontext-Zuwachs gemeldet: +$_KD ($_KV -> $_KJ)"
+    if command -v jq >/dev/null 2>&1; then
+      jq -nc --arg ctx "$_MSGW" \
+        '{hookSpecificOutput:{hookEventName:"UserPromptSubmit", additionalContext:$ctx}}'
+    else
+      echo "$_MSGW"
+    fi
+    exit 0
+  fi
+fi
+
 # --- SCHNELLPFAD: keine Schuld -> absolut still, sofort raus ---
 [ -f "$OPEN" ] || exit 0
 
