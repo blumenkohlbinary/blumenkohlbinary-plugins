@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Das Kontext-Tor — neun Fragen, bevor eine Zeile Dauerkontext kostet.
+"""Das Kontext-Tor — acht Fragen, bevor eine Zeile Dauerkontext kostet.
 
     Rules, Dokus, CLAUDE.md und Memory existieren AUSSCHLIESSLICH fuer das,
     was Claude nicht ohnehin weiss.
@@ -7,7 +7,7 @@
 Bis v5.25.0 arbeitete das Plugin nur RUECKWAERTS: es prueft Bestaende, die
 schon da sind. Es gab kein Tor beim HINEINschreiben — deshalb waechst alles.
 
-## Die neun Fragen
+## Die acht Fragen
 
   A  braucht es die AUSSAGE?      A1 weiss das Modell es ohnehin?
                                   A2 ist es noch wahr?
@@ -277,7 +277,7 @@ def unspezifisch(s):
     Regel ohne benanntes Verhalten ist Dekoration und kostet dasselbe wie
     eine, die traegt.
 
-    ⚠ SCHWAECHSTE der neun Fragen — hohe Fehlalarmquote. Sie wird deshalb
+    ⚠ SCHWAECHSTE der acht Fragen — hohe Fehlalarmquote. Sie wird deshalb
       GETRENNT ausgewiesen und steht im Bericht hinter allen anderen.
     """
     s = s.strip()

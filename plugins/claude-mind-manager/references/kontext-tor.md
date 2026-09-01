@@ -20,7 +20,7 @@ schon da sind. Es gab **kein Tor beim Hineinschreiben.** Deshalb wächst alles.
 
 ---
 
-## Die neun Fragen
+## Die acht Fragen
 
 ### Gruppe A — braucht es die AUSSAGE überhaupt?
 

@@ -579,7 +579,7 @@ mind_debug_write "$PROJ" "mind-cleaner" "$ABSCHNITT" "$BEFUNDE"
 ```
 
 **Bis v5.20.1 protokollierte KEIN einziges Cleaner-Werkzeug** — `grep -c "mind_log|logging"`
-über alle neun ergab **0**, und `/mind-cleaner` meldete **nichts** an `MIND_DEBUG_DIR`,
+über alle acht ergab **0**, und `/mind-cleaner` meldete **nichts** an `MIND_DEBUG_DIR`,
 während `/mind-all` es tut.
 
 ⛔ **Die Folge ist gemessen:** die zwei Werkzeugfehler vom 25.08.2026 (positionales Argument
