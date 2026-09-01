@@ -1855,3 +1855,110 @@ mind_plan_pause() {
     "$(( alter / 60 ))" "${plan:+ ($plan)}" "$n" "$grenze" "$(( (h * 3600 - alter) / 60 ))"
   return 0
 }
+
+# ===== v5.30.0: Sperre gegen PARALLELE /mind-all-Laeufe im selben Ordner ======
+#
+# ⛔ DER BEFUND kam aus dem Projekt `Creator` (30.08.2026) und ist in DIESEM
+#    Projekt unabhaengig nachgemessen worden:
+#
+#      grep -rciE 'flock|lockfile|\.lock|mkdir .*lock'  ->  0 in lib.sh
+#                                                           0 in mind-all/SKILL.md
+#      mind-all/SKILL.md:158   `: > "$SCOPES_FILE"`     ->  bedingungslos
+#      mind-all/SKILL.md:493   `grep -c '^skill='`      ->  zaehlt ALLE Zeilen
+#
+#    `SCOPES_FILE` liegt PRO PROJEKT, nicht pro Sitzung. Der Stop-Hook feuert
+#    dagegen PRO SITZUNG. Zwei Chats im selben Ordner = zwei Laeufe auf einer
+#    Datei.
+#
+# ⭐ WARUM DAS MEHR IST ALS EINE UEBERSCHRIEBENE DATEI: aus `SCOPES_FILE` wird
+#    `SYNC_LIEF` abgeleitet, und daran haengt `rm -f "$OPEN"`. Zwei Laeufe, die
+#    ihre `skill=`-Zeilen an DIESELBE Datei haengen, kommen zusammen auf 5 —
+#    und tilgen die Sync-Schuld fuer Arbeit, die KEIN EINZELNER Lauf geleistet
+#    hat. Die naechste Kompaktierung findet dann keinen Merker mehr, und die
+#    Rettungsdatei wird nie eingespeist.
+#
+# ⛔ KEIN flock. Auf Git-Bash/MSYS unzuverlaessig. `mkdir` ist atomar, und das
+#    ist auf DIESEM Aufbau gemessen: 40 gleichzeitige `mkdir` auf dasselbe
+#    Verzeichnis -> genau 1 gewinnt; Gegenprobe: ein zweiter `mkdir` auf das
+#    bestehende Verzeichnis wird abgewiesen. (Dieselbe Messung kam aus
+#    `Creator`, hier unabhaengig wiederholt.)
+#
+# ⛔ NICHT auf `CLAUDE_SESSION_ID` bauen — sie ist in einer Skill-Bash LEER
+#    (gemessen). Ein Waechter darauf matcht gegen den leeren String, zaehlt
+#    ALLE Zeilen auch fremde, und SIEHT AUS als greife er. Das waere schlimmer
+#    als keine Sperre: ein Instrument, das im Ausfall schweigt.
+#    Die Laufkennung kommt deshalb aus `basename "$SNAPSHOT"` — je Lauf
+#    eindeutig, weil der Zeitstempel im Namen steht, und ohne Abhaengigkeit
+#    von einer Variablen, die es nicht gibt.
+
+MIND_LAUF_LOCK_MAXAGE="${MIND_LAUF_LOCK_MAXAGE:-7200}"   # 2 h
+
+mind_lauf_sperre() {
+  # $1 = Projekt, $2 = Laufkennung (basename des Snapshots)
+  # -> 0 = Sperre gehoert JETZT uns · 1 = ein anderer Lauf haelt sie
+  # Bei Rueckgabe 1 steht die Begruendung auf stdout.
+  local proj="${1:-}" lauf="${2:-unbekannt}" lock alt ts alter
+  [ -n "$proj" ] || return 1
+  lock="$proj/.claude-mind/mind-all.lock"
+  mkdir -p "$proj/.claude-mind" 2>/dev/null
+
+  if mkdir "$lock" 2>/dev/null; then
+    printf '%s' "$lauf"        > "$lock/lauf" 2>/dev/null
+    date +%s                   > "$lock/ts"   2>/dev/null
+    return 0
+  fi
+
+  # Belegt. Verwaist oder lebendig?
+  alt=$(cat "$lock/lauf" 2>/dev/null)
+  ts=$(cat "$lock/ts" 2>/dev/null)
+  case "$ts" in ''|*[!0-9]*) ts=0 ;; esac
+  alter=$(( $(date +%s) - ts ))
+
+  if [ "$ts" -gt 0 ] 2>/dev/null && [ "$alter" -lt "$MIND_LAUF_LOCK_MAXAGE" ] 2>/dev/null; then
+    printf 'ABBRUCH: /mind-all laeuft bereits in diesem Ordner (Lauf %s, seit %d min).\n' \
+      "${alt:-?}" "$(( alter / 60 ))"
+    printf 'Ein zweiter Lauf wuerde die Laufspur des ersten ueberschreiben — und ihre\n'
+    printf 'Summe koennte die Sync-Schuld fuer Arbeit tilgen, die kein Lauf geleistet hat.\n'
+    return 1
+  fi
+
+  # ⚠ Verwaist (kein Zeitstempel oder aelter als die Grenze). Uebernehmen —
+  #   aber SAGEN, dass uebernommen wurde. Eine stillschweigend uebernommene
+  #   Sperre ist von einer funktionierenden nicht zu unterscheiden.
+  rm -rf "$lock" 2>/dev/null
+  if mkdir "$lock" 2>/dev/null; then
+    printf '%s' "$lauf" > "$lock/lauf" 2>/dev/null
+    date +%s            > "$lock/ts"   2>/dev/null
+    mind_log WARN "mind-all.lock war verwaist (Lauf ${alt:-?}, Alter ${alter}s) — uebernommen" 2>/dev/null
+    return 0
+  fi
+  printf 'ABBRUCH: mind-all.lock ist belegt und liess sich nicht uebernehmen.\n'
+  return 1
+}
+
+mind_lauf_frei() {
+  # ⛔ Gibt die Sperre NUR frei, wenn sie uns gehoert. Sonst raeumt ein
+  #    abbrechender Zweitlauf dem Erstlauf die Sperre weg.
+  local proj="${1:-}" lauf="${2:-}" lock alt
+  [ -n "$proj" ] || return 1
+  lock="$proj/.claude-mind/mind-all.lock"
+  [ -d "$lock" ] || return 0
+  alt=$(cat "$lock/lauf" 2>/dev/null)
+  if [ -n "$lauf" ] && [ -n "$alt" ] && [ "$alt" != "$lauf" ]; then
+    mind_log WARN "mind-all.lock gehoert Lauf $alt, nicht $lauf — NICHT freigegeben" 2>/dev/null
+    return 1
+  fi
+  rm -rf "$lock" 2>/dev/null
+  return 0
+}
+
+mind_lauf_kennung() {
+  # Die Laufkennung: basename des Snapshots. Je Lauf eindeutig (Zeitstempel im
+  # Namen), und unabhaengig von jeder Umgebungsvariablen.
+  # ⚠ Ohne Snapshot (Probelauf) gibt es keine Kennung — dann `probelauf`,
+  #   damit die Marken trotzdem zaehlbar bleiben und nicht mit einem echten
+  #   Lauf verwechselt werden.
+  local snap="${1:-}"
+  if [ -z "$snap" ]; then printf 'probelauf'; return 0; fi
+  printf '%s' "$(basename "$snap")"
+}

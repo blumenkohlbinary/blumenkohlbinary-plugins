@@ -150,6 +150,26 @@ if [ "$DRY_RUN" = "no" ]; then
   fi
 fi
 
+# ⛔ v5.30.0: SPERRE GEGEN PARALLELE LAEUFE — direkt nach dem Snapshot, weil
+#    die Laufkennung aus seinem Namen kommt.
+#    Befund aus `Creator` (30.08.2026), hier unabhaengig nachgemessen:
+#    `SCOPES_FILE` liegt PRO PROJEKT, der Stop-Hook feuert PRO SITZUNG. Zwei
+#    Chats im selben Ordner haengen ihre `skill=`-Zeilen an DIESELBE Datei,
+#    ihre Summe erreicht 5, `SYNC_LIEF` geht auf "ja" — und `rm -f "$OPEN"`
+#    tilgt die Schuld fuer Arbeit, die KEIN EINZELNER Lauf geleistet hat.
+#    ⚠ Kein flock (auf MSYS unzuverlaessig). `mkdir` ist atomar; auf diesem
+#      Aufbau gemessen: 40 gleichzeitig -> genau 1 gewinnt, Gegenprobe
+#      abgewiesen.
+LAUF=$(mind_lauf_kennung "${SNAPSHOT:-}")
+if [ "$DRY_RUN" = "no" ]; then
+  if ! _SPERRE=$(mind_lauf_sperre "$PROJ" "$LAUF"); then
+    echo "$_SPERRE" >&2
+    exit 0    # ⛔ 0, NICHT 1 — kein Fehler, sondern die richtige Antwort.
+              #   Ein Rueckgabewert 1 saehe im Log wie ein kaputter Lauf aus.
+  fi
+  trap 'mind_lauf_frei "$PROJ" "$LAUF"' EXIT
+fi
+
 # Kettenmarke — NUR wenn ein Snapshot existiert (C2-Fix: im Probelauf keine Marke,
 # sonst behauptet sie ein Netz, das es nicht gibt). Enthaelt den Snapshot-PFAD, damit die
 # Einzel-Skills pruefen koennen ob er wirklich da ist.
@@ -276,8 +296,16 @@ Fuer jeden der 5 in der Reihenfolge oben:
    Flags (`AUTO_MODE`/`DRY_RUN`). Kein erneuter Snapshot (Step 0 hat ihn).
 2. **Laufspur schreiben — PFLICHT, nach JEDEM der fuenf** (NEU v5.19.0):
    ```bash
-   echo "skill=<name>" >> "$SCOPES_FILE"   # nach jedem der 5, ohne Ausnahme
+   echo "skill=<name>|$LAUF" >> "$SCOPES_FILE"   # nach jedem der 5, ohne Ausnahme
    ```
+   ⛔ **v5.30.0: die Laufkennung `|$LAUF` ist PFLICHT.** Sie ist der Teil, der
+   eine Kollision **erkennbar** macht, wenn die Sperre versagt — die Sperre
+   allein verhindert sie nur. Ohne die Kennung entsteht ein Instrument, das im
+   Ausfall schweigt (`werkzeuge-zuerst.md`).
+   ⛔ **Sie kommt aus `basename "$SNAPSHOT"`, NICHT aus `CLAUDE_SESSION_ID`.**
+   Die ist in einer Skill-Bash **leer** (gemessen); ein Waechter darauf matcht
+   gegen den leeren String, zaehlt **alle** Zeilen auch fremde, und **sieht aus,
+   als greife er**. Das waere schlimmer als keine Sperre.
    ⛔ **Eigener Schluessel, bewusst getrennt von den Scope-Marken unten.** `skill=` sagt
    *„dieser Teil lief"*, die Scope-Marken sagen *„diese Analyse ist in diesem Modus schon
    gelaufen"* — zwei verschiedene Aussagen. Sie in einen Schluessel zu legen haette die
@@ -360,6 +388,12 @@ nicht killen — sonst bleibt der Context halb aktualisiert zurueck.
 
 ```bash
 [ -f "$SCOPES_FILE" ] && mv -f "$SCOPES_FILE" "${SCOPES_FILE}.done" 2>/dev/null
+# ⛔ v5.30.0: Sperre freigeben — NUR die eigene. `mind_lauf_frei` prueft die
+#    Kennung; ein abbrechender Zweitlauf raeumt dem Erstlauf nichts weg.
+#    ⚠ Der `trap` aus Step 0 faengt den Abbruchfall; dieser Aufruf ist der
+#      Normalweg und macht die Freigabe im Bericht sichtbar.
+[ "$DRY_RUN" = "no" ] && mind_lauf_frei "$PROJ" "${LAUF:-}" \
+  && echo "Sperre freigegeben (Lauf ${LAUF:-?})."
 ```
 
 **Warum das kein Beiwerk ist:** Die Einzel-Skills erkennen die Kette an dieser Datei und
@@ -490,7 +524,18 @@ untaugliche Belegquelle ersetzt.
 ```bash
 # --- Was ist tatsaechlich gelaufen? Aus der Spur, nicht aus der Erinnerung. ---
 _SF="$SCOPES_FILE"; [ -f "$_SF" ] || _SF="${SCOPES_FILE}.done"   # Step 2.9 hat umbenannt
-_SKILL_IST=$(grep -c '^skill=' "$_SF" 2>/dev/null); _SKILL_IST=${_SKILL_IST:-0}
+# ⛔ v5.30.0: NUR DIE EIGENEN MARKEN ZAEHLEN. Vorher zaehlte `grep -c '^skill='`
+#    jede Zeile der geteilten Datei — auch die eines fremden Laufs. Genau daraus
+#    entstand die Gefahr: zwei Laeufe, deren Summe 5 erreicht, tilgen gemeinsam
+#    eine Schuld, die keiner von beiden abgearbeitet hat.
+#    ⚠ Faellt `$LAUF` aus (leer), wird auf die alte Zaehlung zurueckgefallen —
+#      fail-safe Richtung "eher Teilsync": lieber eine Mahnung zu viel.
+if [ -n "${LAUF:-}" ]; then
+  _SKILL_IST=$(grep -c "^skill=.*|$LAUF\$" "$_SF" 2>/dev/null)
+else
+  _SKILL_IST=$(grep -c '^skill=' "$_SF" 2>/dev/null)
+fi
+_SKILL_IST=${_SKILL_IST:-0}
 _SKILL_SOLL=5
 
 _BILANZ="$PROJ/.claude-mind/lauf-bilanz.txt"
