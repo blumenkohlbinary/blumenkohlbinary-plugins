@@ -138,6 +138,54 @@ try:
               for d in danach[1:]) and danach[1] == FIXTURE[1])
 
     print()
+    print("=== 3b) --repo: der Beleg wird GEPRUEFT, nicht geglaubt ===")
+    # ⛔ DIESE VIER FAELLE FEHLTEN, und ihr Fehlen hat sofort gekostet. Die erste
+    #    Fassung dieser Sammlung fuhr --repo NIE. Beim ERSTEN echten Einsatz starb
+    #    der Zweig mit UnboundLocalError: ein `import subprocess` im Rumpf von main()
+    #    machte den Namen fuer die ganze Funktion lokal. 24 gruene Faelle, und der
+    #    einzige Pfad mit echter Aussenwirkung war ungeprueft.
+    # ⛔ ZWEI Dirnames, nicht drei: WURZEL ist <repo>/plugins/claude-mind-manager.
+    #    Meine erste Fassung nahm drei und landete EINE Ebene ueber dem Repo — der
+    #    Fall wurde dadurch stillschweigend uebersprungen und sah wie bestanden aus.
+    REPO = os.path.dirname(os.path.dirname(WURZEL))
+    ist_repo = os.path.isdir(os.path.join(REPO, ".git"))
+
+    def fixture_neu():
+        with io.open(idx, "w", encoding="utf-8", newline="\n") as f:
+            for e in FIXTURE:
+                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+
+    if ist_repo:
+        fixture_neu()
+        r = lauf("--behoben", "1", "--commit", "1e6f718", "--repo", REPO)
+        pruef("⭐ echter Commit im echten Repo -> rc 0", r.returncode == 0,
+              "(rc=%s · %s)" % (r.returncode, (r.stderr or "").strip()[:90]))
+        pruef("   ... und die Ausgabe nennt die Existenzpruefung",
+              "Existenz in" in (r.stdout or ""))
+        fixture_neu()
+        r = lauf("--behoben", "1", "--commit", "0123456789abcdef", "--repo", REPO)
+        pruef("⛔ formgueltiger, aber NICHT existierender Commit -> rc 2",
+              r.returncode == 2, "(rc=%s)" % r.returncode)
+        # ⛔ Genau auf EINTRAG 1 pruefen, nicht auf die ganze Datei. FIXTURE[3]
+        #    traegt selbst ein `status`-Feld (bewusst, ohne commit) — eine Suche
+        #    ueber die Datei findet es immer und ist damit blind fuer den Fall.
+        z1 = json.loads(io.open(idx, encoding="utf-8").readline())
+        pruef("   ... und Eintrag 1 bleibt dabei ungeschlossen",
+              "status" not in z1 and "commit" not in z1, "(%s)" % z1.get("status"))
+    else:
+        print("  [uebersprungen] kein Git-Repo unter %s — ein uebersprungener Fall\n"
+              "                  ist KEIN bestandener" % REPO)
+
+    # ⛔ Zeile 1 ist der ZUSTAND-Befund. Meine erste Fassung nahm Zeile 3 — die ist
+    #    `unbestimmt` und wird korrekt abgelehnt; der Fall pruefte also die
+    #    Ablehnung und nannte sich Formpruefung.
+    fixture_neu()
+    r = lauf("--behoben", "1", "--commit", "1e6f718")
+    pruef("⚠ OHNE --repo laeuft nur die Formpruefung, und sie sagt es",
+          r.returncode == 0 and "Form" in (r.stdout or ""),
+          "(rc=%s)" % r.returncode)
+
+    print()
     print("=== 4) BEFUNDE.md — der dreiteilige Abschnitt ===")
     r = subprocess.run([sys.executable, AUSWERTUNG, tmp],
                        capture_output=True, text=True, encoding="utf-8",

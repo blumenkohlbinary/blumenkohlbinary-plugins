@@ -205,7 +205,10 @@ def main():
         #    die Zeile an cmd.exe weiter, das daran scheitert — gemessen:
         #    "Die Syntax fuer den Dateinamen ... ist falsch", und die Auswertung lief
         #    still gar nicht. subprocess mit LISTE hat das Problem nicht.
-        import subprocess
+        # ⛔ NICHT hier importieren. Ein `import` IM Rumpf macht den Namen fuer die
+        #    GANZE Funktion lokal — der Aufruf in --behoben (weiter oben) starb
+        #    dadurch mit UnboundLocalError. Gefunden beim ERSTEN echten Einsatz,
+        #    nicht von der Pruefsammlung: die fuhr --repo nie. Import steht oben.
         r = subprocess.run([sys.executable, aus, d], capture_output=True,
                            text=True, encoding="utf-8", errors="replace")
         if r.returncode == 0:
