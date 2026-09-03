@@ -27,12 +27,19 @@ Aufruf:
   debug_aufraeumen.py <debug-dir> --scanner-neu <neue.jsonl>   Scanner-Zeilen ersetzen
   debug_aufraeumen.py <debug-dir> --verwaiste                  Laufdateien ohne Befunde weg
   debug_aufraeumen.py <debug-dir> --entferne-lauf <name>       einen Laufbericht entfernen
+  debug_aufraeumen.py <debug-dir> --behoben <zeile> --commit <sha> [--repo <dir>]
+                                                              einen ZUSTAND-Befund schliessen
 Rueckgabe: 0 = erledigt · 1 = kein index.jsonl · 2 = Aufruffehler
 """
 import json
 import os
 import shutil
+import subprocess
+import re
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from debug_auswertung import art  # noqa: E402
 import time
 
 sys.stdout.reconfigure(encoding="utf-8", newline="")
@@ -102,6 +109,63 @@ def main():
         print("  historische Befunde unberuehrt: %d" % len(behalten))
         print("  index.jsonl: %d -> %d Zeilen" % (len(alt), len(behalten) + len(neu)))
         alt = behalten + neu
+
+    if "--behoben" in sys.argv:
+        # ⛔ EIN BEFUND WIRD NUR MIT COMMIT-BELEG GESCHLOSSEN (Punkt 14, v5.35.0).
+        #    Ohne diese Bedingung koennte ein Lauf seine eigenen Befunde
+        #    wegschreiben — ein Zaehler, der sich selbst leerraeumt, waere
+        #    schlimmer als der heutige, der nur waechst.
+        try:
+            nr = int(sys.argv[sys.argv.index("--behoben") + 1])
+        except (IndexError, ValueError):
+            print("--behoben braucht eine ZEILENNUMMER (1-basiert)", file=sys.stderr)
+            return 2
+        if "--commit" not in sys.argv:
+            print("--behoben verlangt --commit <sha>. Ohne Beleg wird nichts "
+                  "geschlossen.", file=sys.stderr)
+            return 2
+        try:
+            sha = sys.argv[sys.argv.index("--commit") + 1].strip()
+        except IndexError:
+            print("--commit ohne Wert", file=sys.stderr)
+            return 2
+        if not re.fullmatch(r"[0-9a-fA-F]{7,40}", sha):
+            print("kein gueltiger Commit-Hash: %r (7-40 hex)" % sha, file=sys.stderr)
+            return 2
+        if nr < 1 or nr > len(alt):
+            print("Zeile %d gibt es nicht (index.jsonl hat %d)" % (nr, len(alt)),
+                  file=sys.stderr)
+            return 2
+        e = alt[nr - 1]
+
+        # ⛔ Ein EREIGNIS wird nie geschlossen. Was passiert ist, ist passiert —
+        #    das steht seit v5.9.2 oben in diesem Docstring und heisst dort
+        #    Geschichtsfaelschung.
+        a = art(e)
+        if a != "zustand":
+            print("Zeile %d ist '%s', kein ZUSTAND — wird nicht geschlossen.\n"
+                  "  %s" % (nr, a, e.get("kurz", "")[:120]), file=sys.stderr)
+            return 2
+
+        # Der Beleg wird GEPRUEFT, wenn ein Repo genannt ist — nicht geglaubt.
+        # ⚠ Ohne --repo bleibt es eine Formpruefung. Das steht in der Ausgabe,
+        #   damit niemand eine Formpruefung fuer eine Existenzpruefung haelt.
+        geprueft = "Form"
+        if "--repo" in sys.argv:
+            repo = sys.argv[sys.argv.index("--repo") + 1]
+            r = subprocess.run(["git", "-C", repo, "cat-file", "-e", sha + "^{commit}"],
+                               capture_output=True)
+            if r.returncode != 0:
+                print("Commit %s gibt es in %s nicht" % (sha, repo), file=sys.stderr)
+                return 2
+            geprueft = "Existenz in " + repo
+
+        e["status"] = "behoben"
+        e["commit"] = sha
+        schreib(idx, alt)
+        print("  Zeile %d als BEHOBEN vermerkt (Beleg geprueft: %s)" % (nr, geprueft))
+        print("    %s" % e.get("kurz", "")[:140])
+        print("    commit=%s" % sha)
 
     if "--entferne-lauf" in sys.argv:
         name = sys.argv[sys.argv.index("--entferne-lauf") + 1]

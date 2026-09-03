@@ -19,6 +19,7 @@ Rueckgabe: 0 = geschrieben · 1 = kein index.jsonl · 2 = Aufruffehler
 """
 import json
 import os
+import re
 import sys
 from collections import defaultdict
 
@@ -79,6 +80,76 @@ def lies(pfad):
                 kaputt += 1
     return eintraege, kaputt
 
+
+# --- Punkt 14: Art und Status je EINTRAG (NEU v5.35.0) -----------------------
+#
+# ⛔ JE EINTRAG, NIE JE KLASSE. Gemessen an `instrument-misst-nichts` (90 Eintraege):
+#    22 nennen ein benanntes Werkzeug als fehlerhaft und sind damit behebbar, 68
+#    nicht. Eine Trennung nach KLASSE haette die 22 zu unantastbarer Geschichte
+#    erklaert — derselbe Fehler wie das umgekehrte Schliessen von Logbucheintraegen,
+#    nur in die andere Richtung.
+#
+# ⛔ DIE WERKZEUGNENNUNG IST EIN FORMMERKMAL. Sie liefert KANDIDATEN, keine Urteile
+#    — dieselbe Doktrin wie das Kontext-Tor und wie cleaner_leitplanke.py.
+#
+# ⛔ UND DIE ABWESENHEIT EINES NAMENS BELEGT NICHTS. "nennt kein Werkzeug, also
+#    Bedienfehler" waere aus einem Nicht-Treffer ein Befund gemacht — woertlich die
+#    Klasse, die hier gezaehlt wird. Deshalb gibt es einen DRITTEN Wert, und
+#    `unbestimmt` ist die ehrliche Mehrheit, kein Rest.
+#
+# ⚠ DIESER AUSDRUCK IST DAS ORIGINAL, kein Nachbau. Beim Abstimmen dieser Aenderung
+#   haben Manager und Arbeiter zwei verschiedene Fassungen gemessen (22 gegen 19) —
+#   dem Nachbau fehlten `.sh` und `cleaner_*`. Das ist die Klasse
+#   `instrument-nachgebaut`, live erzeugt im Gespraech ueber ein Werkzeug, das
+#   Nachbauten zaehlt. Wer ihn aendert, misst den Bestand neu und sagt die Zahl dazu.
+_WERKZEUG = re.compile(
+    r"\b(mind_[a-z_]+|[a-z_]+\.py|[a-z_]+\.sh|claudemd_pipeline"
+    r"|zaehl_gate|cleaner_[a-z]+|Check \d+)\b")
+
+# Selbstbericht: der Verfasser nennt sich als Verursacher. Ebenfalls Formmerkmal.
+_SELBST = re.compile(
+    r"\b(?:ich|mein|meine|meinem|meiner|eigener|eigene|eigenen)\b", re.I)
+
+
+def art(eintrag):
+    """zustand | ereignis | unbestimmt — Formmerkmale, kein Urteil.
+
+    zustand     nennt ein benanntes Werkzeug als fehlerhaft -> behebbar
+    ereignis    Selbstbericht ohne Werkzeugnennung -> passiert, nicht behebbar
+    unbestimmt  keins von beidem ODER BEIDES
+
+    ⛔ BEIDES -> unbestimmt, nicht zustand. "ich habe session_sampler.py falsch
+       aufgerufen" ist ein Bedienfehler und kein Werkzeugdefekt; "mind_agent_bilanz
+       meldet DISPATCH=0, obwohl ich vier Agenten startete" ist einer. Der
+       Unterschied ist eine BEDEUTUNGSFRAGE. Sie wird ausgewiesen, nicht geraten.
+    """
+    t = eintrag.get("kurz", "") or ""
+    w = bool(_WERKZEUG.search(t))
+    s = bool(_SELBST.search(t))
+    if w and not s:
+        return "zustand"
+    if s and not w:
+        return "ereignis"
+    return "unbestimmt"
+
+
+def status_von(eintrag):
+    """offen | behoben — behoben NUR mit Commit-Beleg.
+
+    ⛔ `status: behoben` OHNE `commit` bleibt OFFEN. Das ist die Negativkontrolle des
+       ganzen Mechanismus: ohne sie koennte ein Lauf seine eigenen Befunde
+       wegschreiben, und der Zaehler waere schlechter als der heutige, der nur waechst.
+    ⛔ Und ein `ereignis` kann NIE behoben sein. Was passiert ist, ist passiert — das
+       steht seit v5.9.2 im Docstring von debug_aufraeumen.py und heisst dort
+       Geschichtsfaelschung.
+    """
+    if art(eintrag) == "ereignis":
+        return "offen"
+    st = (eintrag.get("status") or "").strip().lower()
+    commit = (eintrag.get("commit") or "").strip()
+    if st == "behoben" and commit:
+        return "behoben"
+    return "offen"
 
 def projekt_name(eintrag):
     """Der Projektname EINES Eintrags — die einzige Stelle, die das entscheidet.
@@ -162,6 +233,75 @@ def main():
     z.append("| Projekt / Methode — gehoert in das jeweilige Projekt | %d | %d |"
              % (sum(len(v) for v in projekt.values()), len(projekt)))
     z.append("")
+    # --- Punkt 14: Art und Status (NEU v5.35.0) ------------------------------
+    #
+    # ⛔ Bis v5.34.0 konnte ein Befund nur ENTSTEHEN, nie geschlossen werden. Der
+    #    Bestand wuchs 2 -> 333 in 14 Tagen, an keinem Tag abwaerts, waehrend
+    #    known-issues.md sechs Eintraege als BEHOBEN fuehrte. Zwei Buchfuehrungen,
+    #    eine davon blind.
+    nach_art = {"zustand-offen": [], "zustand-behoben": [],
+                "ereignis": [], "unbestimmt": []}
+    for e in eintraege:
+        a = art(e)
+        if a == "zustand":
+            nach_art["zustand-behoben" if status_von(e) == "behoben"
+                     else "zustand-offen"].append(e)
+        else:
+            nach_art[a].append(e)
+
+    z.append("## Art und Status")
+    z.append("")
+    z.append("⛔ **Eingeordnet wird je EINTRAG, nie je Klasse.** Gemessen an "
+             "`instrument-misst-nichts` (90 Eintraege): 22 nennen ein benanntes "
+             "Werkzeug als fehlerhaft und sind behebbar, 68 nicht. Eine Trennung "
+             "nach Klasse haette die 22 zu unantastbarer Geschichte erklaert.")
+    z.append("")
+    z.append("⛔ **Die Werkzeugnennung ist ein FORMMERKMAL — Kandidaten, keine "
+             "Urteile.** Und **behoben** wird ein Befund nur mit **Commit-Beleg** "
+             "(`status` + `commit`), nie automatisch. Ein Zaehler, der sich selbst "
+             "leerraeumt, waere schlimmer als einer, der nur waechst.")
+    z.append("")
+    z.append("| | Befunde |")
+    z.append("|---|---|")
+    z.append("| **ZUSTAND — offen** (nennt ein Werkzeug, behebbar) | **%d** |"
+             % len(nach_art["zustand-offen"]))
+    z.append("| ZUSTAND — behoben, mit Commit-Beleg | %d |"
+             % len(nach_art["zustand-behoben"]))
+    z.append("| EREIGNIS — Historie, **nie** schliessbar | %d |"
+             % len(nach_art["ereignis"]))
+    z.append("| unbestimmt — **muss ein Mensch entscheiden** | %d |"
+             % len(nach_art["unbestimmt"]))
+    z.append("")
+    z.append("⛔ **`unbestimmt` ist die groesste Gruppe, und das ist die ehrliche "
+             "Antwort — kein Rest.** \"Nennt kein Werkzeug, also Bedienfehler\" waere "
+             "aus einem Nicht-Treffer ein Befund gemacht: woertlich die Klasse "
+             "`instrument-misst-nichts`, die hier gezaehlt wird. Wer diese Zahl "
+             "kleinredet, dreht das Signal weg — *ein Rauschfilter, der nur gegen "
+             "Rauschen kalibriert wird, optimiert sich auf Stille* "
+             "(`.claude/rules/werkzeuge-zuerst.md`).")
+    z.append("")
+
+    for schluessel, ueberschrift in (
+            ("zustand-offen", "ZUSTAND — offen: hier ist etwas zu reparieren"),
+            ("zustand-behoben", "ZUSTAND — behoben (Commit-Beleg)"),
+            ("ereignis", "EREIGNIS — Historie, wird nicht geschlossen")):
+        v = nach_art[schluessel]
+        if not v:
+            continue
+        z.append("### %s (%d)" % (ueberschrift, len(v)))
+        z.append("")
+        for e in sorted(v, key=lambda x: x.get("ts", ""), reverse=True)[:12]:
+            beleg = ""
+            if schluessel == "zustand-behoben":
+                beleg = " · `%s`" % (e.get("commit", "")[:12])
+            z.append("- `%s` [%s] %s · %s%s"
+                     % (e.get("ts", "?")[:16], e.get("klasse", "?"),
+                        projekt_name(e),
+                        e.get("kurz", "").replace("\n", " ")[:130], beleg))
+        if len(v) > 12:
+            z.append("- … %d weitere" % (len(v) - 12))
+        z.append("")
+
     z.append("## Alle Klassen")
     z.append("")
     for k, v in sorted(nach_klasse.items(), key=lambda x: -len(x[1])):
