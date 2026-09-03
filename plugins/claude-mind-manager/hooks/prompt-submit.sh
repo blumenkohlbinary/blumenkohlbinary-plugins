@@ -58,6 +58,22 @@ OPEN="$PROJ/.claude-mind/rescued/OPEN"
 #    immer falsch und der Block wirkungslos.
 # ⚠ Kein Fork im Normalfall: plan-pause.sh steigt ohne Merker sofort aus,
 #   BEVOR es irgendetwas laedt.
+# ⛔ v5.34.0: DEN TRANSKRIPT-PFAD ABLEGEN. Ein Skill kann seine eigene Sitzung
+#    nicht finden — CLAUDE_SESSION_ID ist in Skill-Bash leer, und `ls -t` liefert
+#    bei zwei Sitzungen im selben Ordner die FREMDE. Gemessen 03.09.2026:
+#    `sync-stand` trug tokens=830439 aus einer anderen Sitzung, COMPACT-FAELLIG
+#    wurde auf dieser fremden Zahl gesetzt. Dieser Hook kennt den Pfad; er legt
+#    ihn hin, damit /mind-all nicht raten muss.
+# ⛔ EIGENES jq, NICHT $TRANSCRIPT_PATH. Die Variable wird in lib.sh gesetzt,
+#    und dieser Block steht VOR dem ersten `source` — sie waere hier immer leer
+#    und der Block ein stiller No-op. Genau der v5.28.0-Fehler.
+_TPX=""
+command -v jq >/dev/null 2>&1 && _TPX=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+if [ -n "$_TPX" ] && [ -f "$_TPX" ]; then
+  mkdir -p "$PROJ/.claude-mind" 2>/dev/null
+  printf '%s' "$_TPX" > "$PROJ/.claude-mind/transkript-pfad" 2>/dev/null
+fi
+
 _PLAN_STILL="nein"
 _PP="${CLAUDE_PLUGIN_ROOT:-}/hooks/plan-pause.sh"
 if [ -f "$_PP" ]; then

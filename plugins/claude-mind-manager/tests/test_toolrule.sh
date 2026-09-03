@@ -44,7 +44,26 @@ T=$(mktemp -d); bau "$T"; mkdir -p "$T/tools"
 echo 'print(1)' > "$T/tools/backup_tools.py"
 printf '# Backup\npython tools/backup_tools.py verify\n' > "$T/.claude/rules/backup.md"
 O=$(mind_check_tools_have_rules "$T" 2>&1); R=$?
-pruef "Rule ohne globs zaehlt nicht" 1 "FAIL  backup_tools.py" "$R" "$O"
+# ⛔ v5.34.0: DIESE ZUSICHERUNG WAR UMGEKEHRT — und sie kodierte das Gegenteil
+#    der eigenen Referenz. Bis v5.33.0 stand hier:
+#        pruef "Rule ohne globs zaehlt nicht" 1 "FAIL  backup_tools.py"
+#    `references/context-mechanics.md:59` sagt aber woertlich:
+#        "Rule without `paths:`/`globs:` frontmatter -> ALWAYS LOADED"
+#    Eine Rule OHNE globs ist damit die am SICHERSTEN erreichbare — und der
+#    Nachweis verwarf genau sie und meldete das Werkzeug als unerreichbar.
+#
+# ⭐ In VIER Projekten gemessen (20.08. hier, 30.08. APP - Zustellplan,
+#    03.09. Creator, 03.09. hier): der Ladegrund `path_glob_match` kommt in
+#    3667 Protokollzeilen NULL MAL vor. `globs:` steuert das Laden nicht. Die
+#    alte Bedingung war also nicht nur invertiert, sondern WIRKUNGSLOS.
+#
+# ⚠ WARUM DAS KEIN WEGKALIBRIEREN IST (messung-vor-glauben.md §2): die
+#   Zusicherung bleibt gleich streng — sie verlangt weiter ein Urteil zu diesem
+#   Fall. Umgedreht wurde der ERWARTETE WERT, weil die Spezifikation dahinter
+#   falsch war. Derselbe Weg wie test_cleaner.sh in v5.27.0 und
+#   test_leitplanke.sh in v5.25.0, beide mit Grund im Test.
+pruef "⭐ Rule OHNE globs ist IMMER erreichbar -> PASS" 0 "PASS  backup_tools.py" "$R" "$O"
+pruef "   ... und der Text sagt WIE" 0 "[immer]" "$R" "$O"
 rm -rf "$T"
 
 # --- 3 · nur der NAME genannt (Historien-Aufzaehlung) -> FAIL -------------

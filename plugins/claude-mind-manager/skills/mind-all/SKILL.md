@@ -617,7 +617,12 @@ if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" != "nein" ]; then
   # eine Kette, die dauerhaft schweigt.
   _STOK=""
   if type mind_kontext_tokens >/dev/null 2>&1; then
-    _STP=$(ls -t "$HOME/.claude/projects/$(hash_project_dir "$PROJ")"/*.jsonl 2>/dev/null | head -1)
+    # ⛔ v5.34.0: NICHT `ls -t | head -1`. Das ist die nach AENDERUNGSZEIT
+    #    juengste Datei — bei ZWEI Sitzungen im selben Ordner also die der
+    #    ANDEREN. Gemessen 03.09.2026: sechs Transkripte, vier ueber 700k,
+    #    `sync-stand` trug tokens=830439 aus einer fremden Sitzung, und
+    #    COMPACT-FAELLIG wurde auf dieser fremden Zahl gesetzt.
+    _STP=$(mind_transkript_pfad "$PROJ")
     [ -n "$_STP" ] && _STOK=$(mind_kontext_tokens "$_STP" 2>/dev/null)
   fi
   # v5.19.0: `umfang=` ist der Beleg, `ungepruef=` sagt WAS fehlt. Ohne beide
@@ -634,7 +639,7 @@ if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" != "nein" ]; then
   # Bedingung. Ohne sie laege der Merker nach jedem Probelauf im Weg.
   _MTOK=""
   if type mind_kontext_tokens >/dev/null 2>&1; then
-    _MTP=$(ls -t "$HOME/.claude/projects/$(hash_project_dir "$PROJ")"/*.jsonl 2>/dev/null | head -1)
+    _MTP=$(mind_transkript_pfad "$PROJ")   # ⛔ v5.34.0, siehe oben
     [ -n "$_MTP" ] && _MTOK=$(mind_kontext_tokens "$_MTP" 2>/dev/null)
   fi
   _MSCHW="${MIND_SYNC_AT_TOKENS:-0}"

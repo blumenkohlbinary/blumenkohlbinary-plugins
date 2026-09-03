@@ -91,6 +91,71 @@ mind_append() {
 #
 # Args: $1 = Transkript-Pfad (JSONL)
 # Ausgabe: die Tokenzahl auf stdout · Rueckgabe: 0 = gemessen · 1 = keine Aussage moeglich
+# --- mind_transkript_pfad: das Transkript DIESER Sitzung ----------------------
+#
+# ⛔ DER BUG, den diese Funktion behebt — gemessen 03.09.2026.
+#    `mind-all/SKILL.md` baute den Pfad mit
+#        ls -t "$HOME/.claude/projects/<slug>"/*.jsonl | head -1
+#    also die nach ÄNDERUNGSZEIT juengste Datei. In diesem Projekt arbeiten ZWEI
+#    Sitzungen im selben Ordner; dort lagen sechs Transkripte, vier ueber 700k.
+#    Schreibt die andere Sitzung gerade, ist ihre die juengste — und der Skill
+#    misst einen FREMDEN Kontext.
+#
+#    Folgen, alle gemessen: `sync-stand` trug tokens=830439 (fremd),
+#    COMPACT-FAELLIG wurde auf einer fremden Zahl gesetzt, AGENT_MAX fiel von 2
+#    auf 0 wegen einer fremden Zahl — und der Schluss "die Kompaktierung hat den
+#    Kontext nicht gesenkt" verglich zwei verschiedene Sitzungen. Im eigenen
+#    Transkript: 906 Messwerte, 0 Einbrueche.
+#
+# ⭐ Die HOOKS hatten es immer richtig (`transcript_path` aus dem Hook-Input).
+#    Nur der Skill hat geraten. Zwei Verhalten im selben Plugin.
+#
+# Aufruf:  mind_transkript_pfad <projekt> [transcript_path]
+#          -> Pfad auf stdout, oder LEER
+#
+# ⛔ LEER ist eine gueltige Antwort und heisst NICHT 0. Wer keine Sitzung
+#    zuordnen kann, darf keine Zahl erfinden — dieselbe Regel, die
+#    mind_kontext_tokens fuer fehlende usage-Felder schon durchsetzt.
+mind_transkript_pfad() {
+  local proj="${1:-}" vorgabe="${2:-}" d f best="" bts=0 ts
+  # 1) Ist ein Pfad uebergeben (Hook-Weg), gilt er. Immer.
+  if [ -n "$vorgabe" ] && [ -f "$vorgabe" ]; then
+    printf '%s' "$vorgabe"; return 0
+  fi
+  [ -n "$proj" ] || return 1
+
+  # 2) MERKER — der einzige verlaessliche Weg fuer einen SKILL.
+  #    ⛔ Gemessen 03.09.2026: der cwd-Check unten filtert NICHTS, weil ALLE
+  #       Transkripte eines Projektverzeichnisses dasselbe cwd tragen. Er war
+  #       eine Umbenennung des Problems, keine Loesung.
+  #    ⭐ Die HOOKS kennen den richtigen Pfad (`transcript_path` im Input) und
+  #       legen ihn hier ab. Ein Skill kann ihn nicht selbst wissen:
+  #       CLAUDE_SESSION_ID ist in Skill-Bash LEER (gemessen, v5.30.0).
+  if [ -f "$proj/.claude-mind/transkript-pfad" ]; then
+    f=$(cat "$proj/.claude-mind/transkript-pfad" 2>/dev/null)
+    if [ -n "$f" ] && [ -f "$f" ]; then printf '%s' "$f"; return 0; fi
+  fi
+
+  d="$HOME/.claude/projects/$(hash_project_dir "$proj")"
+  [ -d "$d" ] || return 1
+
+  # 2) Sonst: unter den Transkripten dieses Projekts das juengste nehmen, das
+  #    tatsaechlich auf dieses cwd zeigt. Bei mehreren Sitzungen im selben
+  #    Ordner bleibt das eine Heuristik — aber eine, die den Ordner PRUEFT,
+  #    statt allein auf die Aenderungszeit zu setzen.
+  # ⚠ KEINE Pipe in die Schleife: die liefe in einer Subshell und `best` waere
+  #   danach wieder leer. Derselbe Fehler steckt schon zweimal in dieser Datei.
+  for f in "$d"/*.jsonl; do
+    [ -f "$f" ] || continue
+    grep -q -m1 '"cwd"' "$f" 2>/dev/null || continue
+    ts=$(stat -c %Y "$f" 2>/dev/null || echo 0)
+    case "$ts" in ''|*[!0-9]*) ts=0 ;; esac
+    if [ "$ts" -gt "$bts" ] 2>/dev/null; then bts="$ts"; best="$f"; fi
+  done
+  [ -n "$best" ] || return 1
+  printf '%s' "$best"
+}
+
 mind_kontext_tokens() {
   local tp="$1" py out
   [ -n "$tp" ] && [ -f "$tp" ] || return 1
@@ -240,9 +305,27 @@ mind_check_tools_have_rules() {
     for r in "$project_dir/.claude/rules"/*.md; do
       [ -f "$r" ] || continue
       grep -q -- "$muster" "$r" 2>/dev/null || continue
-      head -12 "$r" | grep -qi '^globs:' || continue    # ohne Globs triggert die Rule nie
+      # ⛔ v5.34.0: HIER STAND DAS GEGENTEIL DER EIGENEN REFERENZ.
+      #    Bis v5.33.0: `grep -qi '^globs:' || continue` mit dem Kommentar
+      #    "ohne Globs triggert die Rule nie". `references/context-mechanics.md:59`
+      #    sagt aber woertlich: "Rule without `paths:`/`globs:` frontmatter ->
+      #    ALWAYS LOADED". Die Pruefung verwarf damit die am SICHERSTEN
+      #    erreichbare Rule und meldete das Werkzeug als unerreichbar.
+      #    ⭐ Und in vier Projekten gemessen (20.08. hier, 30.08. Zustellplan,
+      #      03.09. Creator, 03.09. hier): der Ladegrund `path_glob_match` kommt
+      #      in 3667 Protokollzeilen NULL MAL vor. `globs:` steuert das Laden
+      #      nicht — die Bedingung war also nicht nur invertiert, sondern
+      #      wirkungslos. Klasse instrument-misst-nichts, im Nachweis selbst.
+      #    ⚠ Was bleibt: eine Rule MIT globs ist bedingt erreichbar, eine OHNE
+      #      immer. BEIDE zaehlen als Treffer; die Unterscheidung geht in den
+      #      Text, nicht in ein `continue`.
+      if head -12 "$r" | grep -qi '^globs:'; then
+        _wie="globs"
+      else
+        _wie="immer"
+      fi
       # KEIN break: alle Treffer sammeln, damit Mehrdeutigkeit sichtbar wird statt verdeckt.
-      rulehit="${rulehit}${rulehit:+, }$(basename "$r")"
+      rulehit="${rulehit}${rulehit:+, }$(basename "$r")[$_wie]"
     done
     if [ -n "$rulehit" ]; then
       echo "  PASS  $base  ->  .claude/rules/$rulehit"
@@ -257,7 +340,17 @@ mind_check_tools_have_rules() {
       #      seine Nutzung sich aendert. Deshalb PRUEFEN statt FAIL und KEIN
       #      Einfluss auf den Rueckgabewert — sonst entsteht die naechste Pruefung,
       #      der man gewohnheitsmaessig nicht mehr glaubt.
+      # ⛔ v5.34.0: DAS `[globs]`/`[immer]`-SUFFIX ABSCHNEIDEN. Ohne das schlaegt
+      #    `[ -f ]` unten fehl, der Schleifenkoerper wird IMMER uebersprungen und
+      #    der PRUEFEN-Hinweis faellt STILL aus. Genau so passiert: der Fix an der
+      #    globs-Bedingung liess diesen Verbraucher unveraendert, und
+      #    test_toolrule_orte.sh wurde daran rot (2 von 18).
+      #    ⭐ Der HALBFIX-Fehler dieses Projekts, woertlich: einer lib.sh-Funktion
+      #      etwas geben, ohne im selben Commit alle Aufrufer nachzuziehen.
+      #      Zweimal am 27.08.2026 gemessen (classify_path, mind_agent_quittung_start),
+      #      und CLAUDE.md fuehrt es als Konvention.
       for r in $(printf '%s' "$rulehit" | tr ',' ' '); do
+        r="${r%%[*}"
         _rp="$project_dir/.claude/rules/$r"
         [ -f "$_rp" ] || continue
         if [ "$tool" -nt "$_rp" ]; then
