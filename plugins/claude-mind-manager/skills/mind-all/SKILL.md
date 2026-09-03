@@ -435,10 +435,19 @@ BEFUNDE="$PROJ/.claude-mind/lauf-befunde.jsonl"
 rm -f "$ABSCHNITT" "$BEFUNDE" 2>/dev/null
 ```
 
-**Die elf Ursachenklassen** (feste Liste, nicht erweitern ohne `debug_auswertung.py`):
-`instrument-nachgebaut` · `instrument-misst-nichts` · `windows-pfad` · `zeilenenden` ·
-`agent-fehlbericht` · `agent-gestorben` · `plugin-defekt` · `doku-veraltet` · `sichtbarkeit` ·
+**Die Ursachenklassen** — feste Liste, **kanonisch ist `KLASSEN` in `references/debug_auswertung.py`**:
+`instrument-nachgebaut` · `instrument-misst-nichts` · `zahl-in-falscher-rolle` ·
+`windows-pfad` · `zeilenenden` · `agent-fehlbericht` · `agent-gestorben` ·
+`lauf-unvollstaendig` · `plugin-defekt` · `doku-veraltet` · `sichtbarkeit` ·
 `ungeklaerter-widerspruch` · `sonstiges`
+
+⚠ **Die Zahl stand hier als Wort und war falsch.** „Die **elf**“ nannte 11 Namen, der Code fuehrte **12** — `lauf-unvollstaendig` fehlte seit v5.19.0, also seit seiner Einfuehrung. Eine Zahl im Fliesstext veraltet lautlos; deshalb steht hier keine mehr, sondern der Zaehlbefehl:
+
+```bash
+python -c "import sys;sys.path.insert(0,'$CLAUDE_PLUGIN_ROOT/references');from debug_auswertung import KLASSEN;print(len(KLASSEN))"
+```
+
+⛔ **Eine neue Klasse gehoert an BEIDE Stellen im selben Commit** — Code und diese Liste. Sonst verhaelt sich das Plugin genau wie vorher und sieht trotzdem erweitert aus (die Halbfix-Regel aus `CLAUDE.md`, hier zum dritten Mal).
 
 Aufbau je Lauf — **angehaengt**, nie vorangestellt (Anhaengen kann eine bestehende Datei nicht
 beschaedigen, Umschreiben schon):

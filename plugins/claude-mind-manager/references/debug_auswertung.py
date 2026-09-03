@@ -45,6 +45,16 @@ KLASSEN = {
     "doku-veraltet": "Dokumentation widerspricht dem gemessenen Stand",
     "sichtbarkeit": "Inhalt existiert, wird aber nicht geladen/ausgewaehlt",
     "ungeklaerter-widerspruch": "Zwei Quellen widersprechen sich, keine ist belegt",
+    # ⭐ NEU v5.36.0. Die MESSUNG stimmt, die DEUTUNG nicht. ⛔ Bewusst NICHT
+    #    dasselbe wie `instrument-misst-nichts`: dort erreicht die Pruefung ihren
+    #    Gegenstand nicht. Hier trifft sie ihn und die Zahl wird als etwas anderes
+    #    gelesen, als sie ist. Vier Vorkommen an EINEM Abend (03.09.2026), damit
+    #    ueber der Schwelle "ab drei ist es ein Konstruktionsfehler":
+    #      Ereigniszahl als Rueckstand   (89 Befunde als offene Posten gelesen)
+    #      Untergrenze als Zahl          (55 ZUSTAND-offen sind ein Mindestwert)
+    #      Bytes mit Faktor 4            (gemessen 1,917 — 2,1x zu wenig)
+    #      Hoechststand als Ist-Stand    (922 427 gemeldet, ist-Stand 297 878)
+    "zahl-in-falscher-rolle": "Die Messung stimmt, die Deutung nicht — Hoechst- statt Ist-Stand, Ereignis- statt Bestandszahl, Unter- statt Genauwert",
     "sonstiges": "passt in keine der obigen Klassen",
 }
 
