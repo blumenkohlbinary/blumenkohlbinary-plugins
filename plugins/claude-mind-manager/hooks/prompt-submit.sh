@@ -74,7 +74,24 @@ if [ -n "$_TPX" ] && [ -f "$_TPX" ]; then
   printf '%s' "$_TPX" > "$PROJ/.claude-mind/transkript-pfad" 2>/dev/null
 fi
 
+# ⛔ v5.37.0: ein ausgenommenes Modell macht dieselben Mahnungen still wie eine
+#    laufende Plan-Pause. Bewusst DERSELBE Schalter statt eines zweiten — die drei
+#    Fundstellen unten pruefen ihn schon, und ein zweites Flag daneben waere die
+#    Halbfix-Bauform, die in diesem Projekt dreimal zugeschlagen hat.
+# ⚠ Was dadurch NICHT still wird: die Uebergabe des Arbeitsstands nach einer
+#   Kompaktierung. Die ist eine Mitteilung, keine Aufforderung.
 _PLAN_STILL="nein"
+_MTP2=""
+command -v jq >/dev/null 2>&1 && _MTP2=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+if [ -n "$_MTP2" ] && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] \
+   && [ -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" 2>/dev/null
+  if command -v mind_sync_modell_aus >/dev/null 2>&1 && mind_sync_modell_aus "$_MTP2"; then
+    _PLAN_STILL="ja"
+    _slog INFO "Mahnung unterdrueckt: Modell $(mind_modell "$_MTP2") ausgenommen"
+  fi
+fi
 _PP="${CLAUDE_PLUGIN_ROOT:-}/hooks/plan-pause.sh"
 if [ -f "$_PP" ]; then
   if _PGRUND=$(bash "$_PP" "$PROJ" 2>/dev/null); then
@@ -393,6 +410,14 @@ NACHHOL=""
 if [ -n "$COMPACTIONS" ] && [ "$COMPACTIONS" -gt 1 ] 2>/dev/null; then
   NACHHOL="
   ⚠ ${COMPACTIONS} Kompaktierungen seit dem letzten Sync — er wurde also schon einmal verschleppt."
+fi
+
+# ⛔ v5.37.0: auch die Schuld-Mahnung schweigt unter einem ausgenommenen Modell.
+#    Die SCHULD bleibt bestehen und der Chat bleibt gerettet — es draengt nur
+#    niemand. Sie wartet auf die naechste Sitzung mit einem anderen Modell.
+if [ "$_PLAN_STILL" = "ja" ]; then
+  _slog INFO "OPEN-Mahnung unterdrueckt (Modell ausgenommen oder Plan-Pause)"
+  exit 0
 fi
 
 MSG="[Mind Manager] Es liegt eine OFFENE Sync-Schuld vor. Der VOLLSTAENDIGE Chat vor der

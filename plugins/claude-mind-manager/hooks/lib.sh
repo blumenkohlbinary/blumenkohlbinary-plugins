@@ -156,6 +156,62 @@ mind_transkript_pfad() {
   printf '%s' "$best"
 }
 
+# --- mind_modell / mind_sync_modell_aus: kein Sync-Zwang unter Fable (v5.37.0) ---
+#
+# NUTZER-ENTSCHEIDUNG 04.09.2026, woertlich: "wenn der fable aktiviert ist soll er
+# kein mind all machen".
+#
+# ⛔ WAS DIESE ZWEI FUNKTIONEN NICHT TUN: sie halten `/mind-all` nicht auf. Wer es
+#    tippt, bekommt es. Sie schalten nur den ZWANG und die MAHNUNG ab — also das,
+#    was `stop.sh` und `prompt-submit.sh` von sich aus anstossen.
+#
+# ⛔ UND `pre-compact.sh` BLEIBT UNANGETASTET. Die Chat-Rettung laeuft weiter, die
+#    Schuld entsteht weiter. Sie wartet dann auf die naechste Sitzung, die kein
+#    ausgenommenes Modell faehrt. Ein Modellwechsel darf Arbeit nicht verlieren,
+#    nur das Draengen aussetzen.
+#
+# Aufruf:  mind_modell <transkript>          -> Modell-Kennung auf stdout, oder LEER
+#          mind_sync_modell_aus <transkript> -> rc 0 = Sync-Zwang AUS
+mind_modell() {
+  local t="${1:-}" m
+  [ -n "$t" ] && [ -f "$t" ] || return 1
+  command -v jq >/dev/null 2>&1 || return 1
+  # ⛔ `<synthetic>` ist KEIN Modell. Es steht in Zeilen, die Claude Code selbst
+  #    erzeugt (Kompaktierungs-Marken, Systemhinweise) — gemessen 04.09.2026:
+  #    13 solche Zeilen in diesem Projekt, und in EINEM Transkript war es die
+  #    letzte ueberhaupt. Wer blind die letzte Zeile nimmt, liest dort einen
+  #    Platzhalter und haelt das Modell fuer unbekannt.
+  # ⚠ `tail -1` NACH dem Filtern, nicht davor.
+  m=$(jq -r 'select(.message.model != null) | .message.model' "$t" 2>/dev/null \
+      | grep -v '^<' | tail -1)
+  [ -n "$m" ] || return 1
+  printf '%s' "$m"
+}
+
+mind_sync_modell_aus() {
+  local t="${1:-}" m aus wort
+  # NICHT ":-" sondern "-": ein AUSDRUECKLICH leer gesetzter Regler soll das Tor
+  # ganz abschalten. Mit ":-" haette ein leerer Wert die Vorgabe zurueckgeholt und
+  # das Tor waere nicht abschaltbar gewesen - vom Prueffall gefunden.
+  aus="${MIND_SYNC_AUS_MODELLE-fable}"
+  # ⛔ FAIL-SAFE RICHTUNG: laesst sich das Modell NICHT bestimmen, gilt es als
+  #    NICHT ausgenommen — der Zwang bleibt, wie er heute ist. Ein ausgefallener
+  #    Zwang kostet einen Sync; ein faelschlich stummer verliert Arbeit.
+  #    Das ist dieselbe Richtung wie bei `mind_kontext_tokens`: eine fehlende
+  #    Angabe ist keine Null.
+  [ -n "$aus" ] || return 1
+  m=$(mind_modell "$t") || return 1
+  # Teilstring, damit `fable` auch `claude-fable-5-1` und kuenftige Varianten
+  # trifft. Mehrere Eintraege durch Komma getrennt.
+  local IFS=','
+  for wort in $aus; do
+    wort="$(printf '%s' "$wort" | tr -d '[:space:]')"
+    [ -n "$wort" ] || continue
+    case "$m" in *"$wort"*) return 0 ;; esac
+  done
+  return 1
+}
+
 mind_kontext_tokens() {
   local tp="$1" py out
   [ -n "$tp" ] && [ -f "$tp" ] || return 1

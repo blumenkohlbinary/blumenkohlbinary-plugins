@@ -34,6 +34,31 @@ _slog() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1 stop: ${*:2}" >> "$MIND_LOG_FI
 # von "Hook stieg still aus" zu unterscheiden.
 _slog DEBUG "aufgerufen"
 
+# ===== v5.37.0: kein Sync-ZWANG unter einem ausgenommenen Modell =============
+# NUTZER-ENTSCHEIDUNG 04.09.2026: "wenn der fable aktiviert ist soll er kein
+# mind all machen".
+#
+# DAS TOR STEHT GANZ OBEN, und das ist Absicht. Weiter unten gibt es ZWEI
+# Zwaenge - den Schuld-Zwang (OPEN) und den Token-Zwang (_TOKZWANG, gesetzt bei
+# Zeile ~63, wirksam erst bei ~201). Ein Tor weiter unten haette einen davon
+# uebersehen; genau diese Bauform hat in v5.19.0 schon einmal einen halben
+# Mechanismus stehen lassen.
+#
+# FAIL-SAFE: ohne jq, ohne lib.sh, ohne transcript_path ODER ohne erkennbares
+# Modell passiert HIER NICHTS - der Zwang bleibt, wie er heute ist. Ein
+# ausgefallener Zwang kostet einen Sync, ein faelschlich stummer verliert Arbeit.
+if [ -n "$CLAUDE_PLUGIN_ROOT" ] && [ -f "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" ]    && command -v jq >/dev/null 2>&1; then
+  _MTP=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+  if [ -n "$_MTP" ]; then
+    # shellcheck disable=SC1091
+    . "$CLAUDE_PLUGIN_ROOT/hooks/lib.sh" 2>/dev/null
+    if command -v mind_sync_modell_aus >/dev/null 2>&1        && mind_sync_modell_aus "$_MTP"; then
+      _slog INFO "still: Modell $(mind_modell "$_MTP") ist ausgenommen (MIND_SYNC_AUS_MODELLE)"
+      exit 0
+    fi
+  fi
+fi
+
 # ===== v5.7.0: Zwang an der TOKEN-Schwelle ==================================
 # ⛔ stop.sh sourct lib.sh bewusst NICHT im Kopf — es ist der einzige Hook mit Zwangswirkung
 #    und soll auch dann noch laufen, wenn lib.sh kaputt ist. Deshalb hier: GEGUARDET sourcen,
