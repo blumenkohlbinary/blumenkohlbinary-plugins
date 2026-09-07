@@ -484,7 +484,48 @@ python "$TOR" --text "<die geplante Zeile>"
 
 # 2) RUECKWAERTS — ueber die Zieldatei dieses Laufs
 python "$TOR" --datei "$ZIEL_RULES"/*.md
+
+# 3) D1 "WOHIN?" — NEU v5.39.0, eingehaengt v5.40.0.
+#    Das Tor oben sagt OB etwas hinein darf. D1 sagt WOHIN es gehoert.
+python "$CLAUDE_PLUGIN_ROOT/references/cleaner_einordnung.py" --wohin "$ZIEL_RULES"/*.md
 ```
+
+## ⛔ D1 — die neunte Frage: WOHIN gehoert diese Aussage?
+
+**Die acht Fragen oben pruefen alle, OB etwas hinein darf. Keine fragt, WOHIN.**
+B3 prueft, ob eine Aussage am **schon gewaehlten** Ort wirkt — es kann zustimmen
+oder ablehnen, nicht umleiten. Ein Tuersteher, kein Wegweiser. Wer durchkommt,
+landet dort, wo der Schreiber gerade steht, und das ist fast immer eine
+immer-ladende Datei.
+
+| Klasse | wann man es braucht | Ort |
+|---|---|---|
+| **BREMSE** | bevor man merkt, dass man nachschlagen sollte | muss **immer** laden |
+| **ANLEITUNG** | waehrend der Arbeit | **Command + Dateipfad** (Doppelzeiger) |
+| **BELEG** | nur wenn jemand die Regel anzweifelt | Archiv oder `docs/`, laedt nie |
+| **UNBESTIMMT** | kein Formmerkmal greift | ⛔ **Ort bleibt, wo er war** |
+
+⛔ **D1 MELDET, es entscheidet nicht.** Die Merkmale sind Formmerkmale und liefern
+**Kandidaten** — dieselbe Doktrin wie `cleaner_leitplanke.py` und wie `art()` in
+`debug_auswertung.py`. Ist BREMSE gegen ANLEITUNG nicht eindeutig, kommt
+**UNBESTIMMT** heraus und der Ort **bleibt unveraendert**. Die wahrscheinlichere
+Zelle zu raten ist verboten: eine geratene Zuordnung wird spaeter zitiert.
+
+⭐ **Der haeufigste echte Fall ist TEILBAR** — ein Absatz mit einer Bremse UND
+ihrem Beleg. Dann geht der Beleg ins Archiv und die Bremse bleibt.
+
+⚠ **Bekannte Schwaeche, nicht verschwiegen:** „wann brauche ich es" ist eine
+Aussage ueber den **Leser**. Gemessen 07.09.2026 brauchte der Manager `hooks.md`
+8x und `architecture.md` 7x — Dateien, die nach der Rollentabelle dem Arbeiter
+gehoeren. Ob das mechanisch entscheidbar ist, ist **UNGEMESSEN**.
+
+⛔ **Die Quittung wird um `D1` erweitert** — sonst ist nicht unterscheidbar, ob D1
+lief und nichts fand oder gar nicht lief:
+
+```
+tor=<datei>:A1/A2/A3:B1/B2/B3:C1/C2:D1=<bremse>/<anleitung>/<beleg>/<unbestimmt>
+```
+
 
 ⛔ **Die Quittung MUSS in den Self-Check-Block des Berichts**, eine Zeile je
 `ADD`. Fehlt sie, ist der Lauf ein **Teilsync** — dieselbe Kopplung wie
