@@ -244,6 +244,47 @@ done
 **Dateiname ist das zweite Signal.** Generische Namen (`notes-2.md`) verschenken die Haelfte.
 **Hinweis, nie automatisch umbenennen** — der Index zeigt auf den Namen.
 
+## ⛔ ZIEL 3 (v5.39.0): eine Topic-Datei ist NICHT das einzige Ziel
+
+**Nutzer-Entscheidung 07.09.2026.** Bis v5.38.0 kannte dieser Skill genau EIN Auslager-Ziel:
+eine weitere Topic-Datei. Das ist oft das **schlechteste** der drei.
+
+| Ziel | was davon dauerhaft geladen wird | Deckel |
+|---|---|---|
+| **Topic-Datei** | Name + `description` | ⛔ **max. 5 je ANFRAGE**, Auswaehler sieht **nie** den Inhalt |
+| **Command** (`~/.claude/skills/<name>/`) | nur die `description` | keiner — auf Abruf, **Volltext vollstaendig** |
+| **`docs/` im Projekt** | **nichts** | keiner — erreichbar nur ueber einen Zeiger |
+
+⭐ **Gemessen am eigenen Bestand, 07.09.2026:** 5 Commands halten **90 508 B** Volltext
+bereit und kosten dauerhaft **5 116 B** — 5,7 %. Dieselbe Textmenge in `.claude/rules/`
+kostet **91 879 B**, also das **18-fache**.
+
+**Die Wahl trifft die Frage, WANN es gebraucht wird** (`PLAN-wohin-gehoert-es.md`):
+
+```
+BREMSE     vor dem Nachschlagen noetig  -> bleibt, wo es ist (laedt immer)
+ANLEITUNG  waehrend der Arbeit          -> Command  + Doppelzeiger
+BELEG      nur zum Nachweis             -> docs/    + Doppelzeiger
+```
+
+⛔ **Jeder Auslager-Vorschlag nennt BEIDE Zeiger** — die Bauform stammt vom Nutzer und
+steht fuenfmal in seinen globalen Regeln:
+
+```
+> Alles Weitere steht im Command `/name`.
+> Wird er nicht angeboten: `~/.claude/skills/<name>/SKILL.md` direkt lesen.
+```
+
+Gemessen: Pfad **4 von 4** gefolgt, Command **20 %** ohne Hook. Der Pfad ist zuverlaessig
+und unbequem, der Command bequem und unzuverlaessig — **erst beide zusammen tragen.**
+`cleaner_umzug.py` prueft das seit v5.39.0 als **Gate**, nicht mehr als Hinweis.
+
+⚠ **`docs/` ist der Ort JE PROJEKT** (Nutzer-Entscheidung 07.09.2026), nicht ein
+gemeinsamer. Die konkurrierenden Namen `knowledge/` und `Wissen/` meinen dasselbe und
+werden zusammengefuehrt — **ein Ort, ein Name.**
+
+---
+
 ⛔ **Folge fuer den Fix-Typ „Offload to topic file":** Auslagern **erhoeht** die Dateizahl.
 Liegt der Bestand ueber dem Limit, muss der Vorschlag die **neue `description` mitliefern** —
 sonst verschiebt er Inhalt in die Unsichtbarkeit. Oberhalb des Limits ist **Zusammenfuehren**

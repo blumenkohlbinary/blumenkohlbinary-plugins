@@ -113,6 +113,163 @@ def absaetze(text):
     return abs_, code, drin
 
 
+# --- D1 "Wohin gehoert diese AUSSAGE?" (NEU v5.39.0, ZIEL 3) ------------------
+#
+# ⛔ DIE LUECKE, die das schliesst. Die acht Tore des Plugins fragen alle
+#    "darf das rein?". KEINES fragt "wohin?". B3 prueft, ob eine Aussage am
+#    SCHON GEWAEHLTEN Ort wirkt — es kann zustimmen oder ablehnen, nicht
+#    umleiten. Ein Tuersteher, kein Wegweiser. Wer durchkommt, landet dort, wo
+#    der Schreiber gerade steht, und das ist fast immer eine immer-ladende Datei.
+#
+# ⭐ DIE ACHSE, gemessen am eigenen Bestand (PLAN-wohin-gehoert-es.md, 07.09.2026):
+#    Nicht die ART des Inhalts entscheidet, sondern WANN man ihn braucht.
+#      BREMSE     bevor man merkt, dass man nachschlagen sollte -> muss IMMER laden
+#      ANLEITUNG  waehrend der Arbeit -> ein Zeiger reicht
+#      BELEG      nur wenn jemand die Regel anzweifelt -> Archiv, laedt nie
+#    Die Inhalts-Achse wurde geprueft und VERWORFEN: "Regel bei bestimmter Arbeit"
+#    zeigt bei GUI-Pruefung auf ZWEI Orte gleichzeitig, und genau so liegt es
+#    heute (Bremse in rules/ 595 Tokens, Anleitung im Command 7 617).
+#
+# ⛔ DAS SIND FORMMERKMALE. Sie liefern KANDIDATEN, keine Urteile — dieselbe
+#    Doktrin wie cleaner_leitplanke.py und wie art() in debug_auswertung.py.
+#    Wo zwei Merkmale gleichzeitig greifen, wird NICHT geraten.
+#
+# ⚠ UND DIE ACHSE HAT EINE BEKANNTE SCHWAECHE, die hier nicht verschwiegen wird:
+#   "wann brauche ich es" ist eine Aussage ueber den LESER. Gemessen 07.09.2026:
+#   der Manager brauchte hooks.md 8x und architecture.md 7x — Dateien, die nach
+#   der Rollentabelle dem Arbeiter gehoeren. Ob sich das mechanisch entscheiden
+#   laesst, ist UNGEMESSEN: kein Werkzeug kennt heute die lesende Rolle.
+
+# Eine BREMSE haelt vom Falschen ab, bevor man nachschlaegt: Verbot, Sperre,
+# harte Bedingung. Die Zeichen sind der Hausstil des Nutzers.
+_D1_BREMSE = re.compile(
+    r"⛔|NIEMALS|\bNIE\b|\bNUR\b|\bMUSS\b|\bKEIN(?:E|EN|ER)?\b"
+    r"|\bnicht ohne\b|\bverboten\b|\bAbbruchgrund\b")
+
+# Ein BELEG sagt, WARUM die Regel existiert: Messung, Datum, Vorfall.
+_D1_BELEG = re.compile(
+    r"\bgemessen\b|\bbelegt\b|\bnachgemessen\b|\bGegenprobe\b|\bVorfall\b"
+    r"|\bHerleitung\b|\d{2}\.\d{2}\.20\d\d|\bam \d{1,2}\.\d{1,2}\.")
+
+# Eine ANLEITUNG sagt, WIE es geht: Aufruf, Pfad, Schalter.
+_D1_ANLEITUNG = re.compile(
+    r"`[^`]*(?:--|/|\\|\.py|\.sh|\$)[^`]*`|\bAufruf\b|\bRueckgabe\b"
+    r"|\bstattdessen\b|\bso pruefen\b")
+
+_D1_ORT = {
+    "BREMSE":     "rules/ oder CLAUDE.md  (muss immer laden)",
+    "ANLEITUNG":  "Command + Dateipfad    (Doppelzeiger)",
+    "BELEG":      ".claude/archiv/        (laedt nie)",
+    "UNBESTIMMT": "⚠ Mensch entscheidet",
+}
+
+
+# ⛔ DIE LAENGE TRENNT, DAS ZEICHEN ALLEIN NICHT — Positivkontrolle 07.09.2026.
+#    Die erste Fassung nahm ⛔/NIE/MUSS als alleiniges Merkmal. Sie fiel durch:
+#
+#      Datei                          ⛔-Absaetze: Ø Woerter
+#      Leitplanke z-mount (BREMSE)          16,7
+#      Leitplanke gui     (BREMSE)          39,5
+#      Command    z-mount (ANLEITUNG)       56,0
+#      Command    gui     (ANLEITUNG)      147,0
+#
+#    Der Nutzer schreibt ⛔ auch mitten in langer Prosa. Ein langer Absatz MIT
+#    Verbot ist keine Bremse, sondern Anleitung, in der ein Verbot steckt — er
+#    gehoert GETEILT, nicht verschoben.
+# ⛔ Die Schwelle steht ZWISCHEN zwei Messungen (39,5 und 56,0), nicht auf einer
+#    schoenen Zahl. ⚠ Vier Dateien sind eine kleine Stichprobe und der Abstand ist
+#    schmal; ein einzelner Absatz kann daneben liegen. Wer sie aendert, misst neu.
+_D1_MAX_WOERTER = 45
+
+
+def d1_wohin(absatz):
+    """BREMSE | ANLEITUNG | BELEG | UNBESTIMMT — Formmerkmale, kein Urteil.
+
+    ⛔ BREMSE verlangt ZWEI Merkmale: ein Verbotszeichen UND Kuerze. Das Zeichen
+       allein hat in der Positivkontrolle den Command-Volltext (47 %) ueber die
+       Leitplanke (38 %) gehoben — also genau falsch herum.
+    ⚠ Trifft KEIN Merkmal, ist das UNBESTIMMT und nicht "Anleitung". Aus einem
+      Nicht-Treffer einen Befund zu machen ist die Klasse instrument-misst-nichts.
+    """
+    kurz = len(absatz.split()) <= _D1_MAX_WOERTER
+    b = bool(_D1_BREMSE.search(absatz))
+    l = bool(_D1_BELEG.search(absatz))
+    a = bool(_D1_ANLEITUNG.search(absatz))
+    if b and kurz:
+        return "BREMSE"
+    if b:
+        # lang MIT Verbot: Anleitung, in der eine Bremse steckt -> teilen
+        return "ANLEITUNG"
+    if l and not a:
+        return "BELEG"
+    if a and not l:
+        return "ANLEITUNG"
+    return "UNBESTIMMT"
+
+
+def d1_datei(pfad):
+    """Jede AUSSAGE einer Datei einordnen. Gibt Zeilen und eine Bilanz zurueck."""
+    try:
+        with open(pfad, encoding="utf-8", errors="replace") as fh:
+            t = fh.read()
+    except OSError:
+        return None
+    abs_, code, zaun = absaetze(t)
+    zeilen = []
+    for i, a in enumerate(abs_, 1):
+        k = d1_wohin(a)
+        # ⭐ TEILBAR: eine Bremse, in der ein Beleg steckt. Das ist der haeufigste
+        #    echte Fall — "NIE X, gemessen am 21.08." gehoert AUFGETEILT, nicht
+        #    ganz verschoben und nicht ganz behalten. Ohne diesen Hinweis wuerde
+        #    der ganze Absatz als Bremse in rules/ bleiben, samt Herleitung.
+        # ⭐ TEILBAR hat jetzt ZWEI Faelle, und der zweite ist der haeufigere:
+        #    (1) kurze Bremse mit eingebautem Beleg -> Beleg ins Archiv
+        #    (2) LANGER Absatz mit Verbotszeichen   -> die Bremse herausschneiden
+        teilbar = ((k == "BREMSE" and bool(_D1_BELEG.search(a)))
+                   or (k == "ANLEITUNG" and bool(_D1_BREMSE.search(a))))
+        zeilen.append({"nr": i, "klasse": k, "teilbar": teilbar,
+                       "zeilen": a.count("\n") + 1,
+                       "kurz": " ".join(a.split())[:64]})
+    return {"pfad": pfad, "zeilen": zeilen, "code": code, "zaun_offen": zaun}
+
+
+def d1_bericht(dateien):
+    ges = {"BREMSE": 0, "ANLEITUNG": 0, "BELEG": 0, "UNBESTIMMT": 0}
+    teil = 0
+    print("=" * 92)
+    print("  D1 — wohin gehoert diese AUSSAGE?   (Formmerkmale: KANDIDATEN, keine Urteile)")
+    print("=" * 92)
+    for e in dateien:
+        if not e:
+            continue
+        print()
+        print("  %s" % os.path.basename(e["pfad"]))
+        for z in e["zeilen"]:
+            # JE ABSATZ, NICHT JE ZEILE. Die erste Fassung zaehlte Zeilen - ein
+            # einziger 147-Woerter-Absatz ueberwog dadurch zehn kurze, und der
+            # Command-Volltext kam auf mehr BREMSE (47 %) als die Leitplanke
+            # (38 %). Die ZAEHLEINHEIT war der Fehler, nicht nur das Merkmal.
+            ges[z["klasse"]] += 1
+            marke = "  ⭐TEILBAR" if z["teilbar"] else ""
+            if z["teilbar"]:
+                teil += 1
+            print("    %3d  %-10s %2dZ  %s%s"
+                  % (z["nr"], z["klasse"], z["zeilen"], z["kurz"], marke))
+        if e["zaun_offen"]:
+            print("    ⛔ unabgeschlossener Codeblock — Messung dieser Datei unsicher")
+    s = sum(ges.values()) or 1
+    print()
+    print("-" * 92)
+    print("  ABSAETZE je Klasse (Codebloecke zaehlen NICHT mit):")
+    for k in ("BREMSE", "ANLEITUNG", "BELEG", "UNBESTIMMT"):
+        print("    %-11s %5d  %4.0f %%   -> %s" % (k, ges[k], 100.0 * ges[k] / s, _D1_ORT[k]))
+    print()
+    print("  ⭐ %d Absaetze sind TEILBAR: eine Bremse mit eingebautem Beleg." % teil)
+    print("     Der Beleg kann ins Archiv, die Bremse bleibt. Das ist der haeufigste Fall.")
+    print("  ⚠ UNBESTIMMT ist KEIN Mangel. Es heisst: kein Formmerkmal greift,")
+    print("     ein Mensch entscheidet. Eine geratene Zelle waere schlimmer als eine leere.")
+    return 0
+
 def einordnen(pfad):
     try:
         with open(pfad, encoding="utf-8", errors="replace") as fh:
@@ -449,8 +606,13 @@ def main():
         dateien = [a for a in argv if not a.startswith("--")]
 
     if not dateien:
-        print("usage: cleaner_einordnung.py <datei.md> … | --verzeichnis <pfad> | --selbsttest")
+        print("usage: cleaner_einordnung.py <datei.md> … | --verzeichnis <pfad> "
+              "| --wohin | --selbsttest")
         return 1
+
+    # D1 (v5.39.0): je AUSSAGE statt je Datei.
+    if "--wohin" in argv:
+        return d1_bericht([d1_datei(p) for p in dateien])
 
     zeilen = [e for e in (einordnen(p) for p in dateien) if e]
     if not zeilen:

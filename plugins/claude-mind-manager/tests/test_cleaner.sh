@@ -55,8 +55,12 @@ mkdir -p "$T/skills/probe"
 printf -- '---\ndescription: x\n---\n# A\n\nEins\n\nZwei\n\nDrei\n\nVier\n\nFuenf\n' > "$T/alt.md"
 printf -- '---\nname: probe\ndescription: Beschreibt ausfuehrlich genug worum es geht und nennt die Auslesewoerter\n---\n# A\n\nZwei\n\nDrei\n\nVier\n\nFuenf\n' > "$T/skills/probe/SKILL.md"
 
-# Der gute Fall: Pfad genannt, keine Ladebedingung, nichts verloren.
-printf -- '---\ndescription: Leitplanke\n---\n# A\n\nEins\n\nVolltext: `%s`\n' \
+# Der gute Fall: DOPPELZEIGER (Pfad UND Command), keine Ladebedingung,
+# nichts verloren.
+# v5.39.0: der Command kam dazu. Bis v5.38.0 nannte diese Fixture nur den
+# Pfad und galt als 'vollstaendiger Umzug' - unter dem neuen Vertrag ist sie
+# unvollstaendig. Die FIXTURE ist nachgezogen, das GATE nicht gelockert.
+printf -- '---\ndescription: Leitplanke\n---\n# A\n\nEins\n\nVolltext: `%s`\nWird er nicht angeboten: Command `/probe`.\n' \
   "$T/skills/probe/SKILL.md" > "$T/kurz_gut.md"
 python "$UMZ" --alt "$T/alt.md" --kurz "$T/kurz_gut.md" --skill "$T/skills/probe/SKILL.md" >/dev/null 2>&1
 pruefe "vollstaendiger Umzug -> alle Gates halten" "$?" "0"

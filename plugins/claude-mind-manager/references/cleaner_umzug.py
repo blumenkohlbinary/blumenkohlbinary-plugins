@@ -315,11 +315,38 @@ def pruefe(alt_p, kurz_p, skill_p):
     #       Pfad 4 von 4 gegen Command-Auswahl 20-84 %. Wer den Pfad spaeter
     #       "weil der Command ja dasteht" entfernt, macht den Umzug wieder
     #       unzuverlaessig — deshalb bleibt PFAD ein Gate und COMMAND ein Hinweis.
+    # v5.39.0 - DER DOPPELZEIGER IST JETZT EIN GATE, kein Hinweis mehr.
+    #
+    # ZIEL 3, Nutzer-Entscheidung 07.09.2026. Bis v5.38.0 stand hier ein HINWEIS
+    # mit der Begruendung "der Pfad traegt (4/4)". Das stimmt und reicht trotzdem
+    # nicht: der Pfad ist ZUVERLAESSIG, aber niemand ruft ihn freiwillig auf.
+    # Der Command ist BEQUEM und wird nur zu 20 % gewaehlt. Erst BEIDE zusammen
+    # bringen die zwei Messungen zusammen.
+    #
+    # Die Bauform stammt vom Nutzer selbst und steht FUENFMAL in seinen globalen
+    # Regeln - das Plugin hat sie fuenfmal gesehen und nie gelernt (Klasse
+    # `sichtbarkeit`):
+    #
+    #     Alles Weitere steht im Command `/name`.
+    #     Wird er nicht angeboten: `~/.claude/skills/<name>/SKILL.md` direkt lesen.
+    #
+    # Der PFAD bleibt das staerkere der beiden Gates. Wer ihn spaeter entfernt,
+    # "weil der Command ja dasteht", faellt auf die 20-%-Mechanik zurueck.
+    # DIE NEGATIVKONTROLLE HAT DAS GATE ALS LEER ENTLARVT. `"/" + name in kurz`
+    # trifft auch im ZIELPFAD: ein Skill liegt unter `skills/<name>/SKILL.md`,
+    # dort steht `/beispiel` immer drin. Das Gate haette also IMMER gehalten,
+    # sobald der Pfad genannt ist - und der Pfad ist ein eigenes Gate.
+    # Ein Gate, das nie bricht, ist kein Gate.
+    # Gesucht wird deshalb der Command als EIGENSTAENDIGE Nennung: nicht gefolgt
+    # von einem weiteren Pfadtrenner und nicht Teil eines laengeren Wortes.
+    # Das ist genau die Form aus den globalen Regeln des Nutzers: `/name`.
     _cmd = "/" + name
-    gates.append(("HINWEIS COMMAND", _cmd in kurz,
-                  "Kurz-Rule nennt `%s`" % _cmd if _cmd in kurz
-                  else "Kurz-Rule nennt den Command `%s` nicht — nur den Pfad. "
-                       "Kein Bruch: der Pfad traegt (4/4)." % _cmd))
+    _cmd_da = re.search(re.escape(_cmd) + r"(?![\w/.-])", kurz) is not None
+    gates.append(("DOPPELZEIGER", _cmd_da,
+                  "Kurz-Rule nennt `%s` UND den Pfad" % _cmd if _cmd_da
+                  else "Kurz-Rule nennt den Command `%s` NICHT. Der Pfad allein "
+                       "ist zuverlaessig (4/4), aber unbequem - gemessen wird er "
+                       "nur gelesen, wenn jemand ihn sucht. Beide nennen." % _cmd))
 
     # --- 5 INHALT (NEU v5.24.0) -------------------------------------------
     # ⛔ Gate 1 zaehlt ZEILEN und haelt deshalb auch dann, wenn eine Aussage
@@ -417,7 +444,12 @@ def selbsttest():
                     "nennt die Woerter die ein Nutzer wirklich benutzt\n---\n"
                     "# A\n\nEins\n\nZwei\n\nDrei\n")
 
-    def kurz_mit(pfad_drin, bedingung=False):
+    # v5.39.0: `cmd_drin` kam dazu. Bis v5.38.0 nannte die Fixture
+    # "alles gut" NUR den Pfad — unter dem neuen Vertrag ist das ein
+    # UNVOLLSTAENDIGER Umzug, und der Fall wurde dadurch zu Recht rot.
+    # ⛔ Die FIXTURE ist nachgezogen, das GATE nicht gelockert: ein roter
+    #    Lauf ist ein Befund (messung-vor-glauben.md §2).
+    def kurz_mit(pfad_drin, bedingung=False, cmd_drin=True):
         kopf = "---\ndescription: Leitplanke\n"
         if bedingung:
             kopf += "globs: [\"**/*.md\"]\n"
@@ -425,11 +457,19 @@ def selbsttest():
         rumpf = "# A\n\nVier\n"
         if pfad_drin:
             rumpf += "\nAlles Weitere steht in `%s`.\n" % skill.replace("\\", "/")
-        return schreib("kurz_%s_%s.md" % (pfad_drin, bedingung), kopf + rumpf)
+        if cmd_drin:
+            rumpf += "\nWird er nicht angeboten, steht alles im Command `/beispiel`.\n"
+        return schreib("kurz_%s_%s_%s.md" % (pfad_drin, bedingung, cmd_drin),
+                       kopf + rumpf)
 
     faelle = [
-        ("alles gut", kurz_mit(True), 0),
+        ("alles gut (Doppelzeiger)", kurz_mit(True), 0),
         ("⭐ PFAD fehlt", kurz_mit(False), 1),
+        # ⭐ NEU v5.39.0: der Pfad allein reicht nicht mehr. Er ist
+        #    zuverlaessig (4 von 4 gefolgt), aber unbequem — gemessen wird
+        #    er nur gelesen, wenn jemand ihn sucht. Der Command ist bequem
+        #    und wird zu 20 % gewaehlt. Erst beide zusammen tragen.
+        ("⭐ COMMAND fehlt (nur Pfad)", kurz_mit(True, False, False), 1),
         ("Ladebedingung in der Kurz-Rule", kurz_mit(True, True), 1),
     ]
     print("=" * 78)
