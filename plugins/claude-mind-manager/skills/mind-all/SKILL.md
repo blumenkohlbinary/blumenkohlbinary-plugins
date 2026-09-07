@@ -456,7 +456,8 @@ rm -f "$ABSCHNITT" "$BEFUNDE" 2>/dev/null
 ```
 
 **Die Ursachenklassen** — feste Liste, **kanonisch ist `KLASSEN` in `references/debug_auswertung.py`**:
-`instrument-nachgebaut` · `instrument-misst-nichts` · `zahl-in-falscher-rolle` ·
+`instrument-nachgebaut` · `instrument-misst-nichts` · `instrument-meldet-falsch` ·
+`zahl-in-falscher-rolle` ·
 `windows-pfad` · `zeilenenden` · `agent-fehlbericht` · `agent-gestorben` ·
 `lauf-unvollstaendig` · `plugin-defekt` · `doku-veraltet` · `sichtbarkeit` ·
 `ungeklaerter-widerspruch` · `sonstiges`
@@ -466,6 +467,33 @@ rm -f "$ABSCHNITT" "$BEFUNDE" 2>/dev/null
 ```bash
 python -c "import sys;sys.path.insert(0,'$CLAUDE_PLUGIN_ROOT/references');from debug_auswertung import KLASSEN;print(len(KLASSEN))"
 ```
+
+## ⭐ Das Feld `ursache` — optional, seit v5.41.0
+
+Ein Befund darf zusaetzlich zur `klasse` eine **Ursache** tragen. Feste Liste,
+kanonisch ist `URSACHEN` in `references/debug_auswertung.py`:
+
+```
+erreicht-gegenstand-nicht   Muster, Bereich oder Quelle lagen daneben — es lief
+nicht-treffer-als-befund    eine NULL als Aussage gelesen statt als kaputte Messung
+werkzeug-falsch-aufgerufen  falsche Argumente oder Signatur — es lief gar nicht
+falsche-bezugsgroesse       richtig gerechnet, falsch bezogen
+sonstiges                   passt in keine der obigen
+```
+
+⚠ **Das Feld ist OPTIONAL, und das ist Absicht.** Ein Pflichtfeld wuerde zum
+RATEN zwingen — also genau die Fehlerart erzeugen, die es messen soll. Fehlt es,
+heisst das `nicht-zugeordnet` und ist **kein Mangel**.
+
+⛔ **Warum es das gibt:** Punkt 9 (08.09.2026) hat versucht,
+`instrument-misst-nichts` aus den eigenen Texten zu zerlegen. 70 % blieben
+UNBESTIMMT — nicht weil die Merkmale schlecht waren, sondern weil **66 % der
+Eintraege kuerzer als 120 Zeichen sind** und jeder einen anderen Mechanismus in
+freier Formulierung beschreibt. Ein besseres Muster war die falsche Antwort.
+
+⛔ **Nicht nachtraeglich zuordnen.** Die Eintraege von vor v5.41.0 tragen keine
+Ursache und bekommen keine. Das waere Geschichtsfaelschung — dieselbe Begruendung
+wie im Docstring von `debug_aufraeumen.py` seit v5.9.2.
 
 ⛔ **Eine neue Klasse gehoert an BEIDE Stellen im selben Commit** — Code und diese Liste. Sonst verhaelt sich das Plugin genau wie vorher und sieht trotzdem erweitert aus (die Halbfix-Regel aus `CLAUDE.md`, hier zum dritten Mal).
 

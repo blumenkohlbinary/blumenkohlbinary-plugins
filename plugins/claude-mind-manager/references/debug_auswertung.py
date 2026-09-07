@@ -54,6 +54,19 @@ KLASSEN = {
     #      Untergrenze als Zahl          (55 ZUSTAND-offen sind ein Mindestwert)
     #      Bytes mit Faktor 4            (gemessen 1,917 — 2,1x zu wenig)
     #      Hoechststand als Ist-Stand    (922 427 gemeldet, ist-Stand 297 878)
+    # ⭐ NEU v5.41.0 — DAS GEGENTEIL von `instrument-misst-nichts`, und es lag
+    #    bis heute mit ihr unter EINEM Namen. Gemessen 08.09.2026: von 102
+    #    Eintraegen der alten Klasse sind 12 % Fehlalarme ("12 Fehlalarme
+    #    statt 1 Befund", "6 Fehlalarme, 0 echte"). Eine Pruefung, die zu VIEL
+    #    findet, misst nicht "nichts" — sie misst falsch.
+    # ⛔ Zwei entgegengesetzte Fehlermodi unter einem Namen machen die
+    #    Klassengroesse RICHTUNGSLOS: sie kann wachsen, weil mehr uebersehen
+    #    wird, oder weil mehr faelschlich gemeldet wird. Erst die Trennung
+    #    macht das Kriterium "hoert auf zu wachsen" ueberhaupt auswertbar.
+    # ⚠ NUR VORWAERTS. Die 102 vorhandenen behalten ihren Namen — eine
+    #   nachtraegliche Neuzuordnung waere Geschichtsfaelschung, dieselbe
+    #   Begruendung wie im Docstring von debug_aufraeumen.py seit v5.9.2.
+    "instrument-meldet-falsch": "Eine Pruefung fand zu VIEL — Fehlalarme statt Befunde",
     "zahl-in-falscher-rolle": "Die Messung stimmt, die Deutung nicht — Hoechst- statt Ist-Stand, Ereignis- statt Bestandszahl, Unter- statt Genauwert",
     "sonstiges": "passt in keine der obigen Klassen",
 }
@@ -120,6 +133,41 @@ _WERKZEUG = re.compile(
 _SELBST = re.compile(
     r"\b(?:ich|mein|meine|meinem|meiner|eigener|eigene|eigenen)\b", re.I)
 
+
+# --- Feld `ursache` (NEU v5.41.0) --------------------------------------------
+#
+# ⛔ WARUM ES DAS GIBT. Punkt 9 hat versucht, `instrument-misst-nichts` aus den
+#    eigenen Texten zu zerlegen. Ergebnis: 70 % UNBESTIMMT — und das war kein
+#    Versagen der Merkmale, sondern eine Eigenschaft der Daten. 66 % der Eintraege
+#    sind kuerzer als 120 Zeichen, in freier Formulierung, und jeder beschreibt
+#    einen ANDEREN Mechanismus. Es gibt kein gemeinsames Vokabular, an dem ein
+#    Formmerkmal greifen koennte.
+#
+# ⭐ Deshalb ist ein besseres MUSTER die falsche Antwort und ein FELD die richtige.
+#    Dieselbe Bauform hat in v5.35.0 zweimal getragen (`art`, `status`); das hier
+#    ist ihre dritte Anwendung, kein Neubau.
+#
+# ⚠ DAS FELD IST OPTIONAL, und das ist Absicht. Ein Pflichtfeld wuerde zum RATEN
+#   zwingen — also genau die Klasse erzeugen, die es messen soll. Fehlt es, heisst
+#   das `nicht-zugeordnet` und nicht "unbekannte Ursache".
+URSACHEN = {
+    "erreicht-gegenstand-nicht": "Muster, Bereich oder Quelle lagen daneben — das Werkzeug lief",
+    "nicht-treffer-als-befund": "Eine NULL wurde als Aussage gelesen statt als kaputte Messung",
+    "werkzeug-falsch-aufgerufen": "Falsche Argumente oder Signatur — es lief gar nicht",
+    "falsche-bezugsgroesse": "Richtig gerechnet, falsch bezogen — Zaehleinheit oder Vergleichsgruppe",
+    "sonstiges": "passt in keine der obigen",
+}
+
+
+def ursache_von(eintrag):
+    """Die Ursache eines Befundes, oder `nicht-zugeordnet`.
+
+    ⛔ Ein unbekannter Wert wird NICHT stillschweigend zu `sonstiges`. Er kommt
+       unveraendert zurueck und faellt im Bericht als unbekannt auf — sonst
+       verschwindet ein Tippfehler in einer Sammelkategorie.
+    """
+    u = (eintrag.get("ursache") or "").strip().lower()
+    return u or "nicht-zugeordnet"
 
 def art(eintrag):
     """zustand | ereignis | unbestimmt — Formmerkmale, kein Urteil.
@@ -311,6 +359,47 @@ def main():
         if len(v) > 12:
             z.append("- … %d weitere" % (len(v) - 12))
         z.append("")
+
+    # --- Ursachen-Bilanz (NEU v5.41.0) ---------------------------------------
+    #
+    # ⛔ Punkt 9 (08.09.2026) hat versucht, `instrument-misst-nichts` aus den
+    #    eigenen Texten zu zerlegen: 70 % blieben UNBESTIMMT, weil 66 % der
+    #    Eintraege unter 120 Zeichen lang sind und jeder einen anderen
+    #    Mechanismus in freier Formulierung beschreibt. Ein besseres Muster war
+    #    die falsche Antwort — ein FELD ist die richtige.
+    nach_ursache = {}
+    for e in eintraege:
+        nach_ursache.setdefault(ursache_von(e), []).append(e)
+
+    z.append("## Ursachen")
+    z.append("")
+    z.append("⚠ **Das Feld `ursache` ist OPTIONAL.** Ein Pflichtfeld wuerde zum "
+             "RATEN zwingen — also genau die Fehlerart erzeugen, die es messen "
+             "soll. `nicht-zugeordnet` ist deshalb ein gueltiger Zustand und kein "
+             "Mangel.")
+    z.append("")
+    z.append("| Ursache | Befunde | was sie bedeutet |")
+    z.append("|---|---:|---|")
+    for u, v in sorted(nach_ursache.items(), key=lambda x: -len(x[1])):
+        if u == "nicht-zugeordnet":
+            was = "kein Feld gesetzt — **kein Mangel**"
+        elif u in URSACHEN:
+            was = URSACHEN[u]
+        else:
+            was = "⛔ **unbekannter Wert** — Tippfehler? Steht in keiner Liste"
+        z.append("| `%s` | %d | %s |" % (u, len(v), was))
+    z.append("")
+    _zu = sum(len(v) for u, v in nach_ursache.items() if u != "nicht-zugeordnet")
+    if _zu:
+        z.append("⭐ **%d von %d Befunden tragen eine Ursache.** Die Frage "
+                 "*welche Ursache waechst* ist damit fuer sie beantwortbar statt "
+                 "geschaetzt." % (_zu, len(eintraege)))
+    else:
+        z.append("⚠ **Noch kein Befund traegt eine Ursache.** Das Feld ist seit "
+                 "v5.41.0 da; die vorhandenen Eintraege stammen von davor und "
+                 "werden NICHT nachtraeglich zugeordnet — das waere "
+                 "Geschichtsfaelschung.")
+    z.append("")
 
     z.append("## Alle Klassen")
     z.append("")
