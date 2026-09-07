@@ -71,7 +71,12 @@ _TPX=""
 command -v jq >/dev/null 2>&1 && _TPX=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
 if [ -n "$_TPX" ] && [ -f "$_TPX" ]; then
   mkdir -p "$PROJ/.claude-mind" 2>/dev/null
-  printf '%s' "$_TPX" > "$PROJ/.claude-mind/transkript-pfad" 2>/dev/null
+  # v5.38.0: `pfad|sid|ts` statt nur `pfad`. Der Merker sagt damit, WESSEN er
+  # ist — bei mehreren Sitzungen im selben Ordner war er vorher anonym, und ein
+  # fremder sah aus wie der eigene. Leser nehmen den Teil vor dem ersten `|`.
+  _TSID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
+  printf '%s|%s|%s' "$_TPX" "${_TSID:-?}" "$(date +%s)" \
+    > "$PROJ/.claude-mind/transkript-pfad" 2>/dev/null
 fi
 
 # ⛔ v5.37.0: ein ausgenommenes Modell macht dieselben Mahnungen still wie eine

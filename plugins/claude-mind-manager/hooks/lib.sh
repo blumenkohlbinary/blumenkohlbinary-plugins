@@ -131,8 +131,24 @@ mind_transkript_pfad() {
   #    ⭐ Die HOOKS kennen den richtigen Pfad (`transcript_path` im Input) und
   #       legen ihn hier ab. Ein Skill kann ihn nicht selbst wissen:
   #       CLAUDE_SESSION_ID ist in Skill-Bash LEER (gemessen, v5.30.0).
+  #    ⛔ v5.38.0 — DER MERKER IST EINE DATEI JE PROJEKT, SOLL ABER EINE SITZUNG
+  #       KENNZEICHNEN. Jede Sitzung ueberschreibt ihn bei jedem Prompt: der
+  #       Letzte gewinnt. Mit ZWEI Sitzungen ein enges Rennen, mit DREI ein
+  #       wahrscheinliches. Das war in v5.34.0 nicht bedacht.
+  #    ⭐ Zwei Massnahmen, beide noetig:
+  #       (a) Das Format ist jetzt `pfad|sid|ts` — der Merker sagt, WESSEN er ist
+  #           und WIE ALT. Vorher war er anonym, und ein fremder Merker sah aus
+  #           wie der eigene.
+  #       (b) Die Kette holt ihn EINMAL in Step 0 und reicht ihn als zweites
+  #           Argument durch, statt ihn spaet zweimal nachzulesen. Damit
+  #           schrumpft das Rennfenster von Minuten auf Millisekunden.
+  #    ⚠ EIN REST BLEIBT und wird nicht weggeredet: schiebt eine andere Sitzung
+  #      ihren Prompt GENAU zwischen den eigenen Prompt und Step 0, ist der
+  #      Merker schon fremd. Aufloesen liesse sich das nur mit einer Sitzungs-
+  #      kennung im Skill — die es dort nicht gibt (gemessen v5.30.0).
   if [ -f "$proj/.claude-mind/transkript-pfad" ]; then
     f=$(cat "$proj/.claude-mind/transkript-pfad" 2>/dev/null)
+    f="${f%%|*}"            # alte Form ohne | bleibt unveraendert lesbar
     if [ -n "$f" ] && [ -f "$f" ]; then printf '%s' "$f"; return 0; fi
   fi
 

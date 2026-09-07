@@ -199,6 +199,26 @@ fi
 #       "ueber das Agent-Werkzeug gestartet" unterscheiden — und genau das hat
 #       `Pc Forschung` am 26.08. zum ZWEITEN Mal unveraendert gemeldet.
 [ "$DRY_RUN" = "no" ] && mind_agent_quittung_start "$PROJ" 4
+
+# ⛔ v5.38.0: DEN TRANSKRIPT-PFAD JETZT HOLEN, NICHT SPAETER.
+#    Der Merker `.claude-mind/transkript-pfad` ist EINE Datei je PROJEKT, soll
+#    aber eine SITZUNG kennzeichnen — jede Sitzung ueberschreibt ihn bei jedem
+#    Prompt, der Letzte gewinnt. Wer ihn erst in Step 2.96a liest, hat dazwischen
+#    MINUTEN Rennfenster; wer ihn hier liest, Millisekunden. Der eigene
+#    prompt-submit.sh ist gerade gelaufen, also gehoert er in diesem Moment uns.
+# ⚠ EIN REST BLEIBT: schiebt eine andere Sitzung ihren Prompt genau dazwischen,
+#   ist er schon fremd. Aufloesen liesse sich das nur mit einer Sitzungskennung
+#   im Skill — die gibt es dort nicht (CLAUDE_SESSION_ID ist LEER, gemessen v5.30.0).
+MIND_TP=""
+if type mind_transkript_pfad >/dev/null 2>&1; then
+  MIND_TP=$(mind_transkript_pfad "$PROJ")
+  if [ -n "$MIND_TP" ]; then
+    echo "Transkript dieser Sitzung: $(basename "$MIND_TP")"
+  else
+    echo "⚠ Transkript NICHT bestimmbar — Tokenzahlen dieses Laufs bleiben LEER."
+    echo "  (Eine fehlende Zahl ist keine Null. Der Lauf geht weiter.)"
+  fi
+fi
 ```
 
 **Geretteter Chat (v5.1.0) + offene Schuld (v5.2.1):** Existiert `.claude-mind/rescued/OPEN`,
@@ -631,7 +651,7 @@ if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" != "nein" ]; then
     #    ANDEREN. Gemessen 03.09.2026: sechs Transkripte, vier ueber 700k,
     #    `sync-stand` trug tokens=830439 aus einer fremden Sitzung, und
     #    COMPACT-FAELLIG wurde auf dieser fremden Zahl gesetzt.
-    _STP=$(mind_transkript_pfad "$PROJ")
+    _STP=$(mind_transkript_pfad "$PROJ" "${MIND_TP:-}")   # v5.38.0: eingefroren aus Step 0
     [ -n "$_STP" ] && _STOK=$(mind_kontext_tokens "$_STP" 2>/dev/null)
   fi
   # v5.19.0: `umfang=` ist der Beleg, `ungepruef=` sagt WAS fehlt. Ohne beide
@@ -648,7 +668,7 @@ if [ "$DRY_RUN" = "no" ] && [ "$SYNC_LIEF" != "nein" ]; then
   # Bedingung. Ohne sie laege der Merker nach jedem Probelauf im Weg.
   _MTOK=""
   if type mind_kontext_tokens >/dev/null 2>&1; then
-    _MTP=$(mind_transkript_pfad "$PROJ")   # ⛔ v5.34.0, siehe oben
+    _MTP=$(mind_transkript_pfad "$PROJ" "${MIND_TP:-}")   # v5.38.0: eingefroren aus Step 0
     [ -n "$_MTP" ] && _MTOK=$(mind_kontext_tokens "$_MTP" 2>/dev/null)
   fi
   _MSCHW="${MIND_SYNC_AT_TOKENS:-0}"
