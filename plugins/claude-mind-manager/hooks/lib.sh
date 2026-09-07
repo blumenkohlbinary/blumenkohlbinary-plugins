@@ -1643,6 +1643,26 @@ mind_agent_bilanz() {
   [ -n "$liste" ] && printf '%s' "$liste"
   [ -n "$nachtrag" ] && printf '%s' "$nachtrag"
 
+  # ⛔ v5.42.0: ERGEBNIS ohne DISPATCH ist LOGISCH UNMOEGLICH und wurde bis dahin
+  #    als "der Fan-out hat nicht stattgefunden" gemeldet — waehrend im selben
+  #    Aufruf vier Ergebniszeilen vorlagen. Eine Aussage, die den eigenen Daten
+  #    widerspricht.
+  # ⭐ Erster Fund der Klasse `instrument-meldet-falsch` (v5.41.0), gemeldet vom
+  #    Manager am 08.09.2026 aus einem /mind-all-Lauf mit DISPATCH=0 ERGEBNIS=4.
+  # ⚠ Der Unterschied ist NICHT akademisch: "nie gestartet" heisst UNGEPRUEFT und
+  #   der Bereich muss nachgeholt werden. "gestartet, aber nicht quittiert" heisst
+  #   GEPRUEFT und nur die Buchfuehrung ist lueckenhaft. Wer beides gleich meldet,
+  #   schickt jemanden vier Bereiche neu fahren, die schon liefen.
+  if [ "$d" -eq 0 ] && [ "$e" -gt 0 ]; then
+    echo "  ⛔ QUITTUNG UNVOLLSTAENDIG: $e Ergebnis(se) ohne einen einzigen Dispatch."
+    echo "     Das ist logisch unmoeglich - die Agenten liefen, mind_agent_dispatch"
+    echo "     wurde nicht gerufen. Der Fan-out hat STATTGEFUNDEN; lueckenhaft ist die"
+    echo "     Buchfuehrung, nicht die Pruefung. NICHT neu fahren, sondern nachquittieren."
+    [ -n "$erwartet" ] && [ "$erwartet" -gt 0 ] 2>/dev/null && \
+      echo "     ($erwartet waren geplant, $e haben geantwortet.)"
+    return 1
+  fi
+
   [ "$d" -eq 0 ] && {
     echo "  UNGEPRUEFT: kein einziger Agent dispatcht — der Fan-out hat nicht stattgefunden"
     # ⛔ v5.21.2 (B1): mit Erwartungszahl ist diese Aussage EHRLICHER zu machen.
