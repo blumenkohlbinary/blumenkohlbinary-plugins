@@ -555,7 +555,7 @@ ein Auswähler auf 5 begrenzt. Gemessen trugen drei Dateien dieses Projekts zusa
 
 ⚠ `cleaner_einordnung` beantwortet dazu die Frage, die nur hier auftritt:
 **gehört das überhaupt in eine Regel** — oder ist es ein Hook, ein Skill, oder
-Wissen, das nach `knowledge/` gehört?
+Wissen, das nach `docs/` gehört?
 
 **PFLICHT im Bericht — dieser Skill hat als einziger keinen Self-Check-Block, also steht die Vorlage hier:**
 

@@ -94,7 +94,7 @@ scope: custom-context
 ./plan.md
 ./research.md
 ./docs/architecture.md
-./knowledge/backup-strategie.md
+./docs/backup-strategie.md
 
 ## Session Auszug (letzte N Events)
 [USER] ...
@@ -214,9 +214,9 @@ For each suggestion: estimate token savings = (affected_lines × 10)
     | # | Klasse | File:Line | Description | Action-Vorschlag |
     |---|--------|-----------|-------------|------------------|
     | 1 | UPDATE | CLAUDE.md:15 | "Version 3.2.2" → Session diskutiert v3.3.0 | Edit: `3.2.2` → `3.3.0` |
-    | 2 | ENRICH | knowledge/best-practices.md:120 | Heredoc-Section knapp — Session hat 4 Code-Beispiele | Append code-examples block |
-    | 3 | ADD    | (none)    | Session erklaert "Self-Exclusion Pattern" — kein Custom-Context erwaehnt | Vorschlag: knowledge/best-practices.md neue Section "Self-Reference Patterns" |
-    | 4 | NEW_FILE | (none)  | Session entwickelt Backup-Strategie — passt zu keinem existierenden File | Vorschlag: `knowledge/backup-strategie.md` (~40 Zeilen, deckt 8 Patterns ab) |
+    | 2 | ENRICH | docs/best-practices.md:120 | Heredoc-Section knapp — Session hat 4 Code-Beispiele | Append code-examples block |
+    | 3 | ADD    | (none)    | Session erklaert "Self-Exclusion Pattern" — kein Custom-Context erwaehnt | Vorschlag: docs/best-practices.md neue Section "Self-Reference Patterns" |
+    | 4 | NEW_FILE | (none)  | Session entwickelt Backup-Strategie — passt zu keinem existierenden File | Vorschlag: `docs/backup-strategie.md` (~40 Zeilen, deckt 8 Patterns ab) |
     | 5 | INFO   | MEMORY.md:180 | Approaches 200-line Truncation-Limit | (kein Action, Hinweis) |
 
     ### Summary

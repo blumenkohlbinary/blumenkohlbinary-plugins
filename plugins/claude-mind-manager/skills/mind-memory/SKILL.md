@@ -280,8 +280,10 @@ und unbequem, der Command bequem und unzuverlaessig — **erst beide zusammen tr
 `cleaner_umzug.py` prueft das seit v5.39.0 als **Gate**, nicht mehr als Hinweis.
 
 ⚠ **`docs/` ist der Ort JE PROJEKT** (Nutzer-Entscheidung 07.09.2026), nicht ein
-gemeinsamer. Die konkurrierenden Namen `knowledge/` und `Wissen/` meinen dasselbe und
-werden zusammengefuehrt — **ein Ort, ein Name.**
+gemeinsamer. Die konkurrierenden Namen `knowledge/` und `Wissen/` meinten dasselbe und
+sind am 07.09.2026 zusammengefuehrt worden — **ein Ort, ein Name.**
+⚠ In FREMDEN Projekten koennen weiterhin alle drei Namen vorkommen; `cleaner_audit.py`
+nennt sie ausdruecklich. Dort wird gelesen, nicht umbenannt.
 
 ---
 
